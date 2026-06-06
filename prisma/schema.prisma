@@ -1,0 +1,459 @@
+// Prisma schema —— AI 聚合站
+// 文档: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- 用户与认证 ----------
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  BANNED
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  emailVerified DateTime?
+  name         String?
+  image        String?
+  passwordHash String?
+  role         Role       @default(USER)
+  status       UserStatus @default(ACTIVE)
+  credits      Int        @default(0)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  accounts            Account[]
+  sessions            Session[]
+  generations         Generation[]
+  creditTransactions  CreditTransaction[]
+  orders              Order[]
+  apiConfigs          UserApiConfig[]
+  imageConversations  ImageConversation[]
+  materials           Material[]
+  materialFavorites   MaterialFavorite[]
+  materialLikes       MaterialLike[]
+  materialReports     MaterialReport[]
+  adminAuditLogs      AdminAuditLog[]
+  registrationEvents  RegistrationEvent[]
+  dailyActivities     UserDailyActivity[]
+}
+
+// Auth.js 标准表（预留 OAuth；session 策略用 JWT，但保留表结构便于扩展）
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------- 业务模型 ----------
+
+enum ModuleType {
+  IMAGE
+  VIDEO
+  PPT
+}
+
+enum GenerationStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+// 所有 AI 模块共用一张生成记录表，靠 module 字段区分
+model Generation {
+  id          String           @id @default(cuid())
+  userId      String
+  module      ModuleType
+  prompt      String
+  params      String?          // JSON 字符串（尺寸、数量等模块特有参数）
+  status      GenerationStatus @default(PENDING)
+  resultUrl   String?          // 主结果地址；多结果时存 JSON 数组
+  creditsCost Int              @default(0)
+  usedOwnKey  Boolean          @default(false) // true=用户自带 key（不扣分），false=平台
+  error       String?
+  providerSource String?       // user/platform，便于排查用的是哪条通道
+  providerModel  String?       // 实际下发的模型
+  upstreamStatus Int?          // 上游 HTTP 状态码，如 524
+  durationMs     Int?          // 本轮生成总耗时
+  imageCount     Int           @default(1)
+  successCount   Int           @default(0)
+  failedCount    Int           @default(0)
+  createdAt   DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([module])
+  @@index([status, createdAt])
+}
+
+enum CreditTxType {
+  SIGNUP_BONUS // 注册赠送
+  CONSUME      // 生成消耗
+  RECHARGE     // 充值
+  ADMIN_ADJUST // 管理员调整
+  REFUND       // 生成失败退款
+}
+
+// 积分流水
+model CreditTransaction {
+  id           String       @id @default(cuid())
+  userId       String
+  amount       Int          // 正为增加，负为减少
+  type         CreditTxType
+  balanceAfter Int          // 交易后余额（便于审计）
+  description  String?
+  createdAt    DateTime     @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+  CANCELED
+}
+
+// 充值订单（首期支付走 Mock，预留真实网关）
+model Order {
+  id        String      @id @default(cuid())
+  userId    String
+  credits   Int         // 购买的积分数
+  amount    Int         // 金额（单位：分）
+  status    OrderStatus @default(PENDING)
+  provider  String      @default("mock")
+  createdAt DateTime    @default(now())
+  paidAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model RechargePackage {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  label     String
+  credits   Int
+  amount    Int
+  enabled   Boolean  @default(true)
+  popular   Boolean  @default(false)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// 系统设置：key-value，管理员后台可改
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model AdminAuditLog {
+  id        String   @id @default(cuid())
+  adminId   String?
+  action    String
+  target    String?
+  detail    String?
+  createdAt DateTime @default(now())
+
+  admin User? @relation(fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([adminId, createdAt])
+  @@index([action, createdAt])
+}
+
+model InviteCode {
+  id        String    @id @default(cuid())
+  code      String    @unique
+  maxUses   Int       @default(1)
+  usedCount Int       @default(0)
+  enabled   Boolean   @default(true)
+  note      String?
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model RegistrationEvent {
+  id        String   @id @default(cuid())
+  userId    String?
+  email     String?
+  provider  String
+  ip        String?
+  inviteCode String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([ip, createdAt])
+  @@index([provider, createdAt])
+}
+
+model UserDailyActivity {
+  id          String   @id @default(cuid())
+  userId      String
+  day         String
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now()) @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day])
+  @@index([day])
+  @@index([userId, lastSeenAt])
+}
+
+model SiteAnnouncement {
+  id        String   @id @default(cuid())
+  title     String
+  content   String
+  placement String   @default("APP")
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([enabled, placement, updatedAt])
+}
+
+// 平台上游 API 配置（管理员配置，每个模块一条）。用户走平台模型时使用。
+model ProviderConfig {
+  id        String     @id @default(cuid())
+  module    ModuleType @unique
+  baseUrl   String     // 如 https://api.openai.com/v1
+  apiKey    String     // AES-256-GCM 加密存储
+  model     String     // 默认模型，如 dall-e-3 / gpt-image-1
+  models    String?    // JSON 字符串数组：同一 API 下允许用户切换的模型列表
+  modelMeta String?     // JSON：模型启用状态、单价、备注等运营配置
+  enabled   Boolean    @default(true)
+  updatedAt DateTime   @updatedAt
+}
+
+// 用户自带 API 配置（BYOK，每用户每模块一条）。enabled 时走自己的 key、不扣积分。
+model UserApiConfig {
+  id        String     @id @default(cuid())
+  userId    String
+  module    ModuleType
+  baseUrl   String
+  apiKey    String     // AES-256-GCM 加密存储
+  model     String     // 默认模型
+  models    String?    // JSON 字符串数组：同一 API 下允许切换的模型列表
+  enabled   Boolean    @default(false)
+  updatedAt DateTime   @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, module])
+}
+
+// ---------- 图片创作工作台（会话式） ----------
+
+// 图片创作会话：一个会话含多轮生成（类似聊天）。仅 IMAGE 模块使用。
+model ImageConversation {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String   @default("新会话")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  turns ImageTurn[]
+
+  @@index([userId, updatedAt])
+}
+
+// 一轮生成（一次提交，含 1-N 张图）。images 是工作台状态源；
+// 成功时另写一条 Generation 作审计/历史兼容层。
+model ImageTurn {
+  id              String           @id @default(cuid())
+  conversationId  String
+  prompt          String
+  mode            String           // "generate" | "edit"
+  model           String           // 使用的上游模型名快照
+  ratio           String           // UI 比例原值，如 "1:1"
+  pixelSize       String           // 实际下发上游的像素，如 "1024x1024"
+  count           Int              @default(1)
+  status          GenerationStatus @default(PENDING)
+  images          String?          // JSON 数组：[{id,status,url?,error?}]，与前端 StoredImage 对齐
+  referenceThumbs String?          // JSON 数组：图生图参考图的压缩缩略 data URL（仅展示用，可空）
+  error           String?
+  creditsCost     Int              @default(0)
+  usedOwnKey      Boolean          @default(false)
+  providerSource  String?
+  upstreamStatus  Int?
+  durationMs      Int?
+  generationId    String?          // 关联写入的 Generation id（便于回查）
+  createdAt       DateTime         @default(now())
+
+  conversation ImageConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+// ---------- 素材库 / 素材广场 ----------
+
+enum MaterialType {
+  IMAGE
+  VIDEO
+  AUDIO
+  DOCUMENT
+  PROMPT
+}
+
+enum MaterialOwnerType {
+  USER
+  PLATFORM
+}
+
+enum MaterialSource {
+  UPLOAD
+  GENERATION
+  REFERENCE
+  PLATFORM
+}
+
+enum MaterialVisibility {
+  PRIVATE
+  PUBLIC
+}
+
+enum MaterialStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  ARCHIVED
+}
+
+enum MaterialReportStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+// 通用素材表。第一版只开放 IMAGE，视频/音频等字段先预留。
+model Material {
+  id                 String             @id @default(cuid())
+  ownerId            String?
+  ownerType          MaterialOwnerType  @default(USER)
+  type               MaterialType       @default(IMAGE)
+  source             MaterialSource     @default(UPLOAD)
+  visibility         MaterialVisibility @default(PRIVATE)
+  status             MaterialStatus     @default(DRAFT)
+  title              String
+  description        String?
+  tags               String?            // JSON 字符串数组，MVP 先不拆标签表
+  url                String
+  storageKey         String?
+  thumbnailUrl       String?
+  promptText         String?
+  promptMeta         String?            // JSON：提示词适用模块、模式、比例、张数、模型等
+  rejectionReason    String?
+  reviewedAt         DateTime?
+  mimeType           String?
+  sizeBytes          Int?
+  width              Int?
+  height             Int?
+  durationSec        Int?
+  sourceGenerationId String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  owner     User?              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  favorites MaterialFavorite[]
+  likes     MaterialLike[]
+  reports   MaterialReport[]
+
+  @@index([ownerId, createdAt])
+  @@index([type, visibility, status, createdAt])
+  @@index([ownerType, createdAt])
+}
+
+model MaterialReport {
+  id         String               @id @default(cuid())
+  materialId String
+  reporterId String
+  reason     String
+  status     MaterialReportStatus @default(OPEN)
+  createdAt  DateTime             @default(now())
+  resolvedAt DateTime?
+
+  material Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  reporter User     @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@index([materialId, createdAt])
+  @@index([status, createdAt])
+}
+
+model MaterialFavorite {
+  id         String   @id @default(cuid())
+  userId     String
+  materialId String
+  createdAt  DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  material Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, materialId])
+  @@index([materialId])
+}
+
+model MaterialLike {
+  id         String   @id @default(cuid())
+  userId     String
+  materialId String
+  createdAt  DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  material Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, materialId])
+  @@index([materialId])
+}

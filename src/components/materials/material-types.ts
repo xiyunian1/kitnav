@@ -1,0 +1,30 @@
+export interface MaterialView {
+  id: string;
+  ownerId: string | null;
+  ownerName: string;
+  ownerType: "USER" | "PLATFORM";
+  type: "IMAGE" | "VIDEO" | "AUDIO" | "DOCUMENT" | "PROMPT";
+  source: string;
+  visibility: "PRIVATE" | "PUBLIC";
+  status: "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "ARCHIVED";
+  title: string;
+  description: string | null;
+  tags: string[];
+  url: string;
+  thumbnailUrl: string | null;
+  promptText: string | null;
+  promptMeta: Record<string, unknown> | null;
+  rejectionReason: string | null;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  width: number | null;
+  height: number | null;
+  durationSec: number | null;
+  sourceGenerationId: string | null;
+  favoriteCount: number;
+  favorited: boolean;
+  likeCount: number;
+  liked: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
