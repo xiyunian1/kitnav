@@ -96,7 +96,7 @@ export default async function MaterialsPage({
           <p>暂无公开图片素材</p>
         </Card>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-[repeat(auto-fill,minmax(220px,1fr))]">
           {items.map((material) => (
             <MaterialCard key={material.id} material={material} mode="square" />
           ))}

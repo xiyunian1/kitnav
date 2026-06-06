@@ -1,6 +1,7 @@
 import { requireAdmin } from "@/lib/admin-guard";
 import { recordDailyActivity } from "@/lib/activity";
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
+import { AdminMobileHeader } from "@/components/admin/admin-mobile-nav";
 
 export default async function AdminLayout({
   children,
@@ -11,9 +12,10 @@ export default async function AdminLayout({
   await recordDailyActivity(session.user.id);
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen flex-col md:flex-row">
+      <AdminMobileHeader />
       <AdminSidebar />
-      <main className="flex-1 overflow-x-auto p-6 lg:p-8">{children}</main>
+      <main className="min-w-0 flex-1 overflow-x-auto p-4 sm:p-6 lg:p-8">{children}</main>
     </div>
   );
 }

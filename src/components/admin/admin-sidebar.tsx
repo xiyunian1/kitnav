@@ -32,13 +32,15 @@ const NAV = [
   { name: "系统设置", href: "/admin/settings", icon: Settings },
 ];
 
-export function AdminSidebar() {
+// 后台导航项列表，桌面侧边栏与移动端抽屉共用。
+export function AdminNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
 
   return (
-    <aside className="w-60 shrink-0 border-r bg-sidebar p-4">
+    <>
       <Link
         href="/"
+        onClick={onNavigate}
         className="mb-4 flex items-center gap-2 px-3 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="size-4" />
@@ -56,6 +58,7 @@ export function AdminSidebar() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={onNavigate}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 active
@@ -69,6 +72,14 @@ export function AdminSidebar() {
           );
         })}
       </nav>
+    </>
+  );
+}
+
+export function AdminSidebar() {
+  return (
+    <aside className="hidden w-60 shrink-0 border-r bg-sidebar p-4 md:block">
+      <AdminNav />
     </aside>
   );
 }

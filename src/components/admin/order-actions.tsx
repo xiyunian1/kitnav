@@ -26,7 +26,9 @@ export function OrderActions({ id, status }: { id: string; status: string }) {
     });
   }
 
-  if (status === "PAID") return null;
+  if (status === "PAID") {
+    return <span className="text-xs text-muted-foreground">无需操作</span>;
+  }
   return (
     <div className="flex justify-end gap-1">
       {pending && <Loader2 className="size-4 animate-spin" />}

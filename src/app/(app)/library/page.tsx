@@ -137,7 +137,7 @@ export default async function LibraryPage({
               <p>还没有自己的素材</p>
             </Card>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+            <div className="grid gap-3 sm:grid-cols-[repeat(auto-fill,minmax(220px,1fr))]">
               {mineItems.map((material) => (
                 <MaterialCard key={material.id} material={material} mode="library" />
               ))}
@@ -156,7 +156,7 @@ export default async function LibraryPage({
               <p>还没有收藏素材</p>
             </Card>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+            <div className="grid gap-3 sm:grid-cols-[repeat(auto-fill,minmax(220px,1fr))]">
               {favoriteItems.map((material) => (
                 <MaterialCard key={material.id} material={material} mode="square" />
               ))}

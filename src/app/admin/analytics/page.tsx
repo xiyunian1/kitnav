@@ -75,7 +75,7 @@ export default async function AdminAnalyticsPage() {
         <h1 className="text-2xl font-bold">数据看板</h1>
         <p className="text-muted-foreground">注册、生成、积分和素材热度概览</p>
       </div>
-      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-3">
         {cards.map(([label, value]) => (
           <Card key={label}>
             <CardContent className="py-5">

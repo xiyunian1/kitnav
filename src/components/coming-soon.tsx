@@ -21,9 +21,6 @@ export function ComingSoon({ name, description, icon: Icon }: Props) {
       </div>
       <h1 className="text-2xl font-bold">{name}</h1>
       <p className="mt-2 max-w-md text-muted-foreground">{description}</p>
-      <p className="mt-1 text-sm text-muted-foreground">
-        该模块正在开发中，敬请期待
-      </p>
       <Button className="mt-6" variant="outline" asChild>
         <Link href="/">返回首页</Link>
       </Button>

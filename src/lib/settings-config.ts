@@ -48,7 +48,7 @@ export const SETTING_META: {
   key: string;
   label: string;
   description: string;
-  type: "text" | "number";
+  type: "text" | "number" | "boolean";
   group?: string;
   options?: { label: string; value: string }[];
   min?: number;
@@ -62,11 +62,8 @@ export const SETTING_META: {
     key: SETTING_KEYS.MAINTENANCE_MODE,
     label: "维护模式",
     description: "开启后普通用户无法使用前台受保护页面，管理员不受影响",
-    type: "number",
+    type: "boolean",
     group: "基础",
-    min: 0,
-    max: 1,
-    integer: true,
   },
   { key: SETTING_KEYS.MAINTENANCE_MESSAGE, label: "维护提示", description: "维护模式下展示给用户的提示", type: "text", group: "基础" },
   {
@@ -89,12 +86,9 @@ export const SETTING_META: {
   {
     key: SETTING_KEYS.IMAGE_MODULE_ENABLED,
     label: "图片生成开关",
-    description: "0=暂停图片生成，1=允许图片生成",
-    type: "number",
+    description: "关闭后用户无法发起图片生成",
+    type: "boolean",
     group: "图片",
-    min: 0,
-    max: 1,
-    integer: true,
   },
   { key: SETTING_KEYS.IMAGE_CREDIT_COST, label: "图片生成单价", description: "每张图片消耗的积分", type: "number", group: "图片", min: 0, integer: true },
   {
@@ -114,12 +108,9 @@ export const SETTING_META: {
   {
     key: SETTING_KEYS.CREDITS_RECHARGE_ENABLED,
     label: "积分充值开关",
-    description: "0=暂停充值，1=允许充值",
-    type: "number",
+    description: "关闭后用户无法充值",
+    type: "boolean",
     group: "积分",
-    min: 0,
-    max: 1,
-    integer: true,
   },
   { key: SETTING_KEYS.VIDEO_CREDIT_COST, label: "视频生成单价", description: "每个视频消耗的积分（模块未上线）", type: "number", group: "未来模块", min: 0, integer: true },
   { key: SETTING_KEYS.PPT_CREDIT_COST, label: "PPT 生成单价", description: "每份 PPT 消耗的积分（模块未上线）", type: "number", group: "未来模块", min: 0, integer: true },

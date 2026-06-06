@@ -113,7 +113,7 @@ export default async function AdminGenerationsPage({
         </Card>
         <Card>
           <CardContent className="py-4">
-            <p className="text-sm text-muted-foreground">7 日 524</p>
+            <p className="text-sm text-muted-foreground">7 日 524 超时</p>
             <p className="text-2xl font-bold">{upstream524}</p>
           </CardContent>
         </Card>
@@ -134,7 +134,7 @@ export default async function AdminGenerationsPage({
         </div>
         <div className="flex flex-wrap gap-2">
           <Button asChild size="sm" variant={upstreamStatus === "524" ? "default" : "outline"}>
-            <Link href={queryFor({ status, upstreamStatus: "524" })}>只看 524</Link>
+            <Link href={queryFor({ status, upstreamStatus: "524" })}>只看 524 超时</Link>
           </Button>
           {upstreamStatus && (
             <Button asChild size="sm" variant="ghost">
@@ -152,8 +152,8 @@ export default async function AdminGenerationsPage({
               <TableHead>模块</TableHead>
               <TableHead>描述</TableHead>
               <TableHead>状态</TableHead>
-              <TableHead>模型</TableHead>
-              <TableHead>渠道</TableHead>
+              <TableHead className="hidden xl:table-cell">模型</TableHead>
+              <TableHead className="hidden lg:table-cell">渠道</TableHead>
               <TableHead className="text-right">图片</TableHead>
               <TableHead className="text-right">耗时</TableHead>
               <TableHead className="text-right">消耗</TableHead>
@@ -186,10 +186,10 @@ export default async function AdminGenerationsPage({
                     <TableCell>
                       <Badge variant={s.variant}>{s.label}</Badge>
                     </TableCell>
-                    <TableCell className="max-w-36 truncate text-xs">
+                    <TableCell className="hidden max-w-36 truncate text-xs xl:table-cell">
                       {g.providerModel || "-"}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden lg:table-cell">
                       <Badge variant={g.providerSource === "user" ? "secondary" : "outline"}>
                         {g.providerSource === "user" ? "用户 API" : "平台"}
                       </Badge>

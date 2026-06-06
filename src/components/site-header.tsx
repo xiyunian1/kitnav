@@ -5,8 +5,9 @@ import { prisma } from "@/lib/db";
 import { recordDailyActivity } from "@/lib/activity";
 import { Button } from "@/components/ui/button";
 import { UserMenu } from "@/components/user-menu";
+import { MobileNav } from "@/components/mobile-nav";
 
-export async function SiteHeader() {
+export async function SiteHeader({ showMobileNav = false }: { showMobileNav?: boolean }) {
   const session = await auth();
   const user = session?.user;
 
@@ -26,12 +27,15 @@ export async function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-background/80 backdrop-blur-sm">
       <div className="mx-auto flex h-16 max-w-screen-2xl items-center justify-between px-4">
-        <Link href="/" className="flex items-center gap-2 text-lg font-bold">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Sparkles className="size-5" />
-          </span>
-          AI 聚合站
-        </Link>
+        <div className="flex items-center gap-2">
+          {showMobileNav && user && <MobileNav />}
+          <Link href="/" className="flex items-center gap-2 text-lg font-bold">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <Sparkles className="size-5" />
+            </span>
+            AI 聚合站
+          </Link>
+        </div>
 
         <nav className="flex items-center gap-2">
           {user ? (

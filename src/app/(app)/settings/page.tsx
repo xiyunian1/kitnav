@@ -37,7 +37,7 @@ export default async function ApiSettingsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-2xl space-y-6">
       <div>
         <h1 className="text-2xl font-bold">API 设置</h1>
         <p className="text-muted-foreground">
@@ -62,7 +62,7 @@ export default async function ApiSettingsPage() {
           ))}
         </TabsList>
         {CONFIGURABLE.map((m) => (
-          <TabsContent key={m.key} value={m.key} className="mt-4 max-w-xl">
+          <TabsContent key={m.key} value={m.key} className="mt-4">
             {m.status === "active" ? (
               <UserApiConfigForm initial={initialFor(m.moduleType!)} />
             ) : (

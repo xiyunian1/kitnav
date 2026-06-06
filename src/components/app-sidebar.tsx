@@ -21,17 +21,20 @@ function SidebarNavLink({
   icon: Icon,
   badge,
   pathname,
+  onNavigate,
 }: {
   href: string;
   name: string;
   icon: ComponentType<{ className?: string }>;
   badge?: string;
   pathname: string;
+  onNavigate?: () => void;
 }) {
   const active = pathname === href;
   return (
     <Link
       href={href}
+      onClick={onNavigate}
       className={cn(
         "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
         active
@@ -50,33 +53,42 @@ function SidebarNavLink({
   );
 }
 
-export function AppSidebar() {
+// 用户区导航项列表，桌面侧边栏与移动端抽屉共用。
+// onNavigate 供抽屉点击后关闭使用。
+export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
 
   return (
+    <nav className="space-y-1">
+      <SidebarNavLink href="/" name="返回首页" icon={Home} pathname={pathname} onNavigate={onNavigate} />
+      <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase text-muted-foreground">
+        AI 工具
+      </div>
+      {MODULES.map((m) => (
+        <SidebarNavLink
+          key={m.key}
+          href={m.href}
+          name={m.name}
+          icon={m.icon}
+          badge={m.status === "coming-soon" ? "soon" : undefined}
+          pathname={pathname}
+          onNavigate={onNavigate}
+        />
+      ))}
+      <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase text-muted-foreground">
+        我的
+      </div>
+      {ACCOUNT_NAV.map((item) => (
+        <SidebarNavLink key={item.href} {...item} pathname={pathname} onNavigate={onNavigate} />
+      ))}
+    </nav>
+  );
+}
+
+export function AppSidebar() {
+  return (
     <aside className="hidden w-60 shrink-0 border-r bg-sidebar p-4 md:block">
-      <nav className="space-y-1">
-        <SidebarNavLink href="/" name="返回首页" icon={Home} pathname={pathname} />
-        <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase text-muted-foreground">
-          AI 工具
-        </div>
-        {MODULES.map((m) => (
-          <SidebarNavLink
-            key={m.key}
-            href={m.href}
-            name={m.name}
-            icon={m.icon}
-            badge={m.status === "coming-soon" ? "soon" : undefined}
-            pathname={pathname}
-          />
-        ))}
-        <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase text-muted-foreground">
-          我的
-        </div>
-        {ACCOUNT_NAV.map((item) => (
-          <SidebarNavLink key={item.href} {...item} pathname={pathname} />
-        ))}
-      </nav>
+      <SidebarNav />
     </aside>
   );
 }

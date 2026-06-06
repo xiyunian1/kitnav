@@ -139,7 +139,7 @@ export function MaterialCard({ material, mode, onPick }: Props) {
             </p>
           )}
 
-          <div className="flex items-center justify-between gap-1 overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-1">
             {mode === "library" ? (
               <Badge variant={material.status === "APPROVED" ? "default" : "outline"}>
                 {STATUS_LABEL[material.status]}
@@ -180,7 +180,7 @@ export function MaterialCard({ material, mode, onPick }: Props) {
               </Button>
             )}
 
-            <div className="flex min-w-0 items-center justify-end gap-1">
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
               {mode === "picker" && (
                 <Button size="xs" onClick={() => onPick?.(material)}>
                   <Library className="size-3" /> 使用

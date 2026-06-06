@@ -21,7 +21,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-screen flex-col">
-      <SiteHeader />
+      <SiteHeader showMobileNav />
       <div className="mx-auto flex w-full max-w-screen-2xl flex-1">
         <AppSidebar />
         <main className="flex-1 p-4 sm:p-6 lg:p-8">

@@ -69,7 +69,7 @@ export default async function AdminOrdersPage() {
             {orders.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={8}
                   className="py-10 text-center text-muted-foreground"
                 >
                   暂无订单

@@ -222,7 +222,7 @@ export function ImageWorkbench({
           />
       </Card>
 
-      <Card className="min-h-0 overflow-hidden p-4">
+      <Card className="min-h-0 self-start overflow-hidden p-4">
         <PromptComposer
           mode={mode}
           prompt={prompt}

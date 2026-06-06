@@ -69,7 +69,7 @@ export default async function CreditsPage() {
         </CardHeader>
         <CardContent>
           {transactions.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
+            <p className="py-5 text-center text-sm text-muted-foreground">
               暂无流水记录
             </p>
           ) : (

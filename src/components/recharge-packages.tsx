@@ -44,10 +44,10 @@ export function RechargePackages({
         return (
           <Card
             key={pkg.id}
-            className="relative flex flex-col items-center gap-3 p-5 text-center"
+            className="relative flex flex-col items-center gap-3 p-5 pt-7 text-center"
           >
             {pkg.popular && (
-              <Badge className="absolute -top-2 right-3">最受欢迎</Badge>
+              <Badge className="absolute right-3 top-3">最受欢迎</Badge>
             )}
             <span className="text-sm text-muted-foreground">{pkg.label}</span>
             <div className="flex items-center gap-1.5 text-2xl font-bold">
