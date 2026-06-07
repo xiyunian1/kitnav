@@ -113,5 +113,5 @@ export const SETTING_META: {
     group: "积分",
   },
   { key: SETTING_KEYS.VIDEO_CREDIT_COST, label: "视频生成单价", description: "每个视频消耗的积分（模块未上线）", type: "number", group: "未来模块", min: 0, integer: true },
-  { key: SETTING_KEYS.PPT_CREDIT_COST, label: "PPT 生成单价", description: "每份 PPT 消耗的积分（模块未上线）", type: "number", group: "未来模块", min: 0, integer: true },
+  { key: SETTING_KEYS.PPT_CREDIT_COST, label: "PPT 生成单价", description: "每份 PPT 消耗的积分", type: "number", group: "PPT", min: 0, integer: true },
 ];

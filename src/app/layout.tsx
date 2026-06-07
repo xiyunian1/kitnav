@@ -3,8 +3,9 @@ import { Geist } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
-import { getSetting } from "@/lib/credits";
-import { SETTING_KEYS } from "@/lib/settings-config";
+import { DEFAULT_SETTINGS, SETTING_KEYS } from "@/lib/settings-config";
+
+export const dynamic = "force-dynamic";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -12,7 +13,7 @@ const geistSans = Geist({
 });
 
 export async function generateMetadata(): Promise<Metadata> {
-  const siteName = await getSetting(SETTING_KEYS.SITE_NAME);
+  const siteName = DEFAULT_SETTINGS[SETTING_KEYS.SITE_NAME] || "AI 聚合站";
   return {
     title: {
       default: siteName || "AI 聚合站",

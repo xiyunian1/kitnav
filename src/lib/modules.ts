@@ -42,10 +42,10 @@ export const MODULES: AppModule[] = [
   {
     key: "ppt",
     name: "PPT 生成",
-    description: "一句话生成演示文稿，敬请期待",
+    description: "输入主题和资料，生成可编辑演示文稿并导出 PPTX",
     icon: Presentation,
     href: "/ppt",
-    status: "coming-soon",
+    status: "active",
     moduleType: "PPT",
     accent: "from-orange-500 to-red-600",
   },

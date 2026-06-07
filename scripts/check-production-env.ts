@@ -73,10 +73,15 @@ const appUrl = get("APP_URL") || get("AUTH_URL") || get("NEXTAUTH_URL");
 const checks: Check[] = [
   {
     name: "DATABASE_URL",
-    ok: get("DATABASE_URL").startsWith("file:/app/data/"),
-    message: get("DATABASE_URL").startsWith("file:/app/data/")
-      ? "uses mounted production data path"
-      : "should point to the mounted runtime database, for example file:/app/data/dev.db",
+    ok: get("DATABASE_URL").startsWith("postgresql://"),
+    message: get("DATABASE_URL").startsWith("postgresql://")
+      ? "uses PostgreSQL"
+      : "should point to the production PostgreSQL database",
+  },
+  {
+    name: "POSTGRES_PASSWORD",
+    ok: get("POSTGRES_PASSWORD").length >= 24 && !isPlaceholder(get("POSTGRES_PASSWORD")),
+    message: "must be set for the PostgreSQL container",
   },
   {
     name: "AUTH_SECRET",

@@ -42,8 +42,8 @@ export const API_CONFIG_MODULES: Array<{
     key: "ppt",
     moduleType: "PPT",
     name: "PPT 生成",
-    description: "PPT 模型配置，模块即将上线",
-    active: false,
+    description: "用于生成 PPT 大纲、页面内容和单页改写的文本模型配置",
+    active: true,
     modelKind: "text",
   },
 ];

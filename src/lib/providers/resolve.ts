@@ -5,6 +5,7 @@ import { getModelCreditCost, isModelEnabled, parseModelMeta } from "@/lib/model-
 import type { ModuleType } from "@prisma/client";
 import type { ProviderCredentials } from "./types";
 import { OpenAIImageProvider } from "./image-openai";
+import { OpenAITextProvider } from "./text-openai";
 
 // 未配置任何可用的图片 API 时抛出。route 层捕获后返回 503 + 引导文案。
 export class ProviderNotConfiguredError extends Error {
@@ -27,6 +28,14 @@ export interface ResolvedProvider {
   model: string;
   models: string[];
   creditCostOverride: number | null;
+  source: "user" | "platform";
+}
+
+export interface ResolvedTextProvider {
+  provider: OpenAITextProvider;
+  useOwnKey: boolean;
+  model: string;
+  models: string[];
   source: "user" | "platform";
 }
 
@@ -107,6 +116,67 @@ export async function resolveImageProvider(
   }
 
   // 3. 都没配 → 抛错引导去配置
+  throw new ProviderNotConfiguredError();
+}
+
+export async function resolveTextProvider(
+  userId: string,
+  module: ModuleType,
+  requestedModel?: string
+): Promise<ResolvedTextProvider> {
+  const userCfg = await prisma.userApiConfig.findUnique({
+    where: { userId_module: { userId, module } },
+  });
+  if (userCfg?.enabled) {
+    const selected = resolveSelectedModel(userCfg.model, userCfg.models, requestedModel);
+    let apiKey: string;
+    try {
+      apiKey = decrypt(userCfg.apiKey);
+    } catch {
+      throw new ProviderConfigInvalidError("你的 API Key 无法解密，请在「API 设置」里重新保存一次");
+    }
+    return {
+      provider: new OpenAITextProvider({
+        baseUrl: userCfg.baseUrl,
+        apiKey,
+        model: selected.model,
+      }),
+      useOwnKey: true,
+      model: selected.model,
+      models: selected.models,
+      source: "user",
+    };
+  }
+
+  const platformCfg = await prisma.providerConfig.findUnique({
+    where: { module },
+  });
+  if (platformCfg?.enabled) {
+    const selected = resolveSelectedModel(
+      platformCfg.model,
+      platformCfg.models,
+      requestedModel,
+      platformCfg.modelMeta
+    );
+    let apiKey: string;
+    try {
+      apiKey = decrypt(platformCfg.apiKey);
+    } catch {
+      throw new ProviderConfigInvalidError("平台 API Key 无法解密，请管理员在后台重新保存一次 API Key");
+    }
+    return {
+      provider: new OpenAITextProvider({
+        baseUrl: platformCfg.baseUrl,
+        apiKey,
+        model: selected.model,
+      }),
+      useOwnKey: false,
+      model: selected.model,
+      models: selected.models,
+      source: "platform",
+    };
+  }
+
   throw new ProviderNotConfiguredError();
 }
 

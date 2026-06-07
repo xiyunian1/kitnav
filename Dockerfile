@@ -8,19 +8,17 @@ COPY prisma ./prisma
 RUN npm install
 
 FROM base AS builder
-ENV DATABASE_URL=file:./dev.db
+ENV DATABASE_URL=postgresql://ai_aggregator:postgres@localhost:5432/ai_aggregator?schema=public
 RUN apk add --no-cache openssl
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npx prisma generate
-RUN npx prisma db push --skip-generate
 RUN npm run build
 
 FROM base AS runner
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3001
-ENV DATABASE_URL=file:/app/data/dev.db
 RUN apk add --no-cache openssl
 
 COPY --from=builder /app/public ./public
