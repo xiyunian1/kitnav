@@ -158,7 +158,7 @@ export function ModelSelector({
           {selected.map((model) => (
             <Badge key={model} variant="secondary" className="gap-1">
               {model}
-              <button type="button" onClick={() => toggle(model)} title="移除">
+              <button type="button" onClick={() => toggle(model)} title="移除" aria-label={`移除模型：${model}`}>
                 <X className="size-3" />
               </button>
             </Badge>

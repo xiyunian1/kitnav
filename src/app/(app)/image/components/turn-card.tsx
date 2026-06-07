@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import type { Turn } from "../types";
+import type { ReuseTurnInput, Turn } from "../types";
 
 function aspectClass(ratio: string) {
   switch (ratio) {
@@ -29,18 +29,64 @@ function getTurnErrorMessage(turn: Turn) {
   return turn.images.find((img) => img.status === "error" && img.error)?.error || turn.error;
 }
 
+function formatDuration(ms?: number | null) {
+  if (!ms || ms <= 0) return "";
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest ? `${minutes}m ${rest}s` : `${minutes}m`;
+}
+
+function getTurnQuality(turn: Turn) {
+  return turn.images.find((img) => img.quality)?.quality || "标准";
+}
+
+function qualityValue(quality?: string) {
+  if (quality === "高清" || quality === "hd") return "hd";
+  if (quality === "超清" || quality === "ultra") return "ultra";
+  return "standard";
+}
+
+function diagnoseError(message?: string | null) {
+  if (!message) return "生成失败";
+  if (message.includes("用户已停止")) return "用户已停止生成";
+  if (message.includes("524") || message.includes("网关超时") || message.includes("响应超时")) {
+    return "上游超时：图片处理过久未返回，可以降低张数或稍后再试";
+  }
+  if (message.includes("502") || message.includes("503") || message.includes("504") || message.includes("暂时不可用")) {
+    return "上游服务不稳定：当前模型或通道暂时不可用";
+  }
+  if (message.includes("积分不足")) return message;
+  if (message.includes("API") || message.includes("Base URL") || message.includes("无法连接")) {
+    return "API 配置异常：请检查 Base URL、Key 或当前模型是否可用";
+  }
+  if (message.includes("不支持图生图") || message.includes("图片编辑")) {
+    return "模型能力不匹配：当前模型可能不支持图生图";
+  }
+  if (message.includes("保存失败") || message.includes("无法读取图片")) {
+    return "图片保存失败：生成可能已完成，但保存到素材文件时出错";
+  }
+  return message;
+}
+
 interface Props {
   turn: Turn;
   index: number;
   onContinueEdit: (url: string) => void;
   onReusePrompt: (prompt: string) => void;
+  onRegenerate: (input: ReuseTurnInput) => void;
+  onGenerateSimilar: (url: string, input: ReuseTurnInput) => void;
 }
 
-export function TurnCard({ turn, index, onContinueEdit, onReusePrompt }: Props) {
+export function TurnCard({ turn, index, onContinueEdit, onReusePrompt, onRegenerate, onGenerateSimilar }: Props) {
   const ac = aspectClass(turn.ratio);
   const [preview, setPreview] = useState<{ src: string; alt: string } | null>(null);
   const [saving, startSaving] = useTransition();
   const turnError = getTurnErrorMessage(turn);
+  const turnDuration = formatDuration(turn.durationMs);
+  const turnQuality = getTurnQuality(turn);
 
   function saveImage(url: string, imageIndex: number) {
     startSaving(async () => {
@@ -53,6 +99,14 @@ export function TurnCard({ turn, index, onContinueEdit, onReusePrompt }: Props) 
             title: `${turn.prompt.slice(0, 24) || "生成图片"} ${imageIndex + 1}`,
             prompt: turn.prompt,
             generationId: turn.generationId || undefined,
+            meta: {
+              mode: turn.mode,
+              ratio: turn.ratio,
+              quality: qualityValue(turnQuality),
+              count: turn.count,
+              model: turn.model,
+              durationMs: turn.durationMs,
+            },
           }),
         });
         const data = await res.json().catch(() => ({}));
@@ -75,7 +129,7 @@ export function TurnCard({ turn, index, onContinueEdit, onReusePrompt }: Props) 
             promptText: turn.prompt,
             description: `来自第 ${index + 1} 轮图片生成`,
             visibility: "PRIVATE",
-            meta: { mode: turn.mode, ratio: turn.ratio, count: turn.count, model: turn.model },
+            meta: { mode: turn.mode, ratio: turn.ratio, count: turn.count, model: turn.model, quality: qualityValue(turnQuality) },
           }),
         });
         const data = await res.json().catch(() => ({}));
@@ -98,12 +152,30 @@ export function TurnCard({ turn, index, onContinueEdit, onReusePrompt }: Props) 
                 {turn.mode === "edit" ? "图生图" : "文生图"}
               </Badge>
               <span>{turn.ratio}</span>
+              <span>{turnQuality}</span>
               <span>{turn.count} 张</span>
+              {turnDuration && <span>耗时 {turnDuration}</span>}
             </div>
             <p className="line-clamp-2 text-sm">{turn.prompt}</p>
           </div>
           <Button variant="ghost" size="sm" onClick={() => onReusePrompt(turn.prompt)}>
             <Sparkles className="size-3.5" /> 复用提示词
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() =>
+              onRegenerate({
+                prompt: turn.prompt,
+                mode: turn.mode,
+                ratio: turn.ratio,
+                quality: qualityValue(turnQuality),
+                count: turn.count,
+                model: turn.model,
+              })
+            }
+          >
+            <Sparkles className="size-3.5" /> 重新生成
           </Button>
           <Button variant="ghost" size="sm" disabled={saving} onClick={savePrompt}>
             <FileText className="size-3.5" /> 保存提示词
@@ -120,6 +192,7 @@ export function TurnCard({ turn, index, onContinueEdit, onReusePrompt }: Props) 
                 onClick={() => setPreview({ src: thumb, alt: `参考图 ${i + 1}` })}
                 className="rounded-md outline-none ring-offset-background transition-opacity hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 title="查看参考图"
+                aria-label={`查看参考图 ${i + 1}`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -136,6 +209,7 @@ export function TurnCard({ turn, index, onContinueEdit, onReusePrompt }: Props) 
           {turn.images.map((img) => {
             if (img.status === "success" && img.url) {
               const alt = `第 ${index + 1} 轮生成图 ${Number(img.id) + 1}`;
+              const imageDuration = formatDuration(img.durationMs);
               return (
                 <div key={img.id} className="group overflow-hidden rounded-lg border">
                   <button
@@ -146,6 +220,7 @@ export function TurnCard({ turn, index, onContinueEdit, onReusePrompt }: Props) 
                       ac
                     )}
                     title="查看大图"
+                    aria-label={`查看大图：${alt}`}
                   >
                     <Image
                       src={img.url}
@@ -157,24 +232,52 @@ export function TurnCard({ turn, index, onContinueEdit, onReusePrompt }: Props) 
                       className="object-cover"
                     />
                   </button>
-                  <div className="flex items-center justify-end gap-1 p-2">
-                    <Button
-                      variant="outline"
-                      size="xs"
-                      disabled={saving}
-                      onClick={() => saveImage(img.url!, Number(img.id) || 0)}
-                      title="保存到我的素材库"
-                    >
-                      <Save className="size-3" /> 保存
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="xs"
-                      onClick={() => onContinueEdit(img.url!)}
-                      title="以此图继续编辑"
-                    >
-                      <Sparkles className="size-3" /> 编辑
-                    </Button>
+                  <div className="space-y-2 p-2">
+                    <div className="truncate text-xs text-muted-foreground">
+                      {[img.quality || turnQuality, imageDuration].filter(Boolean).join(" · ")}
+                    </div>
+                    <div className="grid grid-cols-3 gap-1">
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        className="w-full px-1"
+                        disabled={saving}
+                        onClick={() => saveImage(img.url!, Number(img.id) || 0)}
+                        title="保存到我的素材库"
+                        aria-label={`保存${alt}到我的素材库`}
+                      >
+                        <Save className="size-3" /> 保存
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        className="w-full px-1"
+                        onClick={() => onContinueEdit(img.url!)}
+                        title="以此图继续编辑"
+                        aria-label={`以${alt}继续编辑`}
+                      >
+                        <Sparkles className="size-3" /> 编辑
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        className="w-full px-1"
+                        onClick={() =>
+                          onGenerateSimilar(img.url!, {
+                            prompt: turn.prompt,
+                            mode: "edit",
+                            ratio: turn.ratio,
+                            quality: qualityValue(img.quality || turnQuality),
+                            count: 1,
+                            model: turn.model,
+                          })
+                        }
+                        title="生成相似图"
+                        aria-label={`基于${alt}生成相似图`}
+                      >
+                        <Sparkles className="size-3" /> 相似
+                      </Button>
+                    </div>
                   </div>
                 </div>
               );
@@ -189,7 +292,10 @@ export function TurnCard({ turn, index, onContinueEdit, onReusePrompt }: Props) 
                   )}
                 >
                   <ImageOff className="size-5 text-destructive/70" />
-                  <p className="text-xs text-destructive">{img.error || "生成失败"}</p>
+                  <p className="text-xs text-destructive">{diagnoseError(img.error)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {[img.quality || turnQuality, formatDuration(img.durationMs)].filter(Boolean).join(" · ")}
+                  </p>
                 </div>
               );
             }
@@ -209,6 +315,7 @@ export function TurnCard({ turn, index, onContinueEdit, onReusePrompt }: Props) 
                 <p className="text-xs">
                   {img.status === "loading" && turn.status === "PENDING" ? "生成中…" : "等待中"}
                 </p>
+                <p className="text-xs text-muted-foreground">{img.quality || turnQuality}</p>
               </div>
             );
           })}
@@ -216,7 +323,7 @@ export function TurnCard({ turn, index, onContinueEdit, onReusePrompt }: Props) 
 
         {turnError && turn.status !== "PENDING" && (
           <div className="mx-4 mb-4 rounded-lg border-l-2 border-amber-400 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
-            {turnError}
+            {diagnoseError(turnError)}
           </div>
         )}
       </section>

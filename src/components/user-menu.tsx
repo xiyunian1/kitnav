@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
+import { usePathname, useRouter } from "next/navigation";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,12 +15,16 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Coins,
-  LayoutDashboard,
-  LogOut,
-  User as UserIcon,
-  KeyRound,
   Images,
+  KeyRound,
+  LayoutDashboard,
   Library,
+  LogOut,
+  MessageSquare,
+  Monitor,
+  Moon,
+  Sun,
+  User as UserIcon,
 } from "lucide-react";
 
 interface UserMenuProps {
@@ -31,7 +36,11 @@ interface UserMenuProps {
 
 export function UserMenu({ name, email, credits, isAdmin }: UserMenuProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const { theme, resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
   const initial = (name || email).charAt(0).toUpperCase();
+  const feedbackHref = `/feedback?from=${encodeURIComponent(pathname)}`;
 
   async function handleSignOut() {
     await signOut({ redirect: false });
@@ -50,7 +59,7 @@ export function UserMenu({ name, email, credits, isAdmin }: UserMenuProps) {
       </Link>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="outline-none">
+          <button className="outline-none" aria-label="打开用户菜单">
             <Avatar className="size-9 cursor-pointer">
               <AvatarFallback className="bg-primary text-primary-foreground">
                 {initial}
@@ -87,10 +96,24 @@ export function UserMenu({ name, email, credits, isAdmin }: UserMenuProps) {
             </Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
+            <Link href={feedbackHref}>
+              <MessageSquare className="size-4" /> 反馈建议
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
             <Link href="/profile">
               <UserIcon className="size-4" /> 个人资料
             </Link>
           </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setTheme(isDark ? "light" : "dark")}>
+            {isDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+            {isDark ? "切换为亮色" : "切换为暗色"}
+          </DropdownMenuItem>
+          {theme !== "system" && (
+            <DropdownMenuItem onClick={() => setTheme("system")}>
+              <Monitor className="size-4" /> 跟随系统
+            </DropdownMenuItem>
+          )}
           {isAdmin && (
             <>
               <DropdownMenuSeparator />

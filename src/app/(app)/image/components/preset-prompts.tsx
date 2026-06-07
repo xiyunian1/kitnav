@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FileText, Images, Loader2, Search } from "lucide-react";
+import { FileText, Images, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -83,8 +84,18 @@ function PromptMaterialList({
       </div>
       <div className="max-h-[52vh] overflow-y-auto pr-1">
         {loading ? (
-          <div className="flex min-h-48 items-center justify-center text-muted-foreground">
-            <Loader2 className="size-5 animate-spin" />
+          <div className="grid min-h-48 gap-2 sm:grid-cols-2" aria-label="正在加载提示词">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="space-y-2 rounded-lg border bg-background p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <Skeleton className="h-4 w-2/3" />
+                  <Skeleton className="h-5 w-14 rounded-full" />
+                </div>
+                <Skeleton className="h-3 w-full" />
+                <Skeleton className="h-3 w-5/6" />
+                <Skeleton className="h-3 w-3/5" />
+              </div>
+            ))}
           </div>
         ) : items.length === 0 ? (
           <div className="flex min-h-48 flex-col items-center justify-center gap-2 text-muted-foreground">

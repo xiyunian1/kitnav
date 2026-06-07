@@ -28,17 +28,24 @@ export class OpenAIImageProvider implements ImageProvider {
     url: string,
     init: RequestInit,
     timeoutMs: number,
-    connectErrorMessage: string
+    connectErrorMessage: string,
+    parentSignal?: AbortSignal
   ): Promise<{ res: Response; elapsedMs: number }> {
     const controller = new AbortController();
     const startedAt = Date.now();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const abortFromParent = () => controller.abort(parentSignal?.reason);
+    if (parentSignal?.aborted) abortFromParent();
+    else parentSignal?.addEventListener("abort", abortFromParent, { once: true });
 
     try {
       const res = await fetch(url, { ...init, signal: controller.signal });
       return { res, elapsedMs: Date.now() - startedAt };
     } catch (e) {
       const elapsedMs = Date.now() - startedAt;
+      if (parentSignal?.aborted) {
+        throw new UpstreamImageError("用户已停止生成", undefined, elapsedMs);
+      }
       if (
         controller.signal.aborted ||
         (e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError"))
@@ -52,6 +59,7 @@ export class OpenAIImageProvider implements ImageProvider {
       throw new UpstreamImageError(connectErrorMessage, undefined, elapsedMs);
     } finally {
       clearTimeout(timer);
+      parentSignal?.removeEventListener("abort", abortFromParent);
     }
   }
 
@@ -88,7 +96,7 @@ export class OpenAIImageProvider implements ImageProvider {
   }
 
   // 统一解析成功响应：兼容返回 url 或 b64_json 两种形式。
-  private async parseImageResponse(res: Response): Promise<GenerationResult> {
+  private async parseImageResponse(res: Response, elapsedMs: number): Promise<GenerationResult> {
     const data = await res.json();
     const items: unknown[] = data?.data ?? [];
     if (!Array.isArray(items) || items.length === 0) {
@@ -100,7 +108,7 @@ export class OpenAIImageProvider implements ImageProvider {
       if (it.b64_json) return `data:image/png;base64,${it.b64_json}`;
       throw new Error("上游返回格式无法解析");
     });
-    return { urls };
+    return { urls, elapsedMs };
   }
 
   async generate(params: ImageGenerationParams): Promise<GenerationResult> {
@@ -129,7 +137,8 @@ export class OpenAIImageProvider implements ImageProvider {
           body: JSON.stringify(body),
         },
         IMAGE_REQUEST_TIMEOUT_MS,
-        "无法连接上游服务，请检查 Base URL"
+        "无法连接上游服务，请检查 Base URL",
+        params.signal
       );
       res = out.res;
       elapsedMs = out.elapsedMs;
@@ -140,7 +149,7 @@ export class OpenAIImageProvider implements ImageProvider {
     if (!res.ok) {
       return this.throwUpstreamError(res, elapsedMs);
     }
-    return this.parseImageResponse(res);
+    return this.parseImageResponse(res, elapsedMs);
   }
 
   async edit(params: ImageEditParams): Promise<GenerationResult> {
@@ -169,7 +178,8 @@ export class OpenAIImageProvider implements ImageProvider {
           body: form,
         },
         IMAGE_REQUEST_TIMEOUT_MS,
-        "无法连接上游服务，请检查 Base URL"
+        "无法连接上游服务，请检查 Base URL",
+        params.signal
       );
       res = out.res;
       elapsedMs = out.elapsedMs;
@@ -196,6 +206,6 @@ export class OpenAIImageProvider implements ImageProvider {
       }
       return this.throwUpstreamError(res, elapsedMs);
     }
-    return this.parseImageResponse(res);
+    return this.parseImageResponse(res, elapsedMs);
   }
 }

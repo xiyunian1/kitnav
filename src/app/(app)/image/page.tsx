@@ -63,6 +63,9 @@ export default async function ImagePage({
     ratio?: string;
     materialId?: string;
     promptMaterialId?: string;
+    quality?: string;
+    count?: string;
+    model?: string;
   }>;
 }) {
   const session = await auth();
@@ -71,8 +74,11 @@ export default async function ImagePage({
   const promptMaterial = await getAccessiblePromptMaterial(params.promptMaterialId, userId);
   const imageMaterial = await getAccessibleImageMaterial(params.materialId, userId);
   const promptMeta = promptMaterial?.promptMeta || {};
+  const imageMeta = imageMaterial?.promptMeta || {};
   const initialPrompt =
     promptMaterial?.promptText?.trim().slice(0, 4000) ||
+    imageMaterial?.promptText?.trim().slice(0, 4000) ||
+    imageMaterial?.description?.trim().slice(0, 4000) ||
     params.prompt?.trim().slice(0, 4000) ||
     "";
   const initialMode =
@@ -81,7 +87,26 @@ export default async function ImagePage({
       : "generate";
   const initialRatio =
     (typeof promptMeta.ratio === "string" ? promptMeta.ratio : undefined) ||
+    (typeof imageMeta.ratio === "string" ? imageMeta.ratio : undefined) ||
     params.ratio ||
+    undefined;
+  const initialQuality =
+    (typeof promptMeta.quality === "string" ? promptMeta.quality : undefined) ||
+    (typeof imageMeta.quality === "string" ? imageMeta.quality : undefined) ||
+    params.quality ||
+    undefined;
+  const initialCount =
+    typeof promptMeta.count === "number" && Number.isFinite(promptMeta.count)
+      ? promptMeta.count
+      : typeof imageMeta.count === "number" && Number.isFinite(imageMeta.count)
+        ? imageMeta.count
+      : params.count && /^\d+$/.test(params.count)
+        ? Number(params.count)
+        : undefined;
+  const initialModel =
+    (typeof promptMeta.model === "string" ? promptMeta.model : undefined) ||
+    (typeof imageMeta.model === "string" ? imageMeta.model : undefined) ||
+    params.model ||
     undefined;
 
   const [unitCost, user, billing] = await Promise.all([
@@ -91,7 +116,7 @@ export default async function ImagePage({
   ]);
 
   return (
-    <div className="flex h-[calc(100dvh-6rem)] min-h-0 flex-col gap-4 overflow-hidden sm:h-[calc(100dvh-7rem)] lg:h-[calc(100dvh-8rem)]">
+    <div className="flex min-h-[calc(100dvh-6rem)] flex-col gap-4 sm:min-h-[calc(100dvh-7rem)] md:h-[calc(100dvh-7rem)] md:min-h-0 md:overflow-hidden lg:h-[calc(100dvh-8rem)]">
       <div className="shrink-0 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">图片创作工作台</h1>
@@ -110,6 +135,9 @@ export default async function ImagePage({
         initialPrompt={initialPrompt}
         initialMode={initialMode}
         initialRatio={initialRatio}
+        initialQuality={initialQuality}
+        initialCount={initialCount}
+        initialModel={initialModel}
         initialImageMaterial={imageMaterial}
         initialPromptMaterial={promptMaterial}
       />

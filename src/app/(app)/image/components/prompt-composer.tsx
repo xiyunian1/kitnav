@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type ClipboardEvent } from "react";
-import { ArrowUp, ChevronDown, ImagePlus, Loader2, Settings2, X } from "lucide-react";
+import { ArrowUp, ChevronDown, ImagePlus, Loader2, Settings2, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -20,6 +20,8 @@ import type { ImagePreset } from "@/lib/image-presets";
 import { MaterialPicker } from "@/components/materials/material-picker";
 import type { MaterialView } from "@/components/materials/material-types";
 import { cn } from "@/lib/utils";
+import { PromptOptimizerDialog } from "./prompt-optimizer-dialog";
+import type { PromptOptimizationResult, PromptOptimizeRequest } from "../types";
 
 const RATIO_LABELS: Record<string, string> = {
   "1:1": "1:1 正方形",
@@ -44,6 +46,7 @@ interface Props {
   models: string[];
   references: ReferencePreview[];
   submitting: boolean;
+  stopping: boolean;
   useOwnKey: boolean;
   unitCost: number;
   onModeChange: (mode: "generate" | "edit") => void;
@@ -57,6 +60,8 @@ interface Props {
   onRemoveReference: (index: number) => void;
   onPickPreset: (preset: ImagePreset) => void;
   onSubmit: () => void;
+  onStop: () => void;
+  onOptimizePrompt: (request: PromptOptimizeRequest) => Promise<PromptOptimizationResult>;
 }
 
 export function PromptComposer({
@@ -69,6 +74,7 @@ export function PromptComposer({
   models,
   references,
   submitting,
+  stopping,
   useOwnKey,
   unitCost,
   onModeChange,
@@ -82,10 +88,13 @@ export function PromptComposer({
   onRemoveReference,
   onPickPreset,
   onSubmit,
+  onStop,
+  onOptimizePrompt,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<ReferencePreview | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [optimizerOpen, setOptimizerOpen] = useState(false);
   const canSubmit = prompt.trim().length > 0 && (mode === "generate" || references.length > 0) && !submitting;
   const qualityMeta =
     IMAGE_QUALITY_META[quality as keyof typeof IMAGE_QUALITY_META] ?? IMAGE_QUALITY_META.standard;
@@ -103,8 +112,8 @@ export function PromptComposer({
 
   return (
     <>
-      <div className="flex h-full min-h-0 flex-col overflow-hidden">
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+      <div className="flex min-h-0 flex-col md:h-full md:overflow-hidden">
+        <div className="space-y-4 pr-1 md:min-h-0 md:flex-1 md:overflow-y-auto">
           <div>
             <h2 className="font-semibold">创作台</h2>
           </div>
@@ -127,7 +136,19 @@ export function PromptComposer({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="prompt">提示词</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="prompt">提示词</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                disabled={!prompt.trim() || submitting}
+                onClick={() => setOptimizerOpen(true)}
+              >
+                <Sparkles className="size-3" />
+                优化
+              </Button>
+            </div>
             <Textarea
               id="prompt"
               rows={7}
@@ -162,6 +183,7 @@ export function PromptComposer({
                         onClick={() => setPreview(ref)}
                         className="rounded-lg outline-none ring-offset-background transition-opacity hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         title="查看参考图"
+                        aria-label={`查看参考图：${ref.name}`}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={ref.dataUrl} alt={ref.name} className="size-16 rounded-lg border object-cover" />
@@ -170,6 +192,7 @@ export function PromptComposer({
                         type="button"
                         onClick={() => onRemoveReference(i)}
                         className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full border bg-background text-muted-foreground hover:text-destructive"
+                        aria-label={`移除参考图：${ref.name}`}
                       >
                         <X className="size-3" />
                       </button>
@@ -248,9 +271,6 @@ export function PromptComposer({
                       {IMAGE_QUALITIES.map((q) => (
                         <SelectItem key={q} value={q}>
                           {IMAGE_QUALITY_META[q].label}
-                          {IMAGE_QUALITY_META[q].costMultiplier > 1
-                            ? ` · ${IMAGE_QUALITY_META[q].costMultiplier}x`
-                            : ""}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -295,10 +315,20 @@ export function PromptComposer({
             )}
           </div>
 
-          <Button className="w-full" size="lg" onClick={onSubmit} disabled={!canSubmit}>
-            {submitting ? (
+          <Button
+            className="w-full"
+            size="lg"
+            onClick={submitting ? onStop : onSubmit}
+            disabled={submitting ? stopping : !canSubmit}
+            variant={submitting ? "outline" : "default"}
+          >
+            {stopping ? (
               <>
-                <Loader2 className="size-4 animate-spin" /> 生成中...
+                <Loader2 className="size-4 animate-spin" /> 正在停止...
+              </>
+            ) : submitting ? (
+              <>
+                <X className="size-4" /> 停止生成
               </>
             ) : (
               <>
@@ -325,6 +355,25 @@ export function PromptComposer({
           )}
         </DialogContent>
       </Dialog>
+
+      <PromptOptimizerDialog
+        open={optimizerOpen}
+        prompt={prompt}
+        mode={mode}
+        ratio={ratio}
+        quality={quality}
+        count={count}
+        model={activeModel}
+        submitting={submitting}
+        onOpenChange={setOptimizerOpen}
+        onOptimize={onOptimizePrompt}
+        onApplyPrompt={onPromptChange}
+        onApplySettings={({ ratio: nextRatio, quality: nextQuality, count: nextCount }) => {
+          if (nextRatio) onRatioChange(nextRatio);
+          if (nextQuality) onQualityChange(nextQuality);
+          if (typeof nextCount === "number") onCountChange(nextCount);
+        }}
+      />
     </>
   );
 }

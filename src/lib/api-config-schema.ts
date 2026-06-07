@@ -3,8 +3,50 @@ import { z } from "zod";
 // API 配置的共享校验 schema，用户接口和后台 Action 复用。
 // apiKey 可选：留空表示「不修改现有 key」（编辑场景，避免要求重填）。
 
-export const MODULE_TYPES = ["IMAGE", "VIDEO", "PPT"] as const;
+export const MODULE_TYPES = ["IMAGE", "VIDEO", "PPT", "PROMPT_OPTIMIZER"] as const;
 export type ConfigModule = (typeof MODULE_TYPES)[number];
+
+export const API_CONFIG_MODULES: Array<{
+  key: string;
+  moduleType: ConfigModule;
+  name: string;
+  description: string;
+  active: boolean;
+  modelKind: "image" | "text";
+}> = [
+  {
+    key: "image",
+    moduleType: "IMAGE",
+    name: "图片生成",
+    description: "文生图、图生图等图片模型配置",
+    active: true,
+    modelKind: "image",
+  },
+  {
+    key: "prompt-optimizer",
+    moduleType: "PROMPT_OPTIMIZER",
+    name: "提示词优化",
+    description: "AI 提示词助手使用的文本模型配置",
+    active: true,
+    modelKind: "text",
+  },
+  {
+    key: "video",
+    moduleType: "VIDEO",
+    name: "视频生成",
+    description: "视频模型配置，模块即将上线",
+    active: false,
+    modelKind: "image",
+  },
+  {
+    key: "ppt",
+    moduleType: "PPT",
+    name: "PPT 生成",
+    description: "PPT 模型配置，模块即将上线",
+    active: false,
+    modelKind: "text",
+  },
+];
 
 export const apiConfigSchema = z.object({
   module: z.enum(MODULE_TYPES),

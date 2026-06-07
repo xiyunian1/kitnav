@@ -14,6 +14,7 @@ export const runtime = "nodejs";
 const promptMetaSchema = z.object({
   mode: z.enum(["generate", "edit"]).default("generate"),
   ratio: z.string().optional(),
+  quality: z.string().optional(),
   count: z.number().int().min(1).max(10).optional(),
   model: z.string().trim().max(120).optional(),
 });

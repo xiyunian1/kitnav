@@ -9,6 +9,8 @@ export interface TurnImage {
   url?: string;
   error?: string;
   upstreamStatus?: number;
+  durationMs?: number;
+  quality?: string;
 }
 
 export interface Turn {
@@ -25,8 +27,47 @@ export interface Turn {
   error: string | null;
   creditsCost: number;
   usedOwnKey: boolean;
+  durationMs?: number | null;
   generationId?: string | null;
   createdAt: string;
+}
+
+export interface ReuseTurnInput {
+  prompt: string;
+  mode: "generate" | "edit";
+  ratio: string;
+  quality?: string;
+  count?: number;
+  model?: string;
+}
+
+export type PromptOptimizeMode =
+  | "balanced"
+  | "detail"
+  | "realistic"
+  | "illustration"
+  | "product"
+  | "concise";
+
+export interface PromptOptimizationResult {
+  prompt: string;
+  reply?: string;
+  explanation?: string;
+  negativePrompt?: string;
+  suggestedRatio?: string;
+  suggestedQuality?: string;
+  suggestedCount?: number;
+  fallback?: boolean;
+}
+
+export interface PromptOptimizeRequest {
+  optimizeMode: PromptOptimizeMode;
+  instruction?: string;
+  currentPrompt?: string;
+  messages?: Array<{
+    role: "user" | "assistant";
+    content: string;
+  }>;
 }
 
 export interface ConversationSummary {

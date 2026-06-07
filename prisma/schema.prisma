@@ -46,6 +46,7 @@ model User {
   materialFavorites   MaterialFavorite[]
   materialLikes       MaterialLike[]
   materialReports     MaterialReport[]
+  feedbacks           Feedback[]
   adminAuditLogs      AdminAuditLog[]
   registrationEvents  RegistrationEvent[]
   dailyActivities     UserDailyActivity[]
@@ -93,6 +94,7 @@ enum ModuleType {
   IMAGE
   VIDEO
   PPT
+  PROMPT_OPTIMIZER
 }
 
 enum GenerationStatus {
@@ -261,6 +263,51 @@ model SiteAnnouncement {
   updatedAt DateTime @updatedAt
 
   @@index([enabled, placement, updatedAt])
+}
+
+enum FeedbackType {
+  FEATURE
+  BUG
+  EXPERIENCE
+  BILLING
+  OTHER
+}
+
+enum FeedbackModule {
+  IMAGE
+  MATERIALS
+  CREDITS
+  AUTH
+  PROFILE
+  OTHER
+}
+
+enum FeedbackStatus {
+  NEW
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+model Feedback {
+  id             String         @id @default(cuid())
+  userId         String
+  type           FeedbackType
+  module         FeedbackModule
+  title          String
+  content        String
+  screenshotUrls String?        // JSON 字符串数组，最多 3 张截图
+  pagePath       String?
+  status         FeedbackStatus @default(NEW)
+  adminNote      String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
 }
 
 // 平台上游 API 配置（管理员配置，每个模块一条）。用户走平台模型时使用。

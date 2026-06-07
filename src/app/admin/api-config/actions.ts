@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db";
 import { encrypt, decrypt } from "@/lib/crypto";
 import { modelListToJson } from "@/lib/model-options";
 import { modelMetaToJson } from "@/lib/model-meta";
-import { testImageConnection } from "@/lib/providers";
+import { testImageConnection, testTextConnection } from "@/lib/providers";
 import { writeAuditLog } from "@/lib/audit";
 import {
   apiConfigSchema,
@@ -82,5 +82,8 @@ export async function testProviderConfigAction(input: {
     key = decrypt(existing.apiKey);
   }
 
+  if (module === "PROMPT_OPTIMIZER" || module === "PPT") {
+    return testTextConnection({ baseUrl, apiKey: key, model });
+  }
   return testImageConnection({ baseUrl, apiKey: key, model });
 }

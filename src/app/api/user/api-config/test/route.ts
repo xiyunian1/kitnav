@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { decrypt } from "@/lib/crypto";
-import { testImageConnection } from "@/lib/providers";
+import { testImageConnection, testTextConnection } from "@/lib/providers";
 import { testConnectionSchema } from "@/lib/api-config-schema";
 
 // 用户测试自己的 API 配置连接。apiKey 留空则用已存的 key 测试。
@@ -44,7 +44,9 @@ export async function POST(req: Request) {
     key = decrypt(existing.apiKey);
   }
 
-  // 目前仅图片模块支持真实测试
-  const result = await testImageConnection({ baseUrl, apiKey: key, model });
+  const result =
+    module === "PROMPT_OPTIMIZER" || module === "PPT"
+      ? await testTextConnection({ baseUrl, apiKey: key, model })
+      : await testImageConnection({ baseUrl, apiKey: key, model });
   return NextResponse.json(result);
 }

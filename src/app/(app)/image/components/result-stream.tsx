@@ -3,8 +3,9 @@
 import { useCallback, useLayoutEffect, useRef } from "react";
 import { ImageIcon, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { TurnCard } from "./turn-card";
-import type { ConversationDetail } from "../types";
+import type { ConversationDetail, ReuseTurnInput } from "../types";
 
 interface Props {
   detail: ConversationDetail | null;
@@ -13,6 +14,8 @@ interface Props {
   onLoadMore: () => void;
   onContinueEdit: (url: string) => void;
   onReusePrompt: (prompt: string) => void;
+  onRegenerate: (input: ReuseTurnInput) => void;
+  onGenerateSimilar: (url: string, input: ReuseTurnInput) => void;
 }
 
 export function ResultStream({
@@ -22,6 +25,8 @@ export function ResultStream({
   onLoadMore,
   onContinueEdit,
   onReusePrompt,
+  onRegenerate,
+  onGenerateSimilar,
 }: Props) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const scrollStateRef = useRef({
@@ -74,8 +79,24 @@ export function ResultStream({
 
   if (loading && (!detail || detail.turns.length === 0)) {
     return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        <Loader2 className="size-5 animate-spin" />
+      <div className="h-full space-y-4 overflow-hidden" aria-label="正在加载生成记录">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="overflow-hidden rounded-xl border bg-card">
+            <div className="space-y-2 border-b px-4 py-3">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-4 w-16" />
+                <Skeleton className="h-5 w-14 rounded-full" />
+                <Skeleton className="h-4 w-12" />
+              </div>
+              <Skeleton className="h-4 w-11/12" />
+            </div>
+            <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
+              <Skeleton className="aspect-square rounded-lg" />
+              <Skeleton className="hidden aspect-square rounded-lg sm:block" />
+              <Skeleton className="hidden aspect-square rounded-lg lg:block" />
+            </div>
+          </div>
+        ))}
       </div>
     );
   }
@@ -137,6 +158,8 @@ export function ResultStream({
           index={startIndex + i}
           onContinueEdit={onContinueEdit}
           onReusePrompt={onReusePrompt}
+          onRegenerate={onRegenerate}
+          onGenerateSimilar={onGenerateSimilar}
         />
       ))}
     </div>

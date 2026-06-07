@@ -62,6 +62,13 @@ export async function clearConversations(): Promise<void> {
   if (!res.ok) throw new Error(await parseError(res, "清空失败"));
 }
 
+export async function cancelTurn(turnId: string): Promise<Turn> {
+  const res = await fetch(`/api/image/turns/${turnId}/cancel`, { method: "POST" });
+  if (!res.ok) throw new Error(await parseError(res, "停止生成失败"));
+  const data = await res.json();
+  return data.turn;
+}
+
 // 文生图
 export async function generateTurn(input: {
   conversationId?: string;
@@ -114,12 +121,14 @@ export async function generateTurnStream(
     count: number;
     model?: string;
   },
-  onEvent: (event: TurnStreamEvent) => void
+  onEvent: (event: TurnStreamEvent) => void,
+  options?: { signal?: AbortSignal }
 ): Promise<void> {
   const res = await fetch("/api/image/turns/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
+    signal: options?.signal,
   });
   await readTurnStream(res, onEvent);
 }
@@ -161,7 +170,8 @@ export async function editTurnStream(
     image: File;
     referenceThumb?: string;
   },
-  onEvent: (event: TurnStreamEvent) => void
+  onEvent: (event: TurnStreamEvent) => void,
+  options?: { signal?: AbortSignal }
 ): Promise<void> {
   const form = new FormData();
   if (input.conversationId) form.append("conversationId", input.conversationId);
@@ -173,6 +183,10 @@ export async function editTurnStream(
   form.append("image", input.image);
   if (input.referenceThumb) form.append("referenceThumb", input.referenceThumb);
 
-  const res = await fetch("/api/image/turns/edit/stream", { method: "POST", body: form });
+  const res = await fetch("/api/image/turns/edit/stream", {
+    method: "POST",
+    body: form,
+    signal: options?.signal,
+  });
   await readTurnStream(res, onEvent);
 }

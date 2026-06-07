@@ -3,6 +3,7 @@
 import { Plus, Search, Trash2, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { ConversationSummary } from "../types";
 
@@ -56,6 +57,7 @@ export function ConversationSidebar({
           onClick={onClear}
           disabled={conversations.length === 0}
           title="清空全部会话"
+          aria-label="清空全部会话"
         >
           <Trash2 className="size-4" />
         </Button>
@@ -73,7 +75,17 @@ export function ConversationSidebar({
 
       <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
         {loading ? (
-          <p className="px-2 py-4 text-center text-xs text-muted-foreground">加载中…</p>
+          <div className="space-y-2 px-1 py-1" aria-label="正在加载会话">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-2 rounded-lg border border-transparent px-2 py-2">
+                <Skeleton className="size-8 shrink-0 rounded-full" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <Skeleton className="h-3.5 w-4/5" />
+                  <Skeleton className="h-3 w-2/5" />
+                </div>
+              </div>
+            ))}
+          </div>
         ) : conversations.length === 0 ? (
           <p className="px-2 py-4 text-center text-xs text-muted-foreground">暂无会话，点击上方新建</p>
         ) : (
@@ -101,6 +113,7 @@ export function ConversationSidebar({
                   onDelete(c.id);
                 }}
                 title="删除会话"
+                aria-label={`删除会话：${c.title}`}
               >
                 <Trash2 className="size-3.5 text-muted-foreground hover:text-destructive" />
               </button>

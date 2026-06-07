@@ -8,6 +8,7 @@ import {
   renameConversation,
   deleteConversation,
   clearConversations,
+  cancelTurn,
   generateTurnStream,
   editTurnStream,
   type TurnStreamEvent,
@@ -62,9 +63,12 @@ export function useImageWorkbench(initialBalance: number) {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [loadingMoreTurns, setLoadingMoreTurns] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [balance, setBalance] = useState(initialBalance);
 
   const activeIdRef = useRef<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const activeTurnIdRef = useRef<string | null>(null);
   const detailCacheRef = useRef<Map<string, ConversationDetail>>(new Map());
   const setCurrentActiveId = useCallback((id: string | null) => {
     activeIdRef.current = id;
@@ -225,17 +229,62 @@ export function useImageWorkbench(initialBalance: number) {
     setDetail(null);
   }, [setCurrentActiveId]);
 
+  const stopGeneration = useCallback(() => {
+    const controller = abortControllerRef.current;
+    if (!controller || controller.signal.aborted) return;
+    setStopping(true);
+    const turnId = activeTurnIdRef.current;
+    if (turnId) {
+      void cancelTurn(turnId)
+        .then((turn) => {
+          mergeTurn(turn, turn.prompt.slice(0, 12) || "新会话");
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "停止生成失败");
+        });
+    }
+    setDetail((prev) => {
+      if (!prev) return prev;
+      const next = {
+        ...prev,
+        turns: prev.turns.map((turn) => {
+          if (turn.status !== "PENDING") return turn;
+          return {
+            ...turn,
+            status: "FAILED" as const,
+            error: "用户已停止生成",
+            images: turn.images.map((image) =>
+              image.status === "queued" || image.status === "loading"
+                ? { ...image, status: "error" as const, error: "用户已停止生成" }
+                : image
+            ),
+          };
+        }),
+      };
+      detailCacheRef.current.set(next.id, next);
+      return next;
+    });
+    controller.abort("用户已停止生成");
+  }, [mergeTurn]);
+
   // 提交一轮生成
   const submit = useCallback(
     async (input: SubmitInput) => {
+      if (submitting) return false;
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      activeTurnIdRef.current = null;
       setSubmitting(true);
+      setStopping(false);
       const finalTurnRef: { current: Turn | null } = { current: null };
       try {
         const handleEvent = (event: TurnStreamEvent) => {
+          if (controller.signal.aborted) return;
           if (event.type === "error") {
             throw new Error(event.error);
           }
           if (event.type === "created") {
+            activeTurnIdRef.current = event.turn.id;
             mergeTurn(event.turn, input.prompt.slice(0, 12) || "新会话");
             return;
           }
@@ -261,7 +310,8 @@ export function useImageWorkbench(initialBalance: number) {
                 image: input.image,
                 referenceThumb: input.referenceThumb,
             },
-            handleEvent
+            handleEvent,
+            { signal: controller.signal }
           );
         } else {
           await generateTurnStream(
@@ -273,7 +323,8 @@ export function useImageWorkbench(initialBalance: number) {
                 count: input.count,
                 model: input.model,
             },
-            handleEvent
+            handleEvent,
+            { signal: controller.signal }
           );
         }
 
@@ -295,13 +346,24 @@ export function useImageWorkbench(initialBalance: number) {
         void refreshList(search);
         return true;
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "生成失败");
+        if (controller.signal.aborted) {
+          toast.info("已停止生成");
+        } else {
+          toast.error(e instanceof Error ? e.message : "生成失败");
+        }
         return false;
       } finally {
+        if (abortControllerRef.current === controller) {
+          abortControllerRef.current = null;
+        }
+        if (abortControllerRef.current === null) {
+          activeTurnIdRef.current = null;
+        }
         setSubmitting(false);
+        setStopping(false);
       }
     },
-    [mergeTurn, patchTurnImage, refreshList, search]
+    [mergeTurn, patchTurnImage, refreshList, search, submitting]
   );
 
   const rename = useCallback(async (id: string, title: string) => {
@@ -355,11 +417,13 @@ export function useImageWorkbench(initialBalance: number) {
     loadingDetail,
     loadingMoreTurns,
     submitting,
+    stopping,
     balance,
     selectConversation,
     loadMoreTurns,
     startNewDraft,
     submit,
+    stopGeneration,
     rename,
     remove,
     clearAll,

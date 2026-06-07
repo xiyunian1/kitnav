@@ -47,8 +47,18 @@ export function MaterialCard({ material, mode, onPick }: Props) {
   const promptText = material.promptText || "";
   const modeMeta = material.promptMeta?.mode === "edit" ? "edit" : "generate";
   const ratioMeta = typeof material.promptMeta?.ratio === "string" ? material.promptMeta.ratio : "";
-  const usePromptHref = `/image?promptMaterialId=${encodeURIComponent(material.id)}&mode=${modeMeta}${ratioMeta ? `&ratio=${encodeURIComponent(ratioMeta)}` : ""}`;
-  const useImageHref = `/image?materialId=${encodeURIComponent(material.id)}&mode=edit`;
+  const qualityMeta = typeof material.promptMeta?.quality === "string" ? material.promptMeta.quality : "";
+  const countMeta = typeof material.promptMeta?.count === "number" ? String(material.promptMeta.count) : "";
+  const modelMeta = typeof material.promptMeta?.model === "string" ? material.promptMeta.model : "";
+  const metaQuery = [
+    `mode=${encodeURIComponent(modeMeta)}`,
+    ratioMeta ? `ratio=${encodeURIComponent(ratioMeta)}` : "",
+    qualityMeta ? `quality=${encodeURIComponent(qualityMeta)}` : "",
+    countMeta ? `count=${encodeURIComponent(countMeta)}` : "",
+    modelMeta ? `model=${encodeURIComponent(modelMeta)}` : "",
+  ].filter(Boolean).join("&");
+  const usePromptHref = `/image?promptMaterialId=${encodeURIComponent(material.id)}&${metaQuery}`;
+  const useImageHref = `/image?materialId=${encodeURIComponent(material.id)}&mode=edit${ratioMeta ? `&ratio=${encodeURIComponent(ratioMeta)}` : ""}${qualityMeta ? `&quality=${encodeURIComponent(qualityMeta)}` : ""}${modelMeta ? `&model=${encodeURIComponent(modelMeta)}` : ""}`;
 
   function runAction(action: () => Promise<{ ok?: boolean; error?: string }>, message: string) {
     startTransition(async () => {
@@ -75,6 +85,7 @@ export function MaterialCard({ material, mode, onPick }: Props) {
           type="button"
           onClick={() => setPreviewOpen(true)}
           className="relative block aspect-[4/3] w-full bg-muted outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          aria-label={`查看素材：${material.title}`}
         >
           {isImage ? (
             <Image
@@ -157,6 +168,7 @@ export function MaterialCard({ material, mode, onPick }: Props) {
                 }
                 className="h-7 gap-1 px-1.5 text-muted-foreground hover:text-foreground"
                 title={material.liked ? "取消点赞" : "点赞"}
+                aria-label={`${material.liked ? "取消点赞" : "点赞"}：${material.title}`}
               >
                 <Heart className={`size-4 ${material.liked ? "fill-current text-rose-500" : ""}`} />
                 <span className="text-xs">{material.likeCount}</span>
@@ -174,6 +186,7 @@ export function MaterialCard({ material, mode, onPick }: Props) {
                 }
                 className="h-7 shrink-0 gap-1 px-1.5 text-muted-foreground hover:text-foreground"
                 title={material.liked ? "取消点赞" : "点赞"}
+                aria-label={`${material.liked ? "取消点赞" : "点赞"}：${material.title}`}
               >
                 <Heart className={`size-4 ${material.liked ? "fill-current text-rose-500" : ""}`} />
                 <span className="text-xs">{material.likeCount}</span>
@@ -215,6 +228,7 @@ export function MaterialCard({ material, mode, onPick }: Props) {
                     )
                   }
                   title={material.favorited ? "取消收藏" : "收藏"}
+                  aria-label={`${material.favorited ? "取消收藏" : "收藏"}：${material.title}`}
                 >
                   <BookmarkPlus className="size-3" />
                   {material.favorited ? "已收藏" : "收藏"}
@@ -223,7 +237,7 @@ export function MaterialCard({ material, mode, onPick }: Props) {
               {(mode === "library" || (mode === "square" && isPrompt)) && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button size="icon-sm" variant="outline" disabled={pending}>
+                    <Button size="icon-sm" variant="outline" disabled={pending} aria-label={`更多操作：${material.title}`}>
                       <MoreHorizontal className="size-3.5" />
                     </Button>
                   </DropdownMenuTrigger>

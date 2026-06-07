@@ -5,6 +5,7 @@ export interface ImageGenerationParams {
   size?: string;
   quality?: ImageProviderQuality;
   count?: number;
+  signal?: AbortSignal;
 }
 
 export interface ImageEditParams {
@@ -14,10 +15,12 @@ export interface ImageEditParams {
   size?: string;
   quality?: ImageProviderQuality;
   count?: number;
+  signal?: AbortSignal;
 }
 
 export interface GenerationResult {
   urls: string[];
+  elapsedMs?: number;
 }
 
 export class UpstreamImageError extends Error {

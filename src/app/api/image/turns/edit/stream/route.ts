@@ -5,10 +5,6 @@ import { runImageTurn, TurnError, type ImageTurnProgressEvent } from "@/lib/imag
 
 export const runtime = "nodejs";
 
-function encodeEvent(event: ImageTurnProgressEvent) {
-  return `${JSON.stringify(event)}\n`;
-}
-
 export async function POST(req: Request) {
   const session = await auth();
   if (!session?.user) {
@@ -51,6 +47,15 @@ export async function POST(req: Request) {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const encoder = new TextEncoder();
+      let closed = false;
+      const enqueue = (event: ImageTurnProgressEvent | { type: "error"; status: number; error: string }) => {
+        if (closed || req.signal.aborted) return;
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+        } catch {
+          closed = true;
+        }
+      };
       try {
         await runImageTurn({
           userId,
@@ -63,16 +68,23 @@ export async function POST(req: Request) {
           mode: "edit",
           editImage: { blob: image, filename },
           referenceThumbs,
+          signal: req.signal,
           onProgress: (event) => {
-            controller.enqueue(encoder.encode(encodeEvent(event)));
+            enqueue(event);
           },
         });
       } catch (e) {
         const status = e instanceof TurnError ? e.status : 500;
         const message = e instanceof Error ? e.message : "生成失败";
-        controller.enqueue(encoder.encode(`${JSON.stringify({ type: "error", status, error: message })}\n`));
+        enqueue({ type: "error", status, error: message });
       } finally {
-        controller.close();
+        if (!closed) {
+          try {
+            controller.close();
+          } catch {
+            closed = true;
+          }
+        }
       }
     },
   });

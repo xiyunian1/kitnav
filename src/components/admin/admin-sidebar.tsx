@@ -4,18 +4,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
-  LayoutDashboard,
-  Users,
-  ImageIcon,
-  ShoppingCart,
-  Settings,
-  KeyRound,
   ArrowLeft,
-  Images,
-  ShieldCheck,
-  ScrollText,
   BarChart3,
+  ImageIcon,
+  Images,
+  KeyRound,
+  LayoutDashboard,
   Megaphone,
+  MessageSquare,
+  ScrollText,
+  Settings,
+  ShieldCheck,
+  ShoppingCart,
+  Users,
 } from "lucide-react";
 
 const NAV = [
@@ -24,6 +25,7 @@ const NAV = [
   { name: "用户管理", href: "/admin/users", icon: Users },
   { name: "生成记录", href: "/admin/generations", icon: ImageIcon },
   { name: "素材管理", href: "/admin/materials", icon: Images },
+  { name: "用户反馈", href: "/admin/feedback", icon: MessageSquare },
   { name: "充值订单", href: "/admin/orders", icon: ShoppingCart },
   { name: "API 配置", href: "/admin/api-config", icon: KeyRound },
   { name: "运营控制", href: "/admin/operations", icon: ShieldCheck },

@@ -5,7 +5,7 @@ export {
   ProviderNotConfiguredError,
 } from "./resolve";
 export type { ResolvedProvider } from "./resolve";
-export { testImageConnection } from "./test-connection";
+export { testImageConnection, testTextConnection } from "./test-connection";
 export type { TestResult } from "./test-connection";
 export { listModels } from "./list-models";
 export type { ListModelsResult } from "./list-models";

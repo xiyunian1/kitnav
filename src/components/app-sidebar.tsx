@@ -5,13 +5,22 @@ import { usePathname } from "next/navigation";
 import type { ComponentType } from "react";
 import { cn } from "@/lib/utils";
 import { MODULES } from "@/lib/modules";
-import { Coins, User as UserIcon, Home, KeyRound, Images, Library } from "lucide-react";
+import {
+  Coins,
+  Home,
+  Images,
+  KeyRound,
+  Library,
+  MessageSquare,
+  User as UserIcon,
+} from "lucide-react";
 
 const ACCOUNT_NAV = [
   { name: "素材广场", href: "/materials", icon: Images },
   { name: "我的素材库", href: "/library", icon: Library },
   { name: "积分充值", href: "/credits", icon: Coins },
   { name: "API 设置", href: "/settings", icon: KeyRound },
+  { name: "反馈建议", href: "/feedback", icon: MessageSquare },
   { name: "个人资料", href: "/profile", icon: UserIcon },
 ];
 
@@ -31,9 +40,13 @@ function SidebarNavLink({
   onNavigate?: () => void;
 }) {
   const active = pathname === href;
+  const targetHref =
+    href === "/feedback"
+      ? `/feedback?from=${encodeURIComponent(pathname)}`
+      : href;
   return (
     <Link
-      href={href}
+      href={targetHref}
       onClick={onNavigate}
       className={cn(
         "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
@@ -87,7 +100,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
 
 export function AppSidebar() {
   return (
-    <aside className="hidden w-60 shrink-0 border-r bg-sidebar p-4 md:block">
+    <aside className="hidden w-60 shrink-0 border-r bg-sidebar p-4 lg:block">
       <SidebarNav />
     </aside>
   );

@@ -27,6 +27,8 @@ export interface TurnImage {
   url?: string;
   error?: string;
   upstreamStatus?: number;
+  durationMs?: number;
+  quality?: string;
 }
 
 // 前端友好的 Turn 形状（JSON 字段已解析）
@@ -44,6 +46,7 @@ export interface SerializedTurn {
   error: string | null;
   creditsCost: number;
   usedOwnKey: boolean;
+  durationMs: number | null;
   generationId: string | null;
   createdAt: string;
 }
@@ -54,6 +57,11 @@ export type ImageTurnProgressEvent =
   | { type: "final"; turn: SerializedTurn; conversationId: string };
 
 type ProgressHandler = RunTurnOptions["onProgress"];
+
+const activeImageTurnControllers = new Map<
+  string,
+  { userId: string; controller: AbortController; done: Promise<void>; resolveDone: () => void }
+>();
 
 function safeParseArray<T>(value: string | null): T[] {
   if (!value) return [];
@@ -103,6 +111,47 @@ async function emitProgress(handler: ProgressHandler, event: ImageTurnProgressEv
   }
 }
 
+function attachTurnAbortController(
+  turnId: string,
+  userId: string,
+  parentSignal?: AbortSignal
+) {
+  const controller = new AbortController();
+  let resolveDone!: () => void;
+  const done = new Promise<void>((resolve) => {
+    resolveDone = resolve;
+  });
+  const abortFromParent = () => controller.abort(parentSignal?.reason ?? "用户已停止生成");
+
+  if (parentSignal?.aborted) abortFromParent();
+  else parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+
+  activeImageTurnControllers.set(turnId, { userId, controller, done, resolveDone });
+
+  return {
+    signal: controller.signal,
+    dispose() {
+      parentSignal?.removeEventListener("abort", abortFromParent);
+      const active = activeImageTurnControllers.get(turnId);
+      if (active?.controller === controller) {
+        activeImageTurnControllers.delete(turnId);
+      }
+      resolveDone();
+    },
+  };
+}
+
+async function waitForTurnFinalization(done: Promise<void>, timeoutMs = 5000) {
+  let completed = false;
+  await Promise.race([
+    done.then(() => {
+      completed = true;
+    }),
+    new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+  ]);
+  return completed;
+}
+
 // 把 Prisma ImageTurn 行转为前端友好形状（解析 images/referenceThumbs JSON）
 export function serializeTurn(turn: ImageTurn): SerializedTurn {
   return {
@@ -119,6 +168,7 @@ export function serializeTurn(turn: ImageTurn): SerializedTurn {
     error: turn.error,
     creditsCost: turn.creditsCost,
     usedOwnKey: turn.usedOwnKey,
+    durationMs: turn.durationMs,
     generationId: turn.generationId,
     createdAt: turn.createdAt.toISOString(),
   };
@@ -146,6 +196,7 @@ interface RunTurnOptions {
   // 图生图时提供：参考图二进制 + 文件名 + 展示缩略图
   editImage?: { blob: Blob; filename: string };
   referenceThumbs?: string[];
+  signal?: AbortSignal;
   onProgress?: (event: ImageTurnProgressEvent) => Promise<void> | void;
 }
 
@@ -237,6 +288,10 @@ async function finalizeImageTurn({
   const upstreamStatus = firstUpstreamStatus(results);
 
   const updated = await prisma.$transaction(async (tx) => {
+    const existing = await tx.imageTurn.findUnique({ where: { id: turnId } });
+    if (!existing) throw new Error("生成任务不存在");
+    if (existing.status !== "PENDING") return existing;
+
     if (!useOwnKey && unitCost > 0 && failedCount > 0) {
       const refundAmount = unitCost * failedCount;
       const refunded = await tx.user.update({
@@ -338,6 +393,7 @@ export async function runImageTurn(options: RunTurnOptions) {
 
   const pixelSize = RATIO_TO_PIXEL[ratio];
   const qualityMeta = IMAGE_QUALITY_META[quality];
+  const qualityLabel = qualityMeta.label;
   const globalUnitCost = await getSettingNumber(SETTING_KEYS.IMAGE_CREDIT_COST);
   const unitCost = (creditCostOverride ?? globalUnitCost) * qualityMeta.costMultiplier;
   const configuredParallelLimit = await getSettingNumber(SETTING_KEYS.IMAGE_PARALLEL_LIMIT);
@@ -350,6 +406,7 @@ export async function runImageTurn(options: RunTurnOptions) {
   const initialImages: TurnImage[] = Array.from({ length: count }, (_, i) => ({
     id: `${i}`,
     status: i < activeSlots ? "loading" : "queued",
+    quality: qualityLabel,
   }));
   const turn = await prisma.imageTurn.create({
     data: {
@@ -370,6 +427,8 @@ export async function runImageTurn(options: RunTurnOptions) {
       providerSource: source,
     },
   });
+  const turnAbort = attachTurnAbortController(turn.id, userId, options.signal);
+  try {
   await prisma.imageConversation.update({
     where: { id: conversationId },
     data: { updatedAt: new Date() },
@@ -396,11 +455,16 @@ export async function runImageTurn(options: RunTurnOptions) {
 
   // 4. 并发逐张生成：每张独立成功/失败，并实时回写槽位。
   const results: TurnImage[] = [...initialImages];
+  const assertNotStopped = () => {
+    if (turnAbort.signal.aborted) {
+      throw new Error("用户已停止生成");
+    }
+  };
   let imageWriteQueue = Promise.resolve();
   async function persistAndEmitImage(image: TurnImage) {
     imageWriteQueue = imageWriteQueue.then(async () => {
-      await prisma.imageTurn.update({
-        where: { id: turn.id },
+      await prisma.imageTurn.updateMany({
+        where: { id: turn.id, status: "PENDING" },
         data: { images: JSON.stringify(results) },
       });
       await emitProgress(options.onProgress, {
@@ -414,8 +478,10 @@ export async function runImageTurn(options: RunTurnOptions) {
 
   let interruptedError: string | undefined;
   try {
+    assertNotStopped();
     if (mode === "edit") {
       try {
+        const imageStartedAt = Date.now();
         const out = await provider.edit!({
           prompt,
           image: options.editImage!.blob,
@@ -423,20 +489,24 @@ export async function runImageTurn(options: RunTurnOptions) {
           size: pixelSize,
           quality: qualityMeta.providerQuality,
           count,
+          signal: turnAbort.signal,
         });
+        const elapsedMs = out.elapsedMs ?? Date.now() - imageStartedAt;
         for (let i = 0; i < count; i += 1) {
           const url = out.urls[i];
           if (!url) {
-            results[i] = { id: `${i}`, status: "error", error: "上游未返回图片" };
+            results[i] = { id: `${i}`, status: "error", error: "上游未返回图片", durationMs: elapsedMs, quality: qualityLabel };
           } else {
             try {
               results[i] = {
                 id: `${i}`,
                 status: "success",
                 url: await persistGeneratedImageUrl(url, userId, turn.id, i),
+                durationMs: elapsedMs,
+                quality: qualityLabel,
               };
             } catch (e) {
-              results[i] = { id: `${i}`, status: "error", error: getErrorMessage(e, "图片保存失败") };
+              results[i] = { id: `${i}`, status: "error", error: getErrorMessage(e, "图片保存失败"), durationMs: elapsedMs, quality: qualityLabel };
             }
           }
           await persistAndEmitImage(results[i]);
@@ -445,23 +515,26 @@ export async function runImageTurn(options: RunTurnOptions) {
         const msg = getErrorMessage(e);
         const upstreamStatus = getUpstreamStatus(e) ?? undefined;
         for (let i = 0; i < count; i += 1) {
-          results[i] = { id: `${i}`, status: "error", error: msg, upstreamStatus };
+          results[i] = { id: `${i}`, status: "error", error: msg, upstreamStatus, quality: qualityLabel };
           await persistAndEmitImage(results[i]);
         }
       }
     } else {
       await runWithConcurrency(count, parallelLimit, async (i) => {
+        assertNotStopped();
         if (results[i].status !== "loading") {
-          results[i] = { id: `${i}`, status: "loading" };
+          results[i] = { id: `${i}`, status: "loading", quality: qualityLabel };
           await persistAndEmitImage(results[i]);
         }
 
+        const imageStartedAt = Date.now();
         try {
           const out = await provider.generate({
             prompt,
             size: pixelSize,
             quality: qualityMeta.providerQuality,
             count: 1,
+            signal: turnAbort.signal,
           });
           const url = out.urls[0];
           if (!url) throw new Error("未返回图片");
@@ -469,6 +542,8 @@ export async function runImageTurn(options: RunTurnOptions) {
             id: `${i}`,
             status: "success",
             url: await persistGeneratedImageUrl(url, userId, turn.id, i),
+            durationMs: out.elapsedMs ?? Date.now() - imageStartedAt,
+            quality: qualityLabel,
           };
         } catch (e) {
           const msg = getErrorMessage(e);
@@ -477,6 +552,8 @@ export async function runImageTurn(options: RunTurnOptions) {
             status: "error",
             error: msg,
             upstreamStatus: getUpstreamStatus(e) ?? undefined,
+            durationMs: Date.now() - imageStartedAt,
+            quality: qualityLabel,
           };
         }
 
@@ -492,10 +569,11 @@ export async function runImageTurn(options: RunTurnOptions) {
           status: "error",
           error: msg,
           upstreamStatus: getUpstreamStatus(e) ?? undefined,
+          quality: qualityLabel,
         };
       }
     }
-    interruptedError = `任务中断：${msg}`;
+    interruptedError = msg.includes("用户已停止") ? "用户已停止生成" : `任务中断：${msg}`;
   }
 
   const serialized = await finalizeImageTurn({
@@ -524,6 +602,118 @@ export async function runImageTurn(options: RunTurnOptions) {
   });
 
   return serialized;
+  } finally {
+    turnAbort.dispose();
+  }
+}
+
+export async function cancelImageTurn(userId: string, turnId: string) {
+  const active = activeImageTurnControllers.get(turnId);
+  if (active) {
+    if (active.userId !== userId) {
+      throw new TurnError(404, "生成任务不存在");
+    }
+    active.controller.abort("用户已停止生成");
+    const completed = await waitForTurnFinalization(active.done);
+    const current = await prisma.imageTurn.findFirst({
+      where: { id: turnId, conversation: { userId } },
+    });
+    if (!current) throw new TurnError(404, "生成任务不存在");
+    if (completed || current.status !== "PENDING") return serializeTurn(current);
+  }
+
+  const turn = await prisma.imageTurn.findFirst({
+    where: { id: turnId, conversation: { userId } },
+    include: { conversation: { select: { userId: true } } },
+  });
+  if (!turn) {
+    throw new TurnError(404, "生成任务不存在");
+  }
+  if (turn.status !== "PENDING") {
+    return serializeTurn(turn);
+  }
+
+  const results = safeParseArray<TurnImage>(turn.images).map((image) =>
+    image.status === "queued" || image.status === "loading"
+      ? { ...image, status: "error" as const, error: "用户已停止生成" }
+      : image
+  );
+  const successUrls = results
+    .filter((image) => image.status === "success" && image.url)
+    .map((image) => image.url!);
+  const successCount = successUrls.length;
+  const failedCount = Math.max(0, turn.count - successCount);
+  const unitCost =
+    !turn.usedOwnKey && turn.count > 0 ? Math.floor(turn.creditsCost / turn.count) : 0;
+  const actualCost = turn.usedOwnKey ? 0 : unitCost * successCount;
+  const refundAmount = Math.max(0, turn.creditsCost - actualCost);
+  const durationMs = Date.now() - turn.createdAt.getTime();
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const latest = await tx.imageTurn.findUnique({ where: { id: turn.id } });
+    if (!latest) throw new Error("生成任务不存在");
+    if (latest.status !== "PENDING") return latest;
+
+    if (!turn.usedOwnKey && refundAmount > 0) {
+      const refunded = await tx.user.update({
+        where: { id: userId },
+        data: { credits: { increment: refundAmount } },
+      });
+      await tx.creditTransaction.create({
+        data: {
+          userId,
+          amount: refundAmount,
+          type: "REFUND",
+          balanceAfter: refunded.credits,
+          description: `图片生成停止退款 ×${failedCount}`,
+        },
+      });
+    }
+
+    const generation = await tx.generation.create({
+      data: {
+        userId,
+        module: "IMAGE",
+        prompt: turn.prompt,
+        params: JSON.stringify({
+          mode: turn.mode,
+          ratio: turn.ratio,
+          pixelSize: turn.pixelSize,
+          count: turn.count,
+          conversationId: turn.conversationId,
+          turnId: turn.id,
+          stopped: true,
+        }),
+        status: successCount > 0 ? "SUCCESS" : "FAILED",
+        resultUrl: successUrls.length > 0 ? JSON.stringify(successUrls) : null,
+        creditsCost: actualCost,
+        usedOwnKey: turn.usedOwnKey,
+        error: "用户已停止生成",
+        providerSource: turn.providerSource,
+        providerModel: turn.model,
+        upstreamStatus: turn.upstreamStatus,
+        durationMs,
+        imageCount: turn.count,
+        successCount,
+        failedCount,
+      },
+      select: { id: true },
+    });
+
+    return tx.imageTurn.update({
+      where: { id: turn.id },
+      data: {
+        status: successCount > 0 ? "SUCCESS" : "FAILED",
+        images: JSON.stringify(results),
+        error: "用户已停止生成",
+        creditsCost: actualCost,
+        durationMs,
+        generationId: generation.id,
+      },
+    });
+  });
+
+  return serializeTurn(updated);
 }
 
 export async function failStuckImageTurns(timeoutMs = STUCK_IMAGE_TURN_TIMEOUT_MS) {

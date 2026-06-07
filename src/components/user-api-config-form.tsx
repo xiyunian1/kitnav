@@ -13,6 +13,9 @@ import { Loader2, Plug, Save, ListChecks } from "lucide-react";
 
 export interface UserConfigInitial {
   module: string;
+  moduleName?: string;
+  description?: string;
+  modelKind?: "image" | "text";
   baseUrl: string;
   model: string;
   models: string;
@@ -38,6 +41,29 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
   const [switching, setSwitching] = useState(false);
   const [models, setModels] = useState<string[]>([]);
   const [fetchingModels, setFetchingModels] = useState(false);
+  const modelKind = initial.modelKind ?? "image";
+
+  function preferredModels(list: string[]) {
+    const filtered = list.filter((m) => {
+      const v = m.toLowerCase();
+      if (modelKind === "text") {
+        return (
+          v.includes("gpt") ||
+          v.includes("chat") ||
+          v.includes("deepseek") ||
+          v.includes("qwen") ||
+          v.includes("glm") ||
+          v.includes("claude") ||
+          v.includes("gemini") ||
+          v.includes("kimi") ||
+          v.includes("doubao") ||
+          v.includes("instruct")
+        );
+      }
+      return v.includes("image") || v.includes("dall-e") || v.includes("flux");
+    });
+    return filtered.length ? filtered : list;
+  }
 
   async function handleFetchModels() {
     if (!baseUrl) {
@@ -58,11 +84,7 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
       const data = await res.json();
       if (data.ok && Array.isArray(data.models)) {
         setModels(data.models);
-        const imageModels = data.models.filter((m: string) => {
-          const v = m.toLowerCase();
-          return v.includes("image") || v.includes("dall-e") || v.includes("flux");
-        });
-        const next = imageModels.length ? imageModels : data.models;
+        const next = preferredModels(data.models);
         setSelectedModels((prev) => (prev.length ? prev : next));
         if (!model && next[0]) setModel(next[0]);
         toast.success(`获取到 ${data.models.length} 个模型`);
@@ -173,7 +195,7 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
           <Switch checked={enabled} onCheckedChange={handleEnabledChange} disabled={switching} />
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          开关会立即生效；保存按钮只保存 Base URL、Key 和模型配置。
+          {initial.description || "开关会立即生效；保存按钮只保存 Base URL、Key 和模型配置。"}
         </p>
       </CardHeader>
       <CardContent className="space-y-4">

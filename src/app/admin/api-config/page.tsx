@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { maskKey } from "@/lib/crypto";
 import { parseModelList } from "@/lib/model-options";
 import { parseModelMeta } from "@/lib/model-meta";
-import { MODULES } from "@/lib/modules";
+import { API_CONFIG_MODULES } from "@/lib/api-config-schema";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   ProviderConfigForm,
@@ -12,7 +12,7 @@ import { Info } from "lucide-react";
 
 export const metadata = { title: "API 配置" };
 
-const CONFIGURABLE = MODULES.filter((m) => m.moduleType);
+const CONFIGURABLE = API_CONFIG_MODULES;
 
 export default async function AdminApiConfigPage() {
   const configs = await prisma.providerConfig.findMany();
@@ -21,6 +21,8 @@ export default async function AdminApiConfigPage() {
   function initialFor(
     moduleType: string,
     moduleName: string,
+    description: string,
+    modelKind: "image" | "text",
     active: boolean
   ): ProviderConfigInitial {
     const c = byModule.get(moduleType as never);
@@ -35,6 +37,8 @@ export default async function AdminApiConfigPage() {
       hasKey: !!c,
       maskedKey: c ? maskKey(c.apiKey) : "",
       active,
+      description,
+      modelKind,
     };
   }
 
@@ -58,7 +62,7 @@ export default async function AdminApiConfigPage() {
         {CONFIGURABLE.map((m) => (
           <ProviderConfigForm
             key={m.key}
-            initial={initialFor(m.moduleType!, m.name, m.status === "active")}
+            initial={initialFor(m.moduleType, m.name, m.description, m.modelKind, m.active)}
           />
         ))}
       </div>

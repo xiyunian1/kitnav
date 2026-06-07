@@ -6,6 +6,7 @@ import { serializeMaterial } from "@/lib/materials";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { MaterialCard } from "@/components/materials/material-card";
+import { cn } from "@/lib/utils";
 
 export const metadata = { title: "素材广场" };
 
@@ -45,6 +46,13 @@ export default async function MaterialsPage({
     },
   });
   const items = materials.map((material) => serializeMaterial(material, userId));
+  const tabClass = (active: boolean) =>
+    cn(
+      "rounded-full border px-3 py-1 text-sm transition-colors",
+      active
+        ? "bg-primary text-primary-foreground"
+        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+    );
 
   return (
     <div className="space-y-6">
@@ -62,19 +70,19 @@ export default async function MaterialsPage({
       <div className="flex gap-2">
         <Link
           href="/materials?type=IMAGE"
-          className={`rounded-full border px-3 py-1 text-sm ${type === "IMAGE" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+          className={tabClass(type === "IMAGE")}
         >
           图片素材
         </Link>
         <Link
           href="/materials?type=VIDEO"
-          className={`rounded-full border px-3 py-1 text-sm ${type === "VIDEO" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+          className={tabClass(type === "VIDEO")}
         >
           视频素材
         </Link>
         <Link
           href="/materials?type=PROMPT"
-          className={`rounded-full border px-3 py-1 text-sm ${type === "PROMPT" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+          className={tabClass(type === "PROMPT")}
         >
           提示词
         </Link>

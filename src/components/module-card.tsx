@@ -12,10 +12,13 @@ export function ModuleCard({ module }: { module: AppModule }) {
       className={cn(
         "group relative flex h-full flex-col overflow-hidden rounded-xl border bg-card p-6 transition-all",
         isActive
-          ? "cursor-pointer hover:border-primary/40 hover:shadow-lg"
+          ? "cursor-pointer border-primary/30 shadow-sm hover:border-primary/50 hover:shadow-lg"
           : "opacity-75"
       )}
     >
+      {isActive && (
+        <div className={cn("absolute inset-x-0 top-0 h-1 bg-gradient-to-r", module.accent)} />
+      )}
       <div
         className={cn(
           "mb-4 flex size-12 items-center justify-center rounded-lg bg-gradient-to-br text-white",

@@ -27,6 +27,8 @@ export interface ProviderConfigInitial {
   hasKey: boolean;
   maskedKey: string;
   active: boolean; // 模块是否已上线
+  description?: string;
+  modelKind?: "image" | "text";
 }
 
 export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial }) {
@@ -46,6 +48,29 @@ export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial
   const [testing, setTesting] = useState(false);
   const [models, setModels] = useState<string[]>([]);
   const [fetchingModels, setFetchingModels] = useState(false);
+  const modelKind = initial.modelKind ?? "image";
+
+  function preferredModels(list: string[]) {
+    const filtered = list.filter((m) => {
+      const v = m.toLowerCase();
+      if (modelKind === "text") {
+        return (
+          v.includes("gpt") ||
+          v.includes("chat") ||
+          v.includes("deepseek") ||
+          v.includes("qwen") ||
+          v.includes("glm") ||
+          v.includes("claude") ||
+          v.includes("gemini") ||
+          v.includes("kimi") ||
+          v.includes("doubao") ||
+          v.includes("instruct")
+        );
+      }
+      return v.includes("image") || v.includes("dall-e") || v.includes("flux");
+    });
+    return filtered.length ? filtered : list;
+  }
 
   async function handleFetchModels() {
     if (!baseUrl) {
@@ -70,11 +95,7 @@ export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial
       const data = await res.json();
       if (data.ok && Array.isArray(data.models)) {
         setModels(data.models);
-        const imageModels = data.models.filter((m: string) => {
-          const v = m.toLowerCase();
-          return v.includes("image") || v.includes("dall-e") || v.includes("flux");
-        });
-        const next = imageModels.length ? imageModels : data.models;
+        const next = preferredModels(data.models);
         setSelectedModels((prev) => (prev.length ? prev : next));
         if (!model && next[0]) setModel(next[0]);
         toast.success(`获取到 ${data.models.length} 个模型`);
@@ -155,7 +176,8 @@ export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial
           </span>
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          平台上游配置。用户未启用自己的 API 时，该模块走这套配置（按积分计费）。
+          {initial.description ||
+            "平台上游配置。用户未启用自己的 API 时，该模块走这套配置（按积分计费）。"}
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -200,49 +222,51 @@ export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial
           onDefaultModelChange={setModel}
           onSelectedModelsChange={setSelectedModels}
         />
-        <div className="space-y-2 rounded-lg border p-3">
-          <div className="text-sm font-medium">模型运营</div>
-          <p className="text-xs text-muted-foreground">
-            可单独停用模型或设置该模型每张图片积分单价；留空则使用系统图片单价。
-          </p>
-          <div className="space-y-2">
-            {selectedModels.map((item) => {
-              const meta = modelMeta[item] ?? {};
-              return (
-                <div key={item} className="grid items-center gap-2 md:grid-cols-[1fr_90px_110px]">
-                  <span className="truncate text-sm">{item}</span>
-                  <label className="flex items-center gap-2 text-xs">
-                    <Switch
-                      checked={meta.enabled !== false}
-                      onCheckedChange={(checked) =>
+        {modelKind === "image" && (
+          <div className="space-y-2 rounded-lg border p-3">
+            <div className="text-sm font-medium">模型运营</div>
+            <p className="text-xs text-muted-foreground">
+              可单独停用模型或设置该模型每张图片积分单价；留空则使用系统图片单价。
+            </p>
+            <div className="space-y-2">
+              {selectedModels.map((item) => {
+                const meta = modelMeta[item] ?? {};
+                return (
+                  <div key={item} className="grid items-center gap-2 md:grid-cols-[1fr_90px_110px]">
+                    <span className="truncate text-sm">{item}</span>
+                    <label className="flex items-center gap-2 text-xs">
+                      <Switch
+                        checked={meta.enabled !== false}
+                        onCheckedChange={(checked) =>
+                          setModelMeta((prev) => ({
+                            ...prev,
+                            [item]: { ...(prev[item] ?? {}), enabled: checked },
+                          }))
+                        }
+                      />
+                      启用
+                    </label>
+                    <Input
+                      type="number"
+                      min={0}
+                      placeholder="单价"
+                      value={meta.creditCost ?? ""}
+                      onChange={(e) =>
                         setModelMeta((prev) => ({
                           ...prev,
-                          [item]: { ...(prev[item] ?? {}), enabled: checked },
+                          [item]: {
+                            ...(prev[item] ?? {}),
+                            creditCost: e.target.value === "" ? undefined : Number(e.target.value),
+                          },
                         }))
                       }
                     />
-                    启用
-                  </label>
-                  <Input
-                    type="number"
-                    min={0}
-                    placeholder="单价"
-                    value={meta.creditCost ?? ""}
-                    onChange={(e) =>
-                      setModelMeta((prev) => ({
-                        ...prev,
-                        [item]: {
-                          ...(prev[item] ?? {}),
-                          creditCost: e.target.value === "" ? undefined : Number(e.target.value),
-                        },
-                      }))
-                    }
-                  />
-                </div>
-              );
-            })}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
         <div className="flex gap-2">
           <Button variant="outline" onClick={handleTest} disabled={testing || saving}>
             {testing ? <Loader2 className="size-4 animate-spin" /> : <Plug className="size-4" />}

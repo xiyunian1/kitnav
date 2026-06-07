@@ -29,3 +29,54 @@ export async function testImageConnection(
     return { ok: false, error: e instanceof Error ? e.message : "连接失败" };
   }
 }
+
+export async function testTextConnection(
+  creds: ProviderCredentials
+): Promise<TestResult> {
+  if (!creds.baseUrl || !creds.apiKey || !creds.model) {
+    return { ok: false, error: "请填写完整的 Base URL、API Key 和模型名" };
+  }
+
+  try {
+    const res = await fetch(`${creds.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${creds.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: creds.model,
+        temperature: 0,
+        messages: [
+          { role: "system", content: "Return only OK." },
+          { role: "user", content: "connection test" },
+        ],
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!res.ok) {
+      let detail = "";
+      try {
+        const err = await res.json();
+        detail = err?.error?.message || err?.message || JSON.stringify(err);
+      } catch {
+        detail = await res.text().catch(() => "");
+      }
+      return {
+        ok: false,
+        error: `上游返回 ${res.status}：${detail.slice(0, 200) || "请求失败"}`,
+      };
+    }
+
+    const data = await res.json().catch(() => null);
+    const text = String(data?.choices?.[0]?.message?.content || "").trim();
+    if (!text) return { ok: false, error: "上游未返回文本内容" };
+    return { ok: true };
+  } catch (e) {
+    if (e instanceof Error && e.name === "TimeoutError") {
+      return { ok: false, error: "上游响应超时" };
+    }
+    return { ok: false, error: e instanceof Error ? e.message : "连接失败" };
+  }
+}

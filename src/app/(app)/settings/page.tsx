@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { maskKey } from "@/lib/crypto";
 import { parseModelList } from "@/lib/model-options";
-import { MODULES } from "@/lib/modules";
+import { API_CONFIG_MODULES } from "@/lib/api-config-schema";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -13,8 +13,7 @@ import { Info } from "lucide-react";
 
 export const metadata = { title: "API 设置" };
 
-// 有 moduleType 的模块才支持 API 配置
-const CONFIGURABLE = MODULES.filter((m) => m.moduleType);
+const CONFIGURABLE = API_CONFIG_MODULES;
 
 export default async function ApiSettingsPage() {
   const session = await auth();
@@ -55,16 +54,23 @@ export default async function ApiSettingsPage() {
       <Tabs defaultValue={CONFIGURABLE[0]?.key} className="w-full">
         <TabsList>
           {CONFIGURABLE.map((m) => (
-            <TabsTrigger key={m.key} value={m.key} disabled={m.status !== "active"}>
+            <TabsTrigger key={m.key} value={m.key} disabled={!m.active}>
               {m.name}
-              {m.status !== "active" && "（即将上线）"}
+              {!m.active && "（即将上线）"}
             </TabsTrigger>
           ))}
         </TabsList>
         {CONFIGURABLE.map((m) => (
           <TabsContent key={m.key} value={m.key} className="mt-4">
-            {m.status === "active" ? (
-              <UserApiConfigForm initial={initialFor(m.moduleType!)} />
+            {m.active ? (
+              <UserApiConfigForm
+                initial={{
+                  ...initialFor(m.moduleType),
+                  moduleName: m.name,
+                  description: m.description,
+                  modelKind: m.modelKind,
+                }}
+              />
             ) : (
               <p className="py-8 text-center text-sm text-muted-foreground">
                 该模块即将上线，敬请期待

@@ -12,6 +12,16 @@ const schema = z.object({
   prompt: z.string().trim().max(4000).optional(),
   generationId: z.string().optional(),
   tags: z.string().trim().max(200).optional(),
+  meta: z
+    .object({
+      mode: z.enum(["generate", "edit"]).optional(),
+      ratio: z.string().trim().max(20).optional(),
+      quality: z.string().trim().max(20).optional(),
+      count: z.number().int().min(1).max(10).optional(),
+      model: z.string().trim().max(120).optional(),
+      durationMs: z.number().int().positive().optional(),
+    })
+    .optional(),
 });
 
 export async function POST(req: Request) {
@@ -51,6 +61,8 @@ export async function POST(req: Request) {
         url: stored.url,
         storageKey: stored.storageKey,
         thumbnailUrl: stored.url,
+        promptText: parsed.data.prompt || null,
+        promptMeta: parsed.data.meta ? JSON.stringify(parsed.data.meta) : null,
         mimeType: stored.mimeType,
         sizeBytes: stored.sizeBytes,
         sourceGenerationId: parsed.data.generationId || null,
