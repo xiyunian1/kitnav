@@ -17,6 +17,7 @@ export const SETTING_KEYS = {
   IMAGE_USER_CONCURRENT_LIMIT: "image_user_concurrent_limit",
   IMAGE_GLOBAL_CONCURRENT_LIMIT: "image_global_concurrent_limit",
   CREDITS_RECHARGE_ENABLED: "credits_recharge_enabled",
+  MATERIAL_REVIEW_MODE: "material_review_mode",
   VIDEO_CREDIT_COST: "video_credit_cost",
   PPT_CREDIT_COST: "ppt_credit_cost",
 } as const;
@@ -39,6 +40,7 @@ export const DEFAULT_SETTINGS: Record<string, string> = {
   [SETTING_KEYS.IMAGE_USER_CONCURRENT_LIMIT]: "0",
   [SETTING_KEYS.IMAGE_GLOBAL_CONCURRENT_LIMIT]: "0",
   [SETTING_KEYS.CREDITS_RECHARGE_ENABLED]: "1",
+  [SETTING_KEYS.MATERIAL_REVIEW_MODE]: "manual",
   [SETTING_KEYS.VIDEO_CREDIT_COST]: "50",
   [SETTING_KEYS.PPT_CREDIT_COST]: "30",
 };
@@ -111,6 +113,18 @@ export const SETTING_META: {
     description: "关闭后用户无法充值",
     type: "boolean",
     group: "积分",
+  },
+  {
+    key: SETTING_KEYS.MATERIAL_REVIEW_MODE,
+    label: "素材审核模式",
+    description: "手动审核=进入待审核；自动审核=通过基础规则后直接公开；不限制=用户分享后直接公开",
+    type: "text",
+    group: "素材",
+    options: [
+      { label: "手动审核", value: "manual" },
+      { label: "自动审核", value: "auto" },
+      { label: "不限制", value: "unrestricted" },
+    ],
   },
   { key: SETTING_KEYS.VIDEO_CREDIT_COST, label: "视频生成单价", description: "每个视频消耗的积分（模块未上线）", type: "number", group: "未来模块", min: 0, integer: true },
   { key: SETTING_KEYS.PPT_CREDIT_COST, label: "PPT 生成单价", description: "每份 PPT 消耗的积分", type: "number", group: "PPT", min: 0, integer: true },

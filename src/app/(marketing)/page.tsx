@@ -1,86 +1,219 @@
 import Link from "next/link";
+import { ArrowRight, CheckCircle2, Clock, ImageIcon, Layers, Library, Presentation, Sparkles } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { MODULES } from "@/lib/modules";
-import { ModuleCard } from "@/components/module-card";
 import { Button } from "@/components/ui/button";
-import { ImageIcon, Sparkles } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+
+const highlights = [
+  { label: "图片生成", value: "多图并行" },
+  { label: "PPT 生成", value: "可导出 PPTX" },
+  { label: "素材广场", value: "素材可复用" },
+];
 
 export default async function HomePage() {
   const session = await auth();
 
   return (
     <>
-      {/* Hero */}
-      <section className="relative overflow-hidden border-b bg-[radial-gradient(circle_at_50%_0%,rgba(139,92,246,0.18),transparent_32rem),linear-gradient(to_bottom,var(--color-muted),var(--color-background))]">
-        <div className="mx-auto grid max-w-6xl gap-10 px-4 py-16 sm:py-20 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-center lg:text-left">
-          <div className="text-center lg:text-left">
-          <div className="mb-4 inline-flex items-center gap-1.5 rounded-full border bg-background/80 px-3 py-1 text-sm text-muted-foreground shadow-sm backdrop-blur">
-            <Sparkles className="size-3.5 text-primary" />
-            一站式 AI 创作平台
-          </div>
-          <h1 className="mx-auto max-w-3xl text-4xl font-bold tracking-tight sm:text-5xl lg:mx-0">
-            用 AI 释放你的创造力
-          </h1>
-          <p className="mx-auto mt-4 max-w-xl text-lg text-muted-foreground lg:mx-0">
-            图片生成、视频生成、PPT 生成……所有 AI 工具，一个平台搞定。
-          </p>
-          <div className="mt-8 flex items-center justify-center gap-3 lg:justify-start">
-            {session?.user ? (
-              <Button size="lg" asChild>
-                <Link href="/image">开始创作</Link>
-              </Button>
-            ) : (
-              <>
-                <Button size="lg" asChild>
-                  <Link href="/register">免费注册</Link>
-                </Button>
-                <Button size="lg" variant="outline" asChild>
-                  <Link href="/login">登录</Link>
-                </Button>
-              </>
-            )}
-          </div>
+      <section className="border-b bg-[#f7f8fb]">
+        <div className="mx-auto grid max-w-6xl gap-10 px-4 py-10 sm:py-14 lg:grid-cols-[minmax(0,0.95fr)_minmax(420px,1.05fr)] lg:items-center">
+          <div className="max-w-2xl">
+            <div className="mb-5 inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
+              <Sparkles className="size-4 text-primary" />
+              一站式 AI 创作平台
+            </div>
+            <h1 className="text-4xl font-bold leading-tight text-foreground sm:text-5xl">
+              AI 聚合站
+            </h1>
+            <p className="mt-5 max-w-xl text-lg leading-8 text-muted-foreground">
+              把图片生成、PPT、素材库和提示词工作流放在同一个创作台里，少切换工具，更快完成内容生产。
+            </p>
+
+            <div className="mt-7 flex flex-wrap items-center gap-3">
+              {session?.user ? (
+                <>
+                  <Button size="lg" asChild>
+                    <Link href="/image">
+                      开始创作 <ArrowRight className="size-4" />
+                    </Link>
+                  </Button>
+                  <Button size="lg" variant="outline" asChild>
+                    <Link href="/ppt">生成 PPT</Link>
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button size="lg" asChild>
+                    <Link href="/register">
+                      免费注册 <ArrowRight className="size-4" />
+                    </Link>
+                  </Button>
+                  <Button size="lg" variant="outline" asChild>
+                    <Link href="/login">登录</Link>
+                  </Button>
+                </>
+              )}
+            </div>
+
+            <div className="mt-8 grid max-w-xl grid-cols-3 gap-3">
+              {highlights.map((item) => (
+                <div key={item.label} className="rounded-lg border bg-background px-3 py-3 shadow-sm">
+                  <p className="text-xs text-muted-foreground">{item.label}</p>
+                  <p className="mt-1 text-sm font-semibold">{item.value}</p>
+                </div>
+              ))}
+            </div>
           </div>
 
-          <div className="mx-auto hidden w-full max-w-md rounded-xl border bg-background/80 p-4 text-left shadow-xl shadow-violet-500/10 backdrop-blur sm:block">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-2 font-semibold">
-                <span className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 text-white">
-                  <ImageIcon className="size-4" />
-                </span>
-                图片生成
+          <div className="relative">
+            <div className="relative overflow-hidden rounded-lg border bg-background shadow-2xl shadow-black/10">
+              <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <span className="size-2.5 rounded-full bg-rose-400" />
+                  <span className="size-2.5 rounded-full bg-amber-400" />
+                  <span className="size-2.5 rounded-full bg-emerald-400" />
+                </div>
+                <Badge variant="secondary">已开放</Badge>
               </div>
-              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                已开放
-              </span>
-            </div>
-            <div className="rounded-lg border bg-muted/40 p-3">
-              <div className="mb-3 h-3 w-2/3 rounded bg-muted-foreground/20" />
-              <div className="grid grid-cols-3 gap-2">
-                <div className="aspect-square rounded-md bg-gradient-to-br from-violet-500/80 to-purple-600/80" />
-                <div className="aspect-square rounded-md bg-gradient-to-br from-sky-400/70 to-cyan-500/80" />
-                <div className="aspect-square rounded-md bg-gradient-to-br from-emerald-400/70 to-teal-500/80" />
+
+              <div className="grid min-h-[360px] grid-cols-[88px_minmax(0,1fr)]">
+                <div className="border-r bg-[#111827] p-3 text-white">
+                  <div className="mb-5 flex size-10 items-center justify-center rounded-lg bg-white/10">
+                    <Sparkles className="size-5" />
+                  </div>
+                  <div className="space-y-2">
+                    {[
+                      [ImageIcon, "图"],
+                      [Presentation, "PPT"],
+                      [Library, "库"],
+                    ].map(([Icon, label], index) => (
+                      <div
+                        key={String(label)}
+                        className={cn(
+                          "flex h-10 items-center justify-center rounded-md text-xs",
+                          index === 0 ? "bg-white text-foreground" : "bg-white/10 text-white/70"
+                        )}
+                      >
+                        <Icon className="size-4" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="p-4">
+                  <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold">图片生成工作台</p>
+                      <p className="mt-1 text-xs text-muted-foreground">模型、素材、会话记录集中管理</p>
+                    </div>
+                    <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-2.5 py-1 text-xs">
+                      <CheckCircle2 className="size-3.5 text-emerald-600" />
+                      生成完成
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_170px]">
+                    <div className="space-y-3">
+                      <div className="rounded-lg border bg-[#fafafa] p-3">
+                        <div className="mb-3 h-2.5 w-48 rounded bg-muted-foreground/20" />
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="aspect-[4/5] rounded-md bg-[linear-gradient(135deg,#7c3aed,#f472b6)]" />
+                          <div className="aspect-[4/5] rounded-md bg-[linear-gradient(135deg,#06b6d4,#22c55e)]" />
+                          <div className="aspect-[4/5] rounded-md bg-[linear-gradient(135deg,#f97316,#facc15)]" />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+                        <span className="rounded-md border px-2 py-1">标准</span>
+                        <span className="rounded-md border px-2 py-1">高清</span>
+                        <span className="rounded-md border px-2 py-1">超清</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="rounded-lg border p-3">
+                        <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+                          <Layers className="size-4 text-primary" />
+                          素材联动
+                        </div>
+                        <div className="space-y-2">
+                          <div className="h-2 rounded bg-muted" />
+                          <div className="h-2 w-4/5 rounded bg-muted" />
+                          <div className="h-2 w-2/3 rounded bg-muted" />
+                        </div>
+                      </div>
+                      <div className="rounded-lg border p-3">
+                        <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+                          <Clock className="size-4 text-amber-600" />
+                          会话历史
+                        </div>
+                        <div className="space-y-2 text-xs text-muted-foreground">
+                          <p className="rounded-md bg-muted/60 px-2 py-1">第 12 轮</p>
+                          <p className="rounded-md bg-muted/60 px-2 py-1">第 11 轮</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-muted-foreground">
-              <span className="rounded-md border bg-background px-2 py-1">多图并行</span>
-              <span className="rounded-md border bg-background px-2 py-1">素材联动</span>
-              <span className="rounded-md border bg-background px-2 py-1">会话历史</span>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 模块网格 */}
-      <section className="mx-auto max-w-6xl px-4 py-16">
-        <h2 className="mb-2 text-center text-2xl font-bold">全部工具</h2>
-        <p className="mb-10 text-center text-muted-foreground">
-          选择一个模块，立即开始创作
-        </p>
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {MODULES.map((m) => (
-            <ModuleCard key={m.key} module={m} />
-          ))}
+      <section className="mx-auto max-w-6xl px-4 py-10 sm:py-12">
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-bold">全部工具</h2>
+            <p className="mt-1 text-muted-foreground">选择一个模块，立即进入对应工作台</p>
+          </div>
+          <Button variant="outline" asChild>
+            <Link href="/materials">
+              浏览素材广场 <ArrowRight className="size-4" />
+            </Link>
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {MODULES.map((module) => {
+            const Icon = module.icon;
+            const isActive = module.status === "active";
+            const card = (
+              <div
+                className={cn(
+                  "group flex h-full min-h-40 flex-col rounded-lg border bg-card p-5 transition",
+                  isActive
+                    ? "border-foreground/10 shadow-sm hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
+                    : "bg-muted/30 opacity-80"
+                )}
+              >
+                <div className="mb-5 flex items-start justify-between gap-3">
+                  <div className={cn("flex size-11 items-center justify-center rounded-lg bg-gradient-to-br text-white", module.accent)}>
+                    <Icon className="size-5" />
+                  </div>
+                  <Badge variant={isActive ? "default" : "secondary"}>
+                    {isActive ? "可用" : "即将上线"}
+                  </Badge>
+                </div>
+                <h3 className="text-lg font-semibold">{module.name}</h3>
+                <p className="mt-2 flex-1 text-sm leading-6 text-muted-foreground">{module.description}</p>
+                {isActive && (
+                  <span className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-primary">
+                    进入工作台 <ArrowRight className="size-3.5 transition group-hover:translate-x-0.5" />
+                  </span>
+                )}
+              </div>
+            );
+
+            return isActive ? (
+              <Link key={module.key} href={module.href}>
+                {card}
+              </Link>
+            ) : (
+              <div key={module.key}>{card}</div>
+            );
+          })}
         </div>
       </section>
     </>

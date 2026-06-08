@@ -8,6 +8,7 @@ import {
   serializeMaterial,
   tagsToJson,
 } from "@/lib/materials";
+import { resolveMaterialSubmissionState } from "@/lib/material-review";
 
 export const runtime = "nodejs";
 
@@ -150,14 +151,26 @@ export async function POST(req: Request) {
     }
   }
 
+  const submission = await resolveMaterialSubmissionState(parsed.data.visibility, {
+    type: "PROMPT",
+    title: parsed.data.title,
+    description: parsed.data.description,
+    tags: parsed.data.tags,
+    promptText: parsed.data.promptText,
+    mimeType: cover?.mimeType || "text/plain",
+    sizeBytes: cover?.sizeBytes,
+  });
+
   const material = await prisma.material.create({
     data: {
       ownerId: session.user.id,
       ownerType: "USER",
       type: "PROMPT",
       source: "UPLOAD",
-      visibility: parsed.data.visibility,
-      status: parsed.data.visibility === "PUBLIC" ? "PENDING_REVIEW" : "DRAFT",
+      visibility: submission.visibility,
+      status: submission.status,
+      rejectionReason: submission.rejectionReason,
+      reviewedAt: submission.reviewedAt,
       title: parsed.data.title,
       description: parsed.data.description || null,
       tags: tagsToJson(parsed.data.tags),
@@ -169,10 +182,10 @@ export async function POST(req: Request) {
       mimeType: cover?.mimeType || "text/plain",
       sizeBytes: cover?.sizeBytes,
     },
-    select: { id: true },
+    select: { id: true, status: true },
   });
 
-  return NextResponse.json({ ok: true, id: material.id });
+  return NextResponse.json({ ok: true, id: material.id, status: material.status });
 }
 
 export async function PATCH(req: Request) {
@@ -218,14 +231,26 @@ export async function PATCH(req: Request) {
     }
   }
 
-  await prisma.material.update({
+  const submission = await resolveMaterialSubmissionState(parsed.data.visibility, {
+    type: "PROMPT",
+    title: parsed.data.title,
+    description: parsed.data.description,
+    tags: parsed.data.tags,
+    promptText: parsed.data.promptText,
+    mimeType: cover?.mimeType || "text/plain",
+    sizeBytes: cover?.sizeBytes,
+  });
+
+  const updated = await prisma.material.update({
     where: { id: parsed.data.id },
     data: {
       title: parsed.data.title,
       description: parsed.data.description || null,
       tags: tagsToJson(parsed.data.tags),
-      visibility: parsed.data.visibility,
-      status: parsed.data.visibility === "PUBLIC" ? "PENDING_REVIEW" : "DRAFT",
+      visibility: submission.visibility,
+      status: submission.status,
+      rejectionReason: submission.rejectionReason,
+      reviewedAt: submission.reviewedAt,
       promptText: parsed.data.promptText,
       promptMeta: parsed.data.meta ? JSON.stringify(parsed.data.meta) : null,
       ...(cover
@@ -237,8 +262,9 @@ export async function PATCH(req: Request) {
           }
         : {}),
     },
+    select: { id: true, status: true },
   });
   if (cover) await deleteStoredMaterialFile(existing.storageKey);
 
-  return NextResponse.json({ ok: true, id: parsed.data.id });
+  return NextResponse.json({ ok: true, id: updated.id, status: updated.status });
 }

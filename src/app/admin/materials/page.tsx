@@ -3,10 +3,12 @@ import Link from "next/link";
 import type { MaterialStatus, MaterialType } from "@prisma/client";
 import { FileText } from "lucide-react";
 import { prisma } from "@/lib/db";
+import { getAllSettings } from "@/lib/credits";
+import { SETTING_KEYS, SETTING_META } from "@/lib/settings-config";
 import { parseTags } from "@/lib/materials";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -16,6 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { MaterialReviewActions } from "@/components/admin/material-review-actions";
+import { SettingsForm } from "@/components/admin/settings-form";
 
 export const metadata = { title: "素材管理" };
 
@@ -57,6 +60,7 @@ export default async function AdminMaterialsPage({
     ? (params.type as TypeFilter)
     : "ALL";
   const reportsOnly = params.reports === "open";
+  const reviewModeMeta = SETTING_META.filter((item) => item.key === SETTING_KEYS.MATERIAL_REVIEW_MODE);
   const queryFor = (next: { status?: string; type?: string; reports?: boolean }) => {
     const q = new URLSearchParams();
     q.set("status", next.status ?? status);
@@ -66,19 +70,22 @@ export default async function AdminMaterialsPage({
     return `/admin/materials?${q.toString()}`;
   };
 
-  const materials = await prisma.material.findMany({
-    where: {
-      type: type === "ALL" ? { in: ["IMAGE", "PROMPT"] satisfies MaterialType[] } : type,
-      status: status === "ALL" ? { not: "DRAFT" as MaterialStatus } : status,
-      ...(reportsOnly ? { reports: { some: { status: "OPEN" as const } } } : {}),
-    },
-    orderBy: [{ status: "asc" }, { createdAt: "desc" }],
-    take: 100,
-    include: {
-      owner: { select: { email: true, name: true } },
-      _count: { select: { favorites: true, likes: true, reports: true } },
-    },
-  });
+  const [settings, materials] = await Promise.all([
+    getAllSettings(),
+    prisma.material.findMany({
+      where: {
+        type: type === "ALL" ? { in: ["IMAGE", "PROMPT"] satisfies MaterialType[] } : type,
+        status: status === "ALL" ? { not: "DRAFT" as MaterialStatus } : status,
+        ...(reportsOnly ? { reports: { some: { status: "OPEN" as const } } } : {}),
+      },
+      orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+      take: 100,
+      include: {
+        owner: { select: { email: true, name: true } },
+        _count: { select: { favorites: true, likes: true, reports: true } },
+      },
+    }),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -86,6 +93,15 @@ export default async function AdminMaterialsPage({
         <h1 className="text-2xl font-bold">素材管理</h1>
         <p className="text-muted-foreground">审核用户分享素材，管理公开素材状态</p>
       </div>
+
+      <Card className="max-w-2xl">
+        <CardHeader>
+          <CardTitle className="text-base">素材广场审核策略</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <SettingsForm values={settings} meta={reviewModeMeta} />
+        </CardContent>
+      </Card>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { saveImageBlob, tagsToJson } from "@/lib/materials";
+import { resolveMaterialSubmissionState } from "@/lib/material-review";
 
 export const runtime = "nodejs";
 
@@ -30,15 +31,26 @@ export async function POST(req: Request) {
 
   try {
     const stored = await saveImageBlob(image, session.user.id);
+    const finalTitle = title || "未命名素材";
+    const submission = await resolveMaterialSubmissionState(visibility, {
+      type: "IMAGE",
+      title: finalTitle,
+      description,
+      tags,
+      mimeType: stored.mimeType,
+      sizeBytes: stored.sizeBytes,
+    });
     const material = await prisma.material.create({
       data: {
         ownerId: session.user.id,
         ownerType: "USER",
         type: "IMAGE",
         source: "UPLOAD",
-        visibility,
-        status: visibility === "PUBLIC" ? "PENDING_REVIEW" : "DRAFT",
-        title: title || "未命名素材",
+        visibility: submission.visibility,
+        status: submission.status,
+        rejectionReason: submission.rejectionReason,
+        reviewedAt: submission.reviewedAt,
+        title: finalTitle,
         description: description || null,
         tags: tagsToJson(tags),
         url: stored.url,
@@ -47,10 +59,10 @@ export async function POST(req: Request) {
         mimeType: stored.mimeType,
         sizeBytes: stored.sizeBytes,
       },
-      select: { id: true },
+      select: { id: true, status: true },
     });
 
-    return NextResponse.json({ ok: true, id: material.id });
+    return NextResponse.json({ ok: true, id: material.id, status: material.status });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "上传失败" },

@@ -9,6 +9,7 @@ import {
   saveImageFromUrl,
   tagsToJson,
 } from "@/lib/materials";
+import { resolveMaterialSubmissionState } from "@/lib/material-review";
 
 const saveGenerationSchema = z.object({
   url: z.string().min(1),
@@ -79,19 +80,44 @@ export async function requestMaterialReviewAction(materialId: string) {
 
   const material = await prisma.material.findUnique({
     where: { id: materialId },
-    select: { ownerId: true, status: true },
+    select: {
+      ownerId: true,
+      visibility: true,
+      status: true,
+      type: true,
+      title: true,
+      description: true,
+      tags: true,
+      promptText: true,
+      mimeType: true,
+      sizeBytes: true,
+    },
   });
   if (!material || material.ownerId !== session.user.id) return { error: "素材不存在" };
   if (material.status === "PENDING_REVIEW") return { error: "素材已在审核中" };
+  if (material.visibility === "PUBLIC" && material.status === "APPROVED") {
+    return { error: "素材已公开" };
+  }
+
+  const submission = await resolveMaterialSubmissionState("PUBLIC", {
+    type: material.type,
+    title: material.title,
+    description: material.description,
+    tags: material.tags,
+    promptText: material.promptText,
+    mimeType: material.mimeType,
+    sizeBytes: material.sizeBytes,
+  });
 
   await prisma.material.update({
     where: { id: materialId },
-    data: { visibility: "PUBLIC", status: "PENDING_REVIEW" },
+    data: submission,
   });
 
   revalidatePath("/library");
   revalidatePath("/admin/materials");
-  return { ok: true };
+  revalidatePath("/materials");
+  return { ok: true, status: submission.status };
 }
 
 export async function makeMaterialPrivateAction(materialId: string) {

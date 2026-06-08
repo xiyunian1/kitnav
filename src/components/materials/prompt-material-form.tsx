@@ -80,9 +80,15 @@ export function PromptMaterialForm({ material, trigger }: Props) {
         }
         toast.success(
           visibility === "PUBLIC"
-            ? material
-              ? "提示词已更新并提交审核"
-              : "提示词已提交审核"
+            ? data.status === "APPROVED"
+              ? material
+                ? "提示词已更新并公开"
+                : "提示词已公开"
+              : data.status === "REJECTED"
+                ? "提示词已保存，自动审核未通过"
+                : material
+                  ? "提示词已更新并提交审核"
+                  : "提示词已提交审核"
             : material
               ? "提示词已更新"
               : "提示词已保存"

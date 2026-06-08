@@ -302,7 +302,7 @@ export function MaterialCard({ material, mode, onPick }: Props) {
                         onClick={() =>
                           runAction(
                             () => requestMaterialReviewAction(material.id),
-                            "已提交审核"
+                            "已提交分享"
                           )
                         }
                       >

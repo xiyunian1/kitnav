@@ -33,6 +33,9 @@ export async function updateSettingsAction(formData: FormData) {
     if (meta.type === "text" && raw.trim() === "" && !meta.allowEmpty) {
       return { error: `「${meta.label}」不能为空` };
     }
+    if (meta.options && !meta.options.some((option) => option.value === raw.trim())) {
+      return { error: `「${meta.label}」选项无效` };
+    }
     updates.push({ key: meta.key, value: raw.trim() });
   }
 
@@ -52,6 +55,7 @@ export async function updateSettingsAction(formData: FormData) {
     detail: updates,
   });
   revalidatePath("/admin/settings");
+  revalidatePath("/admin/materials");
   revalidatePath("/admin/operations");
   revalidatePath("/", "layout");
   return { ok: true };

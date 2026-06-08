@@ -60,7 +60,15 @@ export function MaterialUploadForm() {
           toast.error(data.error || "上传失败");
           return;
         }
-        toast.success(visibility === "PUBLIC" ? "素材已上传并提交审核" : "素材已上传");
+        toast.success(
+          visibility === "PUBLIC"
+            ? data.status === "APPROVED"
+              ? "素材已上传并公开"
+              : data.status === "REJECTED"
+                ? "素材已上传，自动审核未通过"
+                : "素材已上传并提交审核"
+            : "素材已上传"
+        );
         setOpen(false);
         setPreview(null);
         setVisibility("PRIVATE");
