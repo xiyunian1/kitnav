@@ -7,7 +7,15 @@ import type {
 } from "./types";
 import { UpstreamImageError } from "./types";
 
-const IMAGE_REQUEST_TIMEOUT_MS = 180_000;
+const DEFAULT_IMAGE_REQUEST_TIMEOUT_MS = 180_000;
+
+function normalizeTimeoutMs(timeoutMs?: number) {
+  if (timeoutMs === 0) return 0;
+  if (!timeoutMs || !Number.isFinite(timeoutMs) || timeoutMs < 0) {
+    return DEFAULT_IMAGE_REQUEST_TIMEOUT_MS;
+  }
+  return Math.floor(timeoutMs);
+}
 
 // OpenAI 兼容的图片生成 Provider。
 // 文生图调 {baseUrl}/images/generations，图生图调 {baseUrl}/images/edits，
@@ -33,7 +41,8 @@ export class OpenAIImageProvider implements ImageProvider {
   ): Promise<{ res: Response; elapsedMs: number }> {
     const controller = new AbortController();
     const startedAt = Date.now();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer =
+      timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null;
     const abortFromParent = () => controller.abort(parentSignal?.reason);
     if (parentSignal?.aborted) abortFromParent();
     else parentSignal?.addEventListener("abort", abortFromParent, { once: true });
@@ -58,7 +67,7 @@ export class OpenAIImageProvider implements ImageProvider {
       }
       throw new UpstreamImageError(connectErrorMessage, undefined, elapsedMs);
     } finally {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       parentSignal?.removeEventListener("abort", abortFromParent);
     }
   }
@@ -136,7 +145,7 @@ export class OpenAIImageProvider implements ImageProvider {
           },
           body: JSON.stringify(body),
         },
-        IMAGE_REQUEST_TIMEOUT_MS,
+        normalizeTimeoutMs(params.timeoutMs),
         "无法连接上游服务，请检查 Base URL",
         params.signal
       );
@@ -177,7 +186,7 @@ export class OpenAIImageProvider implements ImageProvider {
           },
           body: form,
         },
-        IMAGE_REQUEST_TIMEOUT_MS,
+        normalizeTimeoutMs(params.timeoutMs),
         "无法连接上游服务，请检查 Base URL",
         params.signal
       );

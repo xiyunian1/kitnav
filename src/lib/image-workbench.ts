@@ -78,6 +78,12 @@ function clampImageParallelLimit(value: number) {
   return Math.min(10, Math.max(1, Math.floor(value)));
 }
 
+function imageRequestTimeoutMs(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return 180_000;
+  if (seconds === 0) return 0;
+  return Math.floor(seconds) * 1000;
+}
+
 function getErrorMessage(e: unknown, fallback = "生成失败") {
   return e instanceof Error && e.message ? e.message : fallback;
 }
@@ -398,6 +404,9 @@ export async function runImageTurn(options: RunTurnOptions) {
   const unitCost = (creditCostOverride ?? globalUnitCost) * qualityMeta.costMultiplier;
   const configuredParallelLimit = await getSettingNumber(SETTING_KEYS.IMAGE_PARALLEL_LIMIT);
   const parallelLimit = Math.min(clampImageParallelLimit(configuredParallelLimit), count);
+  const requestTimeoutMs = imageRequestTimeoutMs(
+    await getSettingNumber(SETTING_KEYS.IMAGE_REQUEST_TIMEOUT_SECONDS)
+  );
   const totalCost = useOwnKey ? 0 : unitCost * count;
 
   // 2. 确保会话 + 建 Turn（PENDING，按并行数区分生成中/等待中）
@@ -490,6 +499,7 @@ export async function runImageTurn(options: RunTurnOptions) {
           quality: qualityMeta.providerQuality,
           count,
           signal: turnAbort.signal,
+          timeoutMs: requestTimeoutMs,
         });
         const elapsedMs = out.elapsedMs ?? Date.now() - imageStartedAt;
         for (let i = 0; i < count; i += 1) {
@@ -535,6 +545,7 @@ export async function runImageTurn(options: RunTurnOptions) {
             quality: qualityMeta.providerQuality,
             count: 1,
             signal: turnAbort.signal,
+            timeoutMs: requestTimeoutMs,
           });
           const url = out.urls[0];
           if (!url) throw new Error("未返回图片");

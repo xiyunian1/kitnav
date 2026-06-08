@@ -71,6 +71,12 @@ const STYLE_THEMES: Record<string, PptTheme> = {
 };
 
 const PPT_IMAGE_PARALLEL_LIMIT = 2;
+
+function imageRequestTimeoutMs(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return 180_000;
+  if (seconds === 0) return 0;
+  return Math.floor(seconds) * 1000;
+}
 const PPT_SLIDE_WIDTH = 13.333;
 const PPT_SLIDE_HEIGHT = 7.5;
 
@@ -232,7 +238,8 @@ async function generatePptSlideVisual(
   resolved: Awaited<ReturnType<typeof resolveImageProvider>>,
   context: PptVisualContext,
   theme: PptTheme,
-  slide: PptSlideContent
+  slide: PptSlideContent,
+  timeoutMs: number
 ): Promise<PptSlideVisualResult> {
   const imagePrompt = buildPptImagePrompt(context, theme, slide);
   const startedAt = Date.now();
@@ -242,6 +249,7 @@ async function generatePptSlideVisual(
       size: RATIO_TO_PIXEL["16:9"],
       quality: IMAGE_QUALITY_META.ultra.providerQuality,
       count: 1,
+      timeoutMs,
     });
     const url = out.urls[0];
     if (!url) throw new Error("上游未返回视觉图");
@@ -289,8 +297,11 @@ async function generatePptSlideVisuals(
   }
 
   const results: PptSlideVisualResult[] = Array.from({ length: slides.length });
+  const timeoutMs = imageRequestTimeoutMs(
+    await getSettingNumber(SETTING_KEYS.IMAGE_REQUEST_TIMEOUT_SECONDS)
+  );
   await runWithConcurrency(slides, PPT_IMAGE_PARALLEL_LIMIT, async (slide, index) => {
-    results[index] = await generatePptSlideVisual(userId, resolved, context, theme, slide);
+    results[index] = await generatePptSlideVisual(userId, resolved, context, theme, slide, timeoutMs);
   });
   return results;
 }
@@ -644,6 +655,9 @@ export async function regeneratePptSlideVisual(userId: string, slideId: string) 
   let result: PptSlideVisualResult;
   try {
     const resolved = await resolveImageProvider(userId, "IMAGE");
+    const timeoutMs = imageRequestTimeoutMs(
+      await getSettingNumber(SETTING_KEYS.IMAGE_REQUEST_TIMEOUT_SECONDS)
+    );
     result = await generatePptSlideVisual(
       userId,
       resolved,
@@ -656,7 +670,8 @@ export async function regeneratePptSlideVisual(userId: string, slideId: string) 
         sourceText: slide.project.sourceText ?? "",
       },
       theme,
-      content
+      content,
+      timeoutMs
     );
   } catch (error) {
     result = {

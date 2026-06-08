@@ -6,6 +6,7 @@ export interface ImageGenerationParams {
   quality?: ImageProviderQuality;
   count?: number;
   signal?: AbortSignal;
+  timeoutMs?: number;
 }
 
 export interface ImageEditParams {
@@ -16,6 +17,7 @@ export interface ImageEditParams {
   quality?: ImageProviderQuality;
   count?: number;
   signal?: AbortSignal;
+  timeoutMs?: number;
 }
 
 export interface GenerationResult {

@@ -13,6 +13,7 @@ export const SETTING_KEYS = {
   IMAGE_MODULE_ENABLED: "image_module_enabled",
   IMAGE_CREDIT_COST: "image_credit_cost", // 图片生成单价（每张）
   IMAGE_PARALLEL_LIMIT: "image_parallel_limit", // 图片多图生成并行数
+  IMAGE_REQUEST_TIMEOUT_SECONDS: "image_request_timeout_seconds", // 单张图片上游请求超时
   IMAGE_DAILY_USER_LIMIT: "image_daily_user_limit",
   IMAGE_USER_CONCURRENT_LIMIT: "image_user_concurrent_limit",
   IMAGE_GLOBAL_CONCURRENT_LIMIT: "image_global_concurrent_limit",
@@ -36,6 +37,7 @@ export const DEFAULT_SETTINGS: Record<string, string> = {
   [SETTING_KEYS.IMAGE_MODULE_ENABLED]: "1",
   [SETTING_KEYS.IMAGE_CREDIT_COST]: "10",
   [SETTING_KEYS.IMAGE_PARALLEL_LIMIT]: "3",
+  [SETTING_KEYS.IMAGE_REQUEST_TIMEOUT_SECONDS]: "180",
   [SETTING_KEYS.IMAGE_DAILY_USER_LIMIT]: "0",
   [SETTING_KEYS.IMAGE_USER_CONCURRENT_LIMIT]: "0",
   [SETTING_KEYS.IMAGE_GLOBAL_CONCURRENT_LIMIT]: "0",
@@ -101,6 +103,16 @@ export const SETTING_META: {
     group: "图片",
     min: 1,
     max: 10,
+    step: 1,
+    integer: true,
+  },
+  {
+    key: SETTING_KEYS.IMAGE_REQUEST_TIMEOUT_SECONDS,
+    label: "图片请求超时",
+    description: "单张图片请求上游等待秒数；0 表示不做本地超时截断，默认 180",
+    type: "number",
+    group: "图片",
+    min: 0,
     step: 1,
     integer: true,
   },
