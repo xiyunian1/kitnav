@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { useTheme } from "next-themes";
 import { usePathname, useRouter } from "next/navigation";
 import {
   DropdownMenu,
@@ -26,21 +25,29 @@ import {
   Sun,
   User as UserIcon,
 } from "lucide-react";
+import { useTheme } from "@/components/theme-provider";
+import type { SidebarControlState } from "@/lib/module-controls";
 
 interface UserMenuProps {
   name: string;
   email: string;
   credits: number;
   isAdmin: boolean;
+  controls: SidebarControlState | null;
 }
 
-export function UserMenu({ name, email, credits, isAdmin }: UserMenuProps) {
+export function UserMenu({ name, email, credits, isAdmin, controls }: UserMenuProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { theme, resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const initial = (name || email).charAt(0).toUpperCase();
   const feedbackHref = `/feedback?from=${encodeURIComponent(pathname)}`;
+  const accountState = new Map((controls?.account ?? []).map((item) => [item.key, item]));
+  const showMaterials = accountState.has("materials");
+  const showLibrary = accountState.has("library");
+  const showCredits = accountState.has("credits");
+  const showFeedback = accountState.has("feedback");
 
   async function handleSignOut() {
     await signOut({ redirect: false });
@@ -75,31 +82,39 @@ export function UserMenu({ name, email, credits, isAdmin }: UserMenuProps) {
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuItem asChild>
-            <Link href="/materials">
-              <Images className="size-4" /> 素材广场
-            </Link>
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link href="/library">
-              <Library className="size-4" /> 我的素材库
-            </Link>
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link href="/credits">
-              <Coins className="size-4" /> 积分充值
-            </Link>
-          </DropdownMenuItem>
+          {showMaterials && (
+            <DropdownMenuItem asChild>
+              <Link href="/materials">
+                <Images className="size-4" /> 素材广场
+              </Link>
+            </DropdownMenuItem>
+          )}
+          {showLibrary && (
+            <DropdownMenuItem asChild>
+              <Link href="/library">
+                <Library className="size-4" /> 我的素材库
+              </Link>
+            </DropdownMenuItem>
+          )}
+          {showCredits && (
+            <DropdownMenuItem asChild>
+              <Link href="/credits">
+                <Coins className="size-4" /> 积分充值
+              </Link>
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem asChild>
             <Link href="/settings">
               <KeyRound className="size-4" /> API 设置
             </Link>
           </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link href={feedbackHref}>
-              <MessageSquare className="size-4" /> 反馈建议
-            </Link>
-          </DropdownMenuItem>
+          {showFeedback && (
+            <DropdownMenuItem asChild>
+              <Link href={feedbackHref}>
+                <MessageSquare className="size-4" /> 反馈建议
+              </Link>
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem asChild>
             <Link href="/profile">
               <UserIcon className="size-4" /> 个人资料

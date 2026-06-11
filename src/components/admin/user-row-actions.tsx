@@ -73,7 +73,7 @@ export function UserRowActions({ user }: Props) {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" disabled={pending}>
+          <Button variant="ghost" size="icon" disabled={pending} aria-label="更多用户操作">
             {pending ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (

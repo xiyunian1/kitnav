@@ -47,6 +47,7 @@ export function InviteToggle({ id, enabled }: { id: string; enabled: boolean }) 
   const [pending, startTransition] = useTransition();
   return (
     <Switch
+      aria-label={enabled ? "停用邀请码" : "启用邀请码"}
       checked={enabled}
       disabled={pending}
       onCheckedChange={(next) =>

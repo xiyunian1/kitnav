@@ -139,7 +139,7 @@ export default async function AdminMaterialsPage({
         </div>
       </div>
 
-      <Card>
+      <Card className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>

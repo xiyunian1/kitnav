@@ -17,7 +17,10 @@ services:
       retries: 20
 
   app:
-    build: .
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://ai.kitnav.com}
     container_name: ai-aggregator
     restart: unless-stopped
     depends_on:

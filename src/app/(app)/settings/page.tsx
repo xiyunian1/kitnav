@@ -52,7 +52,7 @@ export default async function ApiSettingsPage() {
       </Alert>
 
       <Tabs defaultValue={CONFIGURABLE[0]?.key} className="w-full">
-        <TabsList>
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4">
           {CONFIGURABLE.map((m) => (
             <TabsTrigger key={m.key} value={m.key} disabled={!m.active}>
               {m.name}

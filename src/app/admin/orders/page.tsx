@@ -51,7 +51,7 @@ export default async function AdminOrdersPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>

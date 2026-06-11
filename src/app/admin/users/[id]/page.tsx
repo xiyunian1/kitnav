@@ -66,6 +66,7 @@ export default async function AdminUserDetailPage({
       <Card>
         <CardHeader><CardTitle className="text-base">积分流水</CardTitle></CardHeader>
         <CardContent>
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader><TableRow><TableHead>类型</TableHead><TableHead>说明</TableHead><TableHead className="text-right">变动</TableHead><TableHead className="text-right">余额</TableHead><TableHead>时间</TableHead></TableRow></TableHeader>
             <TableBody>
@@ -80,6 +81,7 @@ export default async function AdminUserDetailPage({
               ))}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
 

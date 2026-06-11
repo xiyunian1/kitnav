@@ -107,7 +107,7 @@ export function ConversationSidebar({
               </div>
               <button
                 type="button"
-                className="opacity-0 transition group-hover:opacity-100"
+                className="opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100"
                 onClick={(e) => {
                   e.stopPropagation();
                   onDelete(c.id);

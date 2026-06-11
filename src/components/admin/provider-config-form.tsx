@@ -172,7 +172,11 @@ export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial
           </span>
           <span className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
             启用
-            <Switch checked={enabled} onCheckedChange={setEnabled} />
+            <Switch
+              aria-label={`${enabled ? "停用" : "启用"}${initial.moduleName}`}
+              checked={enabled}
+              onCheckedChange={setEnabled}
+            />
           </span>
         </CardTitle>
         <p className="text-sm text-muted-foreground">
@@ -236,6 +240,7 @@ export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial
                     <span className="truncate text-sm">{item}</span>
                     <label className="flex items-center gap-2 text-xs">
                       <Switch
+                        aria-label={`${meta.enabled === false ? "启用" : "停用"}模型：${item}`}
                         checked={meta.enabled !== false}
                         onCheckedChange={(checked) =>
                           setModelMeta((prev) => ({
@@ -267,7 +272,7 @@ export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial
             </div>
           </div>
         )}
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <Button variant="outline" onClick={handleTest} disabled={testing || saving}>
             {testing ? <Loader2 className="size-4 animate-spin" /> : <Plug className="size-4" />}
             测试连接

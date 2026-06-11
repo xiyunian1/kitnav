@@ -24,7 +24,7 @@ export default async function AdminAuditLogsPage() {
         <h1 className="text-2xl font-bold">审计日志</h1>
         <p className="text-muted-foreground">最近 200 条管理员操作记录</p>
       </div>
-      <Card>
+      <Card className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>

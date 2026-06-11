@@ -54,11 +54,15 @@ export function AnnouncementForm({
         <Input placeholder="标题" value={title} onChange={(e) => setTitle(e.target.value)} />
         <Input placeholder="位置" value={placement} onChange={(e) => setPlacement(e.target.value)} />
         <label className="flex items-center gap-2 text-sm">
-          <Switch checked={enabled} onCheckedChange={setEnabled} /> 启用
+          <Switch
+            aria-label={enabled ? "停用公告" : "启用公告"}
+            checked={enabled}
+            onCheckedChange={setEnabled}
+          /> 启用
         </label>
       </div>
       <Textarea placeholder="公告内容" value={content} onChange={(e) => setContent(e.target.value)} />
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button size="sm" onClick={save} disabled={pending}>
           {pending ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
           保存

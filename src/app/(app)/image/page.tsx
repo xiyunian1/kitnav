@@ -4,6 +4,8 @@ import { SETTING_KEYS } from "@/lib/settings-config";
 import { prisma } from "@/lib/db";
 import { resolveBillingMode } from "@/lib/providers";
 import { serializeMaterial } from "@/lib/materials";
+import { requireModulePageAccess, getStaticModuleMeta } from "@/lib/module-controls";
+import { ModuleUnavailable } from "@/components/module-unavailable";
 import { ImageWorkbench } from "./components/workbench";
 
 export const metadata = { title: "图片生成" };
@@ -69,6 +71,18 @@ export default async function ImagePage({
   }>;
 }) {
   const session = await auth();
+  const access = await requireModulePageAccess("image");
+  if (!access.usable) {
+    const meta = getStaticModuleMeta("image");
+    return (
+      <ModuleUnavailable
+        name={access.name}
+        message={access.message}
+        status={access.status}
+        icon={meta?.icon}
+      />
+    );
+  }
   const userId = session!.user.id;
   const params = await searchParams;
   const promptMaterial = await getAccessiblePromptMaterial(params.promptMaterialId, userId);

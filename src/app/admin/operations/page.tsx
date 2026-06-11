@@ -62,6 +62,7 @@ export default async function AdminOperationsPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           <InviteCodeForm />
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -91,6 +92,7 @@ export default async function AdminOperationsPage() {
               ))}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
     </div>

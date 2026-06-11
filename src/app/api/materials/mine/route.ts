@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { serializeMaterial } from "@/lib/materials";
+import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
 
 export async function GET(req: Request) {
   const session = await auth();
@@ -16,6 +17,20 @@ export async function GET(req: Request) {
     scopeParam === "square" || scopeParam === "favorites" || scopeParam === "mine"
       ? scopeParam
       : "all";
+  try {
+    if (scope === "square") {
+      await assertControlledModuleAvailableForUser("materials", session.user.id);
+    } else if (scope === "mine") {
+      await assertControlledModuleAvailableForUser("library", session.user.id);
+    } else {
+      await assertControlledModuleAvailableForUser("library", session.user.id);
+    }
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "素材模块已暂停" },
+      { status: 503 }
+    );
+  }
 
   const scopeWhere =
     scope === "mine"

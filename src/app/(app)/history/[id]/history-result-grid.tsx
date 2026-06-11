@@ -24,6 +24,7 @@ export function HistoryResultGrid({ urls }: Props) {
                 onClick={() => setPreview({ src: url, alt })}
                 className="relative block aspect-square w-full bg-muted outline-none ring-offset-background transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 title="查看大图"
+                aria-label={`查看大图：${alt}`}
               >
                 <Image
                   src={url}

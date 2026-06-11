@@ -15,7 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
 
 interface LoginFormProps {
   linuxDoEnabled: boolean;
@@ -28,25 +28,35 @@ export function LoginForm({ linuxDoEnabled }: LoginFormProps) {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    const res = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-    });
-    setLoading(false);
+    try {
+      const res = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
+      });
 
-    if (res?.error) {
-      toast.error("邮箱或密码错误");
-      return;
+      if (res?.error) {
+        if (res.error === "CredentialsSignin") {
+          toast.error("邮箱或密码错误");
+        } else {
+          toast.error("登录失败，请稍后再试");
+        }
+        return;
+      }
+      toast.success("登录成功");
+      router.push(callbackUrl);
+      router.refresh();
+    } catch {
+      toast.error("网络错误，请检查连接");
+    } finally {
+      setLoading(false);
     }
-    toast.success("登录成功");
-    router.push(callbackUrl);
-    router.refresh();
   }
 
   function handleLinuxDoSignIn() {
@@ -67,6 +77,7 @@ export function LoginForm({ linuxDoEnabled }: LoginFormProps) {
               variant="outline"
               className="mb-4 w-full"
               onClick={handleLinuxDoSignIn}
+              disabled={loading}
             >
               使用 Linux.do 继续
             </Button>
@@ -83,6 +94,7 @@ export function LoginForm({ linuxDoEnabled }: LoginFormProps) {
             <Input
               id="email"
               type="email"
+              autoComplete="email"
               placeholder="you@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -91,18 +103,34 @@ export function LoginForm({ linuxDoEnabled }: LoginFormProps) {
           </div>
           <div className="space-y-2">
             <Label htmlFor="password">密码</Label>
-            <Input
-              id="password"
-              type="password"
-              placeholder="••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+            <div className="relative">
+              <Input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                placeholder="••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                aria-label={showPassword ? "隐藏密码" : "显示密码"}
+              >
+                {showPassword ? (
+                  <EyeOff className="size-4" />
+                ) : (
+                  <Eye className="size-4" />
+                )}
+              </button>
+            </div>
           </div>
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading && <Loader2 className="size-4 animate-spin" />}
-            登录
+          <Button type="submit" className="w-full" disabled={loading} aria-busy={loading}>
+            {loading && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+            {loading ? "登录中..." : "登录"}
           </Button>
         </form>
         <p className="mt-4 text-center text-sm text-muted-foreground">

@@ -16,6 +16,7 @@ import {
   Settings,
   ShieldCheck,
   ShoppingCart,
+  SlidersHorizontal,
   Users,
 } from "lucide-react";
 
@@ -29,6 +30,7 @@ const NAV = [
   { name: "充值订单", href: "/admin/orders", icon: ShoppingCart },
   { name: "API 配置", href: "/admin/api-config", icon: KeyRound },
   { name: "运营控制", href: "/admin/operations", icon: ShieldCheck },
+  { name: "模块控制", href: "/admin/modules", icon: SlidersHorizontal },
   { name: "公告管理", href: "/admin/announcements", icon: Megaphone },
   { name: "审计日志", href: "/admin/audit-logs", icon: ScrollText },
   { name: "系统设置", href: "/admin/settings", icon: Settings },

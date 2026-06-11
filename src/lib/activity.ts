@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { hasPostgresDatabaseUrl } from "@/lib/database-url";
 
 const CHINA_TIME_ZONE = "Asia/Shanghai";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -42,6 +43,10 @@ export function getChinaDayStart(dayKey: string) {
 }
 
 export async function recordDailyActivity(userId: string) {
+  if (!hasPostgresDatabaseUrl()) {
+    return;
+  }
+
   const day = getChinaDayKey();
 
   try {
@@ -50,7 +55,9 @@ export async function recordDailyActivity(userId: string) {
       update: { lastSeenAt: new Date() },
       create: { userId, day },
     });
-  } catch (error) {
-    console.error("Failed to record daily activity", error);
+  } catch {
+    if (process.env.NODE_ENV === "production") {
+      console.warn("Failed to record daily activity");
+    }
   }
 }

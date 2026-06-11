@@ -21,16 +21,22 @@ import {
 // 布尔设置项：Radix Switch 不进 FormData，用受控 state + 隐藏 input 保证始终提交 0/1。
 function BooleanField({
   name,
+  label,
   defaultValue,
 }: {
   name: string;
+  label: string;
   defaultValue: string;
 }) {
   const [checked, setChecked] = useState(defaultValue === "1");
   return (
     <div className="flex items-center gap-3">
       <input type="hidden" name={name} value={checked ? "1" : "0"} />
-      <Switch checked={checked} onCheckedChange={setChecked} />
+      <Switch
+        aria-label={`${checked ? "关闭" : "开启"}${label}`}
+        checked={checked}
+        onCheckedChange={setChecked}
+      />
       <span className="text-sm text-muted-foreground">
         {checked ? "已开启" : "已关闭"}
       </span>
@@ -69,7 +75,11 @@ export function SettingsForm({
             <div key={item.key} className="space-y-2">
               <Label htmlFor={item.key}>{item.label}</Label>
               {item.type === "boolean" ? (
-                <BooleanField name={item.key} defaultValue={values[item.key] ?? "0"} />
+                <BooleanField
+                  name={item.key}
+                  label={item.label}
+                  defaultValue={values[item.key] ?? "0"}
+                />
               ) : item.options ? (
                 <Select name={item.key} defaultValue={values[item.key] ?? ""}>
                   <SelectTrigger className="w-full">

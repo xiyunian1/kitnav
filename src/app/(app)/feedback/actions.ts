@@ -6,6 +6,7 @@ import type { FeedbackModule, FeedbackType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { saveFeedbackScreenshots } from "@/lib/feedback";
+import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
 
 const TYPE_VALUES = ["FEATURE", "BUG", "EXPERIENCE", "BILLING", "OTHER"] as const;
 const MODULE_VALUES = ["IMAGE", "MATERIALS", "CREDITS", "AUTH", "PROFILE", "OTHER"] as const;
@@ -21,6 +22,11 @@ const feedbackSchema = z.object({
 export async function submitFeedbackAction(formData: FormData) {
   const session = await auth();
   if (!session?.user) return { error: "请先登录" };
+  try {
+    await assertControlledModuleAvailableForUser("feedback", session.user.id);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "反馈入口已暂停" };
+  }
 
   const parsed = feedbackSchema.safeParse({
     type: formData.get("type"),

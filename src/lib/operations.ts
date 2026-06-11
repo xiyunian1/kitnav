@@ -2,6 +2,11 @@ import { prisma } from "@/lib/db";
 import { getSetting, getSettingNumber } from "@/lib/credits";
 import { SETTING_KEYS } from "@/lib/settings-config";
 import type { ModuleType } from "@prisma/client";
+import {
+  getModuleControlDefinitionByModuleType,
+  getModuleControls,
+  isModuleUsable,
+} from "@/lib/module-controls";
 
 export class OperationBlockedError extends Error {
   constructor(message: string, public status = 403) {
@@ -106,8 +111,19 @@ export async function recordRegistration(input: {
 }
 
 export async function assertModuleOperationAllowed(userId: string, module: ModuleType) {
-  if (module !== "IMAGE") return;
+  const definition = getModuleControlDefinitionByModuleType(module);
+  if (definition) {
+    const [controls, user] = await Promise.all([
+      getModuleControls(),
+      prisma.user.findUnique({ where: { id: userId }, select: { role: true } }),
+    ]);
+    const control = controls[definition.key];
+    if (control && !isModuleUsable(control, user?.role === "ADMIN")) {
+      throw new OperationBlockedError(control.message, 503);
+    }
+  }
 
+  if (module !== "IMAGE") return;
   const enabled = await getSettingNumber(SETTING_KEYS.IMAGE_MODULE_ENABLED);
   if (enabled !== 1) throw new OperationBlockedError("图片生成已暂停", 503);
 

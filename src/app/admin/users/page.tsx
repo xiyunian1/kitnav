@@ -131,7 +131,7 @@ export default async function AdminUsersPage({
         </div>
       </div>
 
-      <Card>
+      <Card className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
@@ -199,22 +199,25 @@ export default async function AdminUsersPage({
 
       <div className="flex items-center justify-end gap-2">
         {page <= 1 ? (
-          <Button variant="outline" disabled>
+          <Button variant="outline" size="sm" disabled>
             上一页
           </Button>
         ) : (
-          <Button asChild variant="outline">
+          <Button asChild variant="outline" size="sm">
             <Link href={makeQuery({ q, role, status, page: page - 1 })}>
               上一页
             </Link>
           </Button>
         )}
+        <span className="px-2 text-sm text-muted-foreground">
+          {page} / {totalPages}
+        </span>
         {page >= totalPages ? (
-          <Button variant="outline" disabled>
+          <Button variant="outline" size="sm" disabled>
             下一页
           </Button>
         ) : (
-          <Button asChild variant="outline">
+          <Button asChild variant="outline" size="sm">
             <Link href={makeQuery({ q, role, status, page: page + 1 })}>
               下一页
             </Link>

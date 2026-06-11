@@ -1,12 +1,14 @@
 import { FileText, ImageIcon, Search } from "lucide-react";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
+import { EmptyState } from "@/components/empty-state";
 import { prisma } from "@/lib/db";
 import { serializeMaterial } from "@/lib/materials";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { MaterialCard } from "@/components/materials/material-card";
 import { cn } from "@/lib/utils";
+import { requireModulePageAccess } from "@/lib/module-controls";
+import { ModuleUnavailable } from "@/components/module-unavailable";
 
 export const metadata = { title: "素材广场" };
 
@@ -16,6 +18,16 @@ export default async function MaterialsPage({
   searchParams: Promise<{ q?: string; type?: string }>;
 }) {
   const session = await auth();
+  const access = await requireModulePageAccess("materials");
+  if (!access.usable) {
+    return (
+      <ModuleUnavailable
+        name={access.name}
+        message={access.message}
+        status={access.status}
+      />
+    );
+  }
   const userId = session!.user.id;
   const params = await searchParams;
   const q = params.q?.trim() || "";
@@ -89,20 +101,18 @@ export default async function MaterialsPage({
       </div>
 
       {type === "VIDEO" ? (
-        <Card className="flex min-h-[320px] flex-col items-center justify-center gap-3 text-muted-foreground">
-          <ImageIcon className="size-12 opacity-40" />
-          <p>视频素材模块已预留，待接入转码和封面后开放</p>
-        </Card>
-      ) : type === "PROMPT" && items.length === 0 ? (
-        <Card className="flex min-h-[320px] flex-col items-center justify-center gap-3 text-muted-foreground">
-          <FileText className="size-12 opacity-40" />
-          <p>暂无公开提示词</p>
-        </Card>
+        <EmptyState
+          icon={ImageIcon}
+          title="视频素材"
+          description="视频素材模块已预留，待接入转码和封面后开放"
+        />
       ) : items.length === 0 ? (
-        <Card className="flex min-h-[320px] flex-col items-center justify-center gap-3 text-muted-foreground">
-          <ImageIcon className="size-12 opacity-40" />
-          <p>暂无公开图片素材</p>
-        </Card>
+        <EmptyState
+          icon={type === "PROMPT" ? FileText : ImageIcon}
+          title={type === "PROMPT" ? "暂无公开提示词" : "暂无公开图片素材"}
+          description="成为第一个分享素材的人吧"
+          action={{ label: "去我的素材库", href: "/library" }}
+        />
       ) : (
         <div className="grid gap-3 sm:grid-cols-[repeat(auto-fill,minmax(220px,1fr))]">
           {items.map((material) => (

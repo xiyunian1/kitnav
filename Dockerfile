@@ -8,6 +8,8 @@ COPY prisma ./prisma
 RUN npm install
 
 FROM base AS builder
+ARG NEXT_PUBLIC_SITE_URL
+ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
 ENV DATABASE_URL=postgresql://ai_aggregator:postgres@localhost:5432/ai_aggregator?schema=public
 RUN apk add --no-cache openssl
 COPY --from=deps /app/node_modules ./node_modules

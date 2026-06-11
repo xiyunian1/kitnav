@@ -9,6 +9,7 @@ import {
   tagsToJson,
 } from "@/lib/materials";
 import { resolveMaterialSubmissionState } from "@/lib/material-review";
+import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
 
 export const runtime = "nodejs";
 
@@ -67,6 +68,17 @@ export async function GET(req: Request) {
   const params = new URL(req.url).searchParams;
   const scope = params.get("scope") === "square" ? "square" : "mine";
   const q = params.get("q")?.trim() || "";
+  try {
+    await assertControlledModuleAvailableForUser(
+      scope === "square" ? "materials" : "library",
+      session.user.id
+    );
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "素材模块已暂停" },
+      { status: 503 }
+    );
+  }
 
   const materials = await prisma.material.findMany({
     where: {
@@ -120,6 +132,14 @@ export async function POST(req: Request) {
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: "请先登录" }, { status: 401 });
+  }
+  try {
+    await assertControlledModuleAvailableForUser("library", session.user.id);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "素材库已暂停" },
+      { status: 503 }
+    );
   }
 
   let input: Awaited<ReturnType<typeof readPromptInput>>;
@@ -193,6 +213,14 @@ export async function PATCH(req: Request) {
   if (!session?.user) {
     return NextResponse.json({ error: "请先登录" }, { status: 401 });
   }
+  try {
+    await assertControlledModuleAvailableForUser("library", session.user.id);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "素材库已暂停" },
+      { status: 503 }
+    );
+  }
 
   let input: Awaited<ReturnType<typeof readPromptInput>>;
   try {
@@ -207,6 +235,16 @@ export async function PATCH(req: Request) {
       { error: parsed.error.issues[0]?.message ?? "参数错误" },
       { status: 400 }
     );
+  }
+  if (parsed.data.visibility === "PUBLIC") {
+    try {
+      await assertControlledModuleAvailableForUser("materials", session.user.id);
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "素材广场已暂停" },
+        { status: 503 }
+      );
+    }
   }
 
   const existing = await prisma.material.findUnique({

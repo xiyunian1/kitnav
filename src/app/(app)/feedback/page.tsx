@@ -1,4 +1,6 @@
 import { FeedbackForm } from "@/components/feedback-form";
+import { requireModulePageAccess } from "@/lib/module-controls";
+import { ModuleUnavailable } from "@/components/module-unavailable";
 
 export const metadata = { title: "反馈建议" };
 
@@ -7,6 +9,16 @@ export default async function FeedbackPage({
 }: {
   searchParams: Promise<{ from?: string }>;
 }) {
+  const access = await requireModulePageAccess("feedback");
+  if (!access.usable) {
+    return (
+      <ModuleUnavailable
+        name={access.name}
+        message={access.message}
+        status={access.status}
+      />
+    );
+  }
   const params = await searchParams;
   const sourcePath = (params.from?.trim() || "/feedback").slice(0, 300);
 

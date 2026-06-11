@@ -5,11 +5,15 @@ import { Users, ImageIcon, ShoppingCart, Coins } from "lucide-react";
 export const metadata = { title: "仪表盘" };
 
 export default async function AdminDashboard() {
-  const [userCount, genCount, paidOrders, recentUsers, recentGens] =
+  const [userCount, genCount, orderAgg, recentUsers, recentGens] =
     await Promise.all([
       prisma.user.count(),
       prisma.generation.count(),
-      prisma.order.findMany({ where: { status: "PAID" } }),
+      prisma.order.aggregate({
+        where: { status: "PAID" },
+        _count: true,
+        _sum: { amount: true },
+      }),
       prisma.user.findMany({
         orderBy: { createdAt: "desc" },
         take: 5,
@@ -22,20 +26,21 @@ export default async function AdminDashboard() {
       }),
     ]);
 
-  const revenue = paidOrders.reduce((sum, o) => sum + o.amount, 0);
+  const orderCount = orderAgg._count;
+  const revenue = orderAgg._sum.amount ?? 0;
 
   const stats = [
-    { label: "用户总数", value: userCount, icon: Users, color: "text-blue-500" },
-    { label: "生成总数", value: genCount, icon: ImageIcon, color: "text-violet-500" },
+    { label: "用户总数", value: userCount.toLocaleString("zh-CN"), icon: Users, color: "text-blue-500" },
+    { label: "生成总数", value: genCount.toLocaleString("zh-CN"), icon: ImageIcon, color: "text-violet-500" },
     {
       label: "付费订单",
-      value: paidOrders.length,
+      value: orderCount.toLocaleString("zh-CN"),
       icon: ShoppingCart,
       color: "text-green-500",
     },
     {
       label: "总收入",
-      value: `¥${(revenue / 100).toFixed(0)}`,
+      value: (revenue / 100).toLocaleString("zh-CN", { style: "currency", currency: "CNY" }),
       icon: Coins,
       color: "text-amber-500",
     },

@@ -72,18 +72,26 @@ export function RechargePackageForm({ pkg }: { pkg?: RechargePackageView }) {
       <Input type="number" placeholder="金额(分)" value={amount} onChange={(e) => setAmount(e.target.value)} />
       <Input type="number" placeholder="排序" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} />
       <label className="flex items-center gap-2 text-sm">
-        <Switch checked={enabled} onCheckedChange={setEnabled} /> 启用
+        <Switch
+          aria-label={enabled ? "停用充值套餐" : "启用充值套餐"}
+          checked={enabled}
+          onCheckedChange={setEnabled}
+        /> 启用
       </label>
       <label className="flex items-center gap-2 text-sm">
-        <Switch checked={popular} onCheckedChange={setPopular} /> 热门
+        <Switch
+          aria-label={popular ? "取消热门套餐" : "设为热门套餐"}
+          checked={popular}
+          onCheckedChange={setPopular}
+        /> 热门
       </label>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button size="sm" onClick={save} disabled={pending}>
           {pending ? <Loader2 className="size-4 animate-spin" /> : pkg ? <Save className="size-4" /> : <Plus className="size-4" />}
           保存
         </Button>
         {pkg && (
-          <Button size="sm" variant="outline" onClick={remove} disabled={pending}>
+          <Button size="sm" variant="outline" onClick={remove} disabled={pending} aria-label={`删除套餐：${label}`}>
             <Trash2 className="size-4" />
           </Button>
         )}

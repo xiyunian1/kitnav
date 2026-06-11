@@ -140,7 +140,7 @@ export default async function AdminFeedbackPage({
         ))}
       </div>
 
-      <Card>
+      <Card className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>

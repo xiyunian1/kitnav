@@ -10,6 +10,7 @@ import {
   tagsToJson,
 } from "@/lib/materials";
 import { resolveMaterialSubmissionState } from "@/lib/material-review";
+import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
 
 const saveGenerationSchema = z.object({
   url: z.string().min(1),
@@ -27,6 +28,7 @@ export async function saveGeneratedImageAction(input: z.infer<typeof saveGenerat
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "参数错误" };
 
   try {
+    await assertControlledModuleAvailableForUser("library", session.user.id);
     const stored = await saveImageFromUrl(parsed.data.url, session.user.id);
     await prisma.material.create({
       data: {
@@ -58,6 +60,11 @@ export async function saveGeneratedImageAction(input: z.infer<typeof saveGenerat
 export async function deleteMaterialAction(materialId: string) {
   const session = await auth();
   if (!session?.user) return { error: "请先登录" };
+  try {
+    await assertControlledModuleAvailableForUser("library", session.user.id);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "操作已暂停" };
+  }
 
   const material = await prisma.material.findUnique({
     where: { id: materialId },
@@ -77,6 +84,12 @@ export async function deleteMaterialAction(materialId: string) {
 export async function requestMaterialReviewAction(materialId: string) {
   const session = await auth();
   if (!session?.user) return { error: "请先登录" };
+  try {
+    await assertControlledModuleAvailableForUser("materials", session.user.id);
+    await assertControlledModuleAvailableForUser("library", session.user.id);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "操作已暂停" };
+  }
 
   const material = await prisma.material.findUnique({
     where: { id: materialId },
@@ -123,6 +136,11 @@ export async function requestMaterialReviewAction(materialId: string) {
 export async function makeMaterialPrivateAction(materialId: string) {
   const session = await auth();
   if (!session?.user) return { error: "请先登录" };
+  try {
+    await assertControlledModuleAvailableForUser("library", session.user.id);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "操作已暂停" };
+  }
 
   const material = await prisma.material.findUnique({
     where: { id: materialId },
@@ -143,6 +161,11 @@ export async function makeMaterialPrivateAction(materialId: string) {
 export async function toggleFavoriteMaterialAction(materialId: string) {
   const session = await auth();
   if (!session?.user) return { error: "请先登录" };
+  try {
+    await assertControlledModuleAvailableForUser("materials", session.user.id);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "操作已暂停" };
+  }
 
   const material = await prisma.material.findFirst({
     where: {
@@ -172,6 +195,11 @@ export async function toggleFavoriteMaterialAction(materialId: string) {
 export async function toggleLikeMaterialAction(materialId: string) {
   const session = await auth();
   if (!session?.user) return { error: "请先登录" };
+  try {
+    await assertControlledModuleAvailableForUser("materials", session.user.id);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "操作已暂停" };
+  }
 
   const material = await prisma.material.findFirst({
     where: {
@@ -200,6 +228,11 @@ export async function toggleLikeMaterialAction(materialId: string) {
 export async function reportMaterialAction(materialId: string, reason: string) {
   const session = await auth();
   if (!session?.user) return { error: "请先登录" };
+  try {
+    await assertControlledModuleAvailableForUser("materials", session.user.id);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "操作已暂停" };
+  }
   const text = reason.trim().slice(0, 200);
   if (!text) return { error: "请填写举报原因" };
   const material = await prisma.material.findFirst({
@@ -216,6 +249,12 @@ export async function reportMaterialAction(materialId: string, reason: string) {
 export async function saveImageMaterialCopyAction(materialId: string) {
   const session = await auth();
   if (!session?.user) return { error: "请先登录" };
+  try {
+    await assertControlledModuleAvailableForUser("materials", session.user.id);
+    await assertControlledModuleAvailableForUser("library", session.user.id);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "操作已暂停" };
+  }
 
   const material = await prisma.material.findFirst({
     where: {
@@ -267,6 +306,12 @@ export async function saveImageMaterialCopyAction(materialId: string) {
 export async function savePromptMaterialCopyAction(materialId: string) {
   const session = await auth();
   if (!session?.user) return { error: "请先登录" };
+  try {
+    await assertControlledModuleAvailableForUser("materials", session.user.id);
+    await assertControlledModuleAvailableForUser("library", session.user.id);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "操作已暂停" };
+  }
 
   const material = await prisma.material.findFirst({
     where: {

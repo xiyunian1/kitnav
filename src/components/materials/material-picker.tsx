@@ -81,7 +81,7 @@ export function MaterialPicker({ onPick }: Props) {
           <Input value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" placeholder="搜索我的素材" />
         </div>
         <Tabs value={scope} onValueChange={(value) => setScope(value as "mine" | "favorites" | "square")}>
-          <TabsList className="w-full">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="mine">我的素材</TabsTrigger>
             <TabsTrigger value="favorites">收藏</TabsTrigger>
             <TabsTrigger value="square">素材广场</TabsTrigger>
@@ -105,9 +105,10 @@ export function MaterialPicker({ onPick }: Props) {
               ))}
             </div>
           ) : materials.length === 0 ? (
-            <div className="flex min-h-64 flex-col items-center justify-center gap-2 text-muted-foreground">
+            <div className="flex min-h-64 flex-col items-center justify-center gap-2 rounded-lg border border-dashed text-center text-muted-foreground">
               <ImageIcon className="size-10 opacity-50" />
-              <p>暂无可用素材</p>
+              <p className="text-sm font-medium">暂无可用素材</p>
+              <p className="max-w-xs text-xs">换个关键词搜索，或先去素材库上传图片。</p>
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">

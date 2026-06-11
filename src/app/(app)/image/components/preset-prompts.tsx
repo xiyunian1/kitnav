@@ -153,7 +153,7 @@ export function PresetPrompts({ onPick }: Props) {
           </DialogDescription>
         </DialogHeader>
         <Tabs defaultValue="official">
-          <TabsList>
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="official">官方预设</TabsTrigger>
             <TabsTrigger value="mine">我的提示词</TabsTrigger>
             <TabsTrigger value="square">素材广场</TabsTrigger>

@@ -144,7 +144,7 @@ export default async function AdminGenerationsPage({
         </div>
       </div>
 
-      <Card>
+      <Card className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>

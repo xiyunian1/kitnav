@@ -1,37 +1,44 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { RechargePackages } from "@/components/recharge-packages";
-import { Coins } from "lucide-react";
+import { CreditTransactions } from "@/components/credit-transactions";
+import { Coins, Receipt } from "lucide-react";
 import { getSettingNumber } from "@/lib/credits";
+import { EmptyState } from "@/components/empty-state";
 import { SETTING_KEYS } from "@/lib/settings-config";
 import { listRechargePackages } from "@/lib/recharge-packages";
+import { requireModulePageAccess } from "@/lib/module-controls";
+import { ModuleUnavailable } from "@/components/module-unavailable";
 
 export const metadata = { title: "积分充值" };
 
-const TX_LABEL: Record<string, string> = {
-  SIGNUP_BONUS: "注册赠送",
-  CONSUME: "生成消耗",
-  RECHARGE: "充值",
-  ADMIN_ADJUST: "管理员调整",
-  REFUND: "失败退款",
-};
-
 export default async function CreditsPage() {
   const session = await auth();
+  const access = await requireModulePageAccess("credits");
+  if (!access.usable) {
+    return (
+      <ModuleUnavailable
+        name={access.name}
+        message={access.message}
+        status={access.status}
+      />
+    );
+  }
   const userId = session!.user.id;
 
   const [user, transactions, packages, rechargeEnabled] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId }, select: { credits: true } }),
     prisma.creditTransaction.findMany({
       where: { userId },
-      orderBy: { createdAt: "desc" },
-      take: 30,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 31,
     }),
     listRechargePackages(false),
     getSettingNumber(SETTING_KEYS.CREDITS_RECHARGE_ENABLED),
   ]);
+
+  const visibleTransactions = transactions.slice(0, 30);
 
   return (
     <div className="space-y-6">
@@ -68,45 +75,24 @@ export default async function CreditsPage() {
           <CardTitle className="text-base">积分流水</CardTitle>
         </CardHeader>
         <CardContent>
-          {transactions.length === 0 ? (
-            <p className="py-5 text-center text-sm text-muted-foreground">
-              暂无流水记录
-            </p>
+          {visibleTransactions.length === 0 ? (
+            <EmptyState
+              icon={Receipt}
+              title="暂无流水记录"
+              description="充值或消耗积分后，流水将显示在这里"
+              className="min-h-[200px] border-0"
+            />
           ) : (
-            <div className="divide-y">
-              {transactions.map((tx) => (
-                <div
-                  key={tx.id}
-                  className="flex items-center justify-between py-3 text-sm"
-                >
-                  <div className="flex flex-col gap-0.5">
-                    <span className="flex items-center gap-2">
-                      <Badge variant="outline" className="font-normal">
-                        {TX_LABEL[tx.type] ?? tx.type}
-                      </Badge>
-                      {tx.description && (
-                        <span className="text-muted-foreground">
-                          {tx.description}
-                        </span>
-                      )}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {tx.createdAt.toLocaleString("zh-CN")}
-                    </span>
-                  </div>
-                  <span
-                    className={
-                      tx.amount > 0
-                        ? "font-medium text-green-600"
-                        : "font-medium text-red-600"
-                    }
-                  >
-                    {tx.amount > 0 ? "+" : ""}
-                    {tx.amount}
-                  </span>
-                </div>
-              ))}
-            </div>
+            <CreditTransactions
+              initialItems={visibleTransactions.map((tx) => ({
+                id: tx.id,
+                type: tx.type,
+                amount: tx.amount,
+                description: tx.description,
+                createdAt: tx.createdAt.toISOString(),
+              }))}
+              hasMore={transactions.length > 30}
+            />
           )}
         </CardContent>
       </Card>

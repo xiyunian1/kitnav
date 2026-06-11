@@ -11,6 +11,7 @@ import {
   createLinuxDoCreditPayment,
   getRechargeProvider,
 } from "@/lib/linuxdo-credit";
+import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
 
 async function getRequestOrigin() {
   const configured = process.env.APP_URL || process.env.NEXTAUTH_URL || process.env.AUTH_URL;
@@ -26,10 +27,56 @@ async function getRequestOrigin() {
 
 // Mock 充值：直接创建已支付订单并发放积分。
 // 真实接入时，这里应改为创建 PENDING 订单 → 跳支付网关 → 回调中发放积分。
+export async function loadMoreTransactions(cursor: string, take = 20) {
+  const session = await auth();
+  if (!session?.user) return { items: [], hasMore: false };
+  const pageSize = Math.min(Math.max(take, 1), 50);
+
+  try {
+    const cursorTx = await prisma.creditTransaction.findFirst({
+      where: { id: cursor, userId: session.user.id },
+      select: { id: true },
+    });
+
+    if (!cursorTx) {
+      return { items: [], hasMore: false, error: "流水记录已更新，请刷新后重试" };
+    }
+
+    const items = await prisma.creditTransaction.findMany({
+      where: { userId: session.user.id },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: pageSize + 1,
+      cursor: { id: cursor },
+      skip: 1,
+    });
+
+    const hasMore = items.length > pageSize;
+    if (hasMore) items.pop();
+
+    return {
+      items: items.map((tx) => ({
+        id: tx.id,
+        type: tx.type,
+        amount: tx.amount,
+        description: tx.description,
+        createdAt: tx.createdAt.toISOString(),
+      })),
+      hasMore,
+    };
+  } catch {
+    return { items: [], hasMore: false, error: "加载流水失败，请稍后再试" };
+  }
+}
+
 export async function rechargeAction(packageId: string) {
   const session = await auth();
   if (!session?.user) {
     return { error: "请先登录" };
+  }
+  try {
+    await assertControlledModuleAvailableForUser("credits", session.user.id);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "积分充值已暂停" };
   }
 
   const enabled = await getSettingNumber(SETTING_KEYS.CREDITS_RECHARGE_ENABLED);

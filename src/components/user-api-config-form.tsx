@@ -192,7 +192,12 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
       <CardHeader>
         <CardTitle className="flex items-center justify-between text-base">
           <span>使用我的 API</span>
-          <Switch checked={enabled} onCheckedChange={handleEnabledChange} disabled={switching} />
+          <Switch
+            aria-label={enabled ? "关闭我的 API" : "开启我的 API"}
+            checked={enabled}
+            onCheckedChange={handleEnabledChange}
+            disabled={switching}
+          />
         </CardTitle>
         <p className="text-sm text-muted-foreground">
           {initial.description || "开关会立即生效；保存按钮只保存 Base URL、Key 和模型配置。"}
@@ -238,7 +243,7 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
           onDefaultModelChange={setModel}
           onSelectedModelsChange={setSelectedModels}
         />
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <Button variant="outline" onClick={handleTest} disabled={testing || saving}>
             {testing ? <Loader2 className="size-4 animate-spin" /> : <Plug className="size-4" />}
             测试连接

@@ -4,10 +4,11 @@ import { useState } from "react";
 import { Menu } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { cn } from "@/lib/utils";
-import { SidebarNav } from "@/components/app-sidebar";
+import { SidebarNavClient } from "@/components/sidebar-nav-client";
+import type { SidebarControlState } from "@/lib/module-controls";
 
 // 移动端导航抽屉：汉堡按钮触发，从左侧滑出，复用用户区侧边栏导航项。
-export function MobileNav() {
+export function MobileNav({ controls }: { controls: SidebarControlState }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -35,7 +36,7 @@ export function MobileNav() {
           <DialogPrimitive.Description className="sr-only">
             站点导航菜单
           </DialogPrimitive.Description>
-          <SidebarNav onNavigate={() => setOpen(false)} />
+          <SidebarNavClient controls={controls} onNavigate={() => setOpen(false)} />
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { MaterialCard } from "@/components/materials/material-card";
 import { MaterialDetailActions } from "@/components/materials/material-detail-actions";
+import { ModuleUnavailable } from "@/components/module-unavailable";
+import { requireModulePageAccess } from "@/lib/module-controls";
 
 export async function generateMetadata({
   params,
@@ -57,6 +59,16 @@ export default async function MaterialDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const session = await auth();
+  const access = await requireModulePageAccess("materials");
+  if (!access.usable) {
+    return (
+      <ModuleUnavailable
+        name={access.name}
+        message={access.message}
+        status={access.status}
+      />
+    );
+  }
   const userId = session!.user.id;
   const { id } = await params;
 

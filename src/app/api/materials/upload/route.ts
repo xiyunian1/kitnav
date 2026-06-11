@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { saveImageBlob, tagsToJson } from "@/lib/materials";
 import { resolveMaterialSubmissionState } from "@/lib/material-review";
+import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
 
 export const runtime = "nodejs";
 
@@ -10,6 +11,14 @@ export async function POST(req: Request) {
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: "请先登录" }, { status: 401 });
+  }
+  try {
+    await assertControlledModuleAvailableForUser("library", session.user.id);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "素材库已暂停" },
+      { status: 503 }
+    );
   }
 
   let form: FormData;

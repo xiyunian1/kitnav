@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, CheckCircle2, Clock, ImageIcon, Layers, Library, Presentation, Sparkles } from "lucide-react";
 import { auth } from "@/lib/auth";
-import { MODULES } from "@/lib/modules";
+import { getVisibleMarketingModules } from "@/lib/module-controls";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -14,10 +14,27 @@ const highlights = [
 
 export default async function HomePage() {
   const session = await auth();
+  const modules = await getVisibleMarketingModules(session?.user?.role);
+  const imageModule = modules.find((module) => module.key === "image");
+  const pptModule = modules.find((module) => module.key === "ppt");
+  const primaryHref = imageModule?.usable ? imageModule.href : pptModule?.usable ? pptModule.href : "/materials";
+
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://example.com";
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "AI 聚合站",
+    url: siteUrl,
+    description: "一站式 AI 创作平台：图片生成、视频生成、PPT 生成等",
+  };
 
   return (
     <>
-      <section className="border-b bg-[#f7f8fb]">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      <section className="border-b bg-muted/40">
         <div className="mx-auto grid max-w-6xl gap-10 px-4 py-10 sm:py-14 lg:grid-cols-[minmax(0,0.95fr)_minmax(420px,1.05fr)] lg:items-center">
           <div className="max-w-2xl">
             <div className="mb-5 inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
@@ -35,13 +52,15 @@ export default async function HomePage() {
               {session?.user ? (
                 <>
                   <Button size="lg" asChild>
-                    <Link href="/image">
+                    <Link href={primaryHref}>
                       开始创作 <ArrowRight className="size-4" />
                     </Link>
                   </Button>
-                  <Button size="lg" variant="outline" asChild>
-                    <Link href="/ppt">生成 PPT</Link>
-                  </Button>
+                  {pptModule?.usable && (
+                    <Button size="lg" variant="outline" asChild>
+                      <Link href="/ppt">生成 PPT</Link>
+                    </Button>
+                  )}
                 </>
               ) : (
                 <>
@@ -79,7 +98,7 @@ export default async function HomePage() {
               </div>
 
               <div className="grid min-h-[360px] grid-cols-[88px_minmax(0,1fr)]">
-                <div className="border-r bg-[#111827] p-3 text-white">
+                <div className="border-r bg-slate-900 p-3 text-white dark:bg-slate-800">
                   <div className="mb-5 flex size-10 items-center justify-center rounded-lg bg-white/10">
                     <Sparkles className="size-5" />
                   </div>
@@ -116,7 +135,7 @@ export default async function HomePage() {
 
                   <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_170px]">
                     <div className="space-y-3">
-                      <div className="rounded-lg border bg-[#fafafa] p-3">
+                      <div className="rounded-lg border bg-muted/50 p-3">
                         <div className="mb-3 h-2.5 w-48 rounded bg-muted-foreground/20" />
                         <div className="grid grid-cols-3 gap-2">
                           <div className="aspect-[4/5] rounded-md bg-[linear-gradient(135deg,#7c3aed,#f472b6)]" />
@@ -176,9 +195,9 @@ export default async function HomePage() {
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {MODULES.map((module) => {
+          {modules.map((module) => {
             const Icon = module.icon;
-            const isActive = module.status === "active";
+            const isActive = module.usable;
             const card = (
               <div
                 className={cn(
@@ -193,7 +212,7 @@ export default async function HomePage() {
                     <Icon className="size-5" />
                   </div>
                   <Badge variant={isActive ? "default" : "secondary"}>
-                    {isActive ? "可用" : "即将上线"}
+                    {module.badge}
                   </Badge>
                 </div>
                 <h3 className="text-lg font-semibold">{module.name}</h3>
