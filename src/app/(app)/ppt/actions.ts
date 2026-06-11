@@ -3,14 +3,18 @@
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import {
+  generatePptOutline,
   generatePptProject,
   getPptProject,
   listPptProjects,
   regeneratePptSlideVisual,
   rewritePptSlide,
   updatePptSlide,
+  type PptGenerationMode,
+  type PptOutlineSlide,
   type PptSlideContent,
   type PptStyle,
+  type PptTemplate,
   type PptTone,
 } from "@/lib/ppt";
 
@@ -32,11 +36,15 @@ export async function getPptProjectAction(id: string) {
 export async function generatePptProjectAction(input: {
   topic: string;
   audience?: string;
+  generationMode?: PptGenerationMode;
   style: PptStyle;
   tone: PptTone;
+  template?: PptTemplate;
   slideCount: number;
   sourceText?: string;
   model?: string;
+  outlineTitle?: string;
+  outlineSlides?: PptOutlineSlide[];
 }) {
   const session = await auth();
   const userId = requireUserId(session?.user?.id);
@@ -44,14 +52,45 @@ export async function generatePptProjectAction(input: {
     userId,
     topic: input.topic.trim(),
     audience: input.audience?.trim(),
+    generationMode: input.generationMode,
     style: input.style,
     tone: input.tone,
+    template: input.template,
+    slideCount: input.slideCount,
+    sourceText: input.sourceText?.trim(),
+    model: input.model,
+    outlineTitle: input.outlineTitle?.trim(),
+    outlineSlides: input.outlineSlides,
+  });
+  revalidatePath("/ppt");
+  return project;
+}
+
+export async function generatePptOutlineAction(input: {
+  topic: string;
+  audience?: string;
+  generationMode?: PptGenerationMode;
+  style: PptStyle;
+  tone: PptTone;
+  template?: PptTemplate;
+  slideCount: number;
+  sourceText?: string;
+  model?: string;
+}) {
+  const session = await auth();
+  const userId = requireUserId(session?.user?.id);
+  return generatePptOutline({
+    userId,
+    topic: input.topic.trim(),
+    audience: input.audience?.trim(),
+    generationMode: input.generationMode,
+    style: input.style,
+    tone: input.tone,
+    template: input.template,
     slideCount: input.slideCount,
     sourceText: input.sourceText?.trim(),
     model: input.model,
   });
-  revalidatePath("/ppt");
-  return project;
 }
 
 export async function updatePptSlideAction(
