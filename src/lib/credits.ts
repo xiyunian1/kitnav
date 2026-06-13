@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { prisma } from "./db";
 import { SETTING_KEYS, DEFAULT_SETTINGS } from "./settings-config";
 import type { CreditTxType } from "@prisma/client";
@@ -9,11 +10,11 @@ export class InsufficientCreditsError extends Error {
   }
 }
 
-// 读取系统设置；缺失时回退到默认值
-export async function getSetting(key: string): Promise<string> {
+// 读取系统设置；缺失时回退到默认值。React cache 保证同一请求渲染内同 key 只查一次。
+export const getSetting = cache(async (key: string): Promise<string> => {
   const row = await prisma.setting.findUnique({ where: { key } });
   return row?.value ?? DEFAULT_SETTINGS[key] ?? "";
-}
+});
 
 export async function getSettingNumber(key: string): Promise<number> {
   const v = await getSetting(key);

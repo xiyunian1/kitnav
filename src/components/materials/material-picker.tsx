@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { ImageIcon, Search } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -11,7 +10,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -19,11 +17,12 @@ import { MaterialCard } from "./material-card";
 import type { MaterialView } from "./material-types";
 
 interface Props {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onPick: (material: MaterialView) => void;
 }
 
-export function MaterialPicker({ onPick }: Props) {
-  const [open, setOpen] = useState(false);
+export function MaterialPickerDialog({ open, onOpenChange, onPick }: Props) {
   const [q, setQ] = useState("");
   const [scope, setScope] = useState<"mine" | "favorites" | "square">("mine");
   const [loading, setLoading] = useState(false);
@@ -59,16 +58,11 @@ export function MaterialPicker({ onPick }: Props) {
 
   function handlePick(material: MaterialView) {
     onPick(material);
-    setOpen(false);
+    onOpenChange(false);
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="w-full">
-          <ImageIcon className="size-4" /> 从素材库选择
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] overflow-hidden sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle>选择素材</DialogTitle>

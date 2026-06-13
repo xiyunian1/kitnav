@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { Plus, Search, Trash2, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,7 +33,7 @@ function formatTime(value: string) {
   }).format(d);
 }
 
-export function ConversationSidebar({
+export const ConversationSidebar = memo(function ConversationSidebar({
   conversations,
   activeId,
   search,
@@ -128,4 +129,4 @@ export function ConversationSidebar({
       </div>
     </div>
   );
-}
+});

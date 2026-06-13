@@ -72,6 +72,17 @@ export function ImageWorkbench({
   initialPromptMaterial,
 }: Props) {
   const wb = useImageWorkbench(credits);
+  // 解构稳定回调（hook 内部均为稳定引用），避免依赖 wb 对象导致下游 memo 失效
+  const {
+    submit,
+    selectConversation: wbSelectConversation,
+    startNewDraft,
+    loadMoreTurns,
+    stopGeneration,
+    remove,
+    clearAll,
+    setSearch,
+  } = wb;
   const initialReference =
     initialImageMaterial?.url ||
     (initialPromptMaterial?.promptMeta?.mode === "edit"
@@ -228,7 +239,7 @@ export function ImageWorkbench({
         toast.info("已回填图生图参数，请确认参考图后生成");
         return;
       }
-      const ok = await wb.submit({
+      const ok = await submit({
         prompt: input.prompt.trim(),
         ratio: input.ratio || "1:1",
         quality: qualityValue(input.quality),
@@ -238,7 +249,7 @@ export function ImageWorkbench({
       });
       if (ok) toast.success("已按原参数重新生成");
     },
-    [applyTurnInput, wb]
+    [applyTurnInput, submit]
   );
 
   const handleGenerateSimilar = useCallback(
@@ -304,7 +315,7 @@ export function ImageWorkbench({
       }
     }
 
-    const ok = await wb.submit({
+    const ok = await submit({
       prompt: prompt.trim(),
       ratio,
       quality,
@@ -316,20 +327,20 @@ export function ImageWorkbench({
     });
 
     if (ok) clearComposer();
-  }, [prompt, mode, files, ratio, quality, count, model, wb, clearComposer]);
+  }, [prompt, mode, files, ratio, quality, count, model, submit, clearComposer]);
 
   const selectConversation = useCallback(
     (id: string) => {
-      void wb.selectConversation(id);
+      void wbSelectConversation(id);
       setConversationOpen(false);
     },
-    [wb]
+    [wbSelectConversation]
   );
 
   const startNewConversation = useCallback(() => {
-    wb.startNewDraft();
+    startNewDraft();
     setConversationOpen(false);
-  }, [wb]);
+  }, [startNewDraft]);
 
   const renderConversationSidebar = () => (
     <ConversationSidebar
@@ -339,11 +350,11 @@ export function ImageWorkbench({
       loading={wb.loadingList}
       balance={wb.balance}
       useOwnKey={useOwnKey}
-      onSearch={wb.setSearch}
+      onSearch={setSearch}
       onSelect={selectConversation}
       onNew={startNewConversation}
-      onDelete={wb.remove}
-      onClear={wb.clearAll}
+      onDelete={remove}
+      onClear={clearAll}
     />
   );
 
@@ -373,9 +384,9 @@ export function ImageWorkbench({
             detail={wb.detail}
             loading={wb.loadingDetail}
             loadingMore={wb.loadingMoreTurns}
-            onLoadMore={wb.loadMoreTurns}
+            onLoadMore={loadMoreTurns}
             onContinueEdit={handleContinueEdit}
-            onReusePrompt={(p) => setPrompt(p)}
+            onReusePrompt={setPrompt}
             onRegenerate={handleRegenerate}
             onGenerateSimilar={handleGenerateSimilar}
           />
@@ -407,7 +418,7 @@ export function ImageWorkbench({
           onRemoveReference={removeReference}
           onPickPreset={handlePickPreset}
           onSubmit={handleSubmit}
-          onStop={wb.stopGeneration}
+          onStop={stopGeneration}
           onOptimizePrompt={handleOptimizePrompt}
         />
       </Card>

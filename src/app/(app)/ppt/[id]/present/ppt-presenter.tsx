@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { cn, isOptimizableImageUrl } from "@/lib/utils";
 import type { PptSlideContent, SerializedPptProject } from "@/lib/ppt-shared";
 
 interface PptPresenterProps {
@@ -297,7 +297,7 @@ function PresenterSlide({
           alt={slide.title}
           fill
           priority
-          unoptimized
+          unoptimized={!isOptimizableImageUrl(visual)}
           sizes="1280px"
           className="object-contain"
         />

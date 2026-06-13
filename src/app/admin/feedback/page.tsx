@@ -4,6 +4,7 @@ import type { FeedbackModule, FeedbackStatus, FeedbackType, Prisma } from "@pris
 import { MessageSquare } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { parseScreenshotUrls } from "@/lib/feedback";
+import { isOptimizableImageUrl } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -201,7 +202,7 @@ export default async function AdminFeedbackPage({
                               target="_blank"
                               className="relative block size-14 overflow-hidden rounded-md border bg-muted"
                             >
-                              <Image src={url} alt="反馈截图" fill unoptimized className="object-cover" />
+                              <Image src={url} alt="反馈截图" fill unoptimized={!isOptimizableImageUrl(url)} sizes="56px" className="object-cover" />
                             </Link>
                           ))}
                         </div>

@@ -24,6 +24,7 @@ import {
 } from "@/app/(app)/materials/actions";
 import type { MaterialView } from "./material-types";
 import { PromptMaterialForm } from "./prompt-material-form";
+import { isOptimizableImageUrl } from "@/lib/utils";
 
 const STATUS_LABEL: Record<MaterialView["status"], string> = {
   DRAFT: "私有",
@@ -92,7 +93,8 @@ export function MaterialCard({ material, mode, onPick }: Props) {
               src={material.thumbnailUrl || material.url}
               alt={material.title}
               fill
-              unoptimized
+              unoptimized={!isOptimizableImageUrl(material.thumbnailUrl || material.url)}
+              sizes="(min-width: 640px) 240px, 90vw"
               className="object-cover transition-transform hover:scale-[1.02]"
             />
           ) : isPrompt && material.thumbnailUrl ? (
@@ -100,7 +102,8 @@ export function MaterialCard({ material, mode, onPick }: Props) {
               src={material.thumbnailUrl}
               alt={material.title}
               fill
-              unoptimized
+              unoptimized={!isOptimizableImageUrl(material.thumbnailUrl)}
+              sizes="(min-width: 640px) 240px, 90vw"
               className="object-cover transition-transform hover:scale-[1.02]"
             />
           ) : isPrompt ? (

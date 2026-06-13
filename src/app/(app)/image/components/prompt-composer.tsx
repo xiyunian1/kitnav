@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useRef, useState, type ClipboardEvent } from "react";
 import { ArrowUp, ChevronDown, ImagePlus, Loader2, Settings2, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,13 +16,17 @@ import {
 } from "@/components/ui/select";
 import { ASPECT_RATIOS, MAX_IMAGE_COUNT } from "@/lib/providers/types";
 import { IMAGE_QUALITIES, IMAGE_QUALITY_META } from "@/lib/image-quality";
-import { PresetPrompts } from "./preset-prompts";
+import { PresetPrompts } from "./preset-prompts-trigger";
 import type { ImagePreset } from "@/lib/image-presets";
-import { MaterialPicker } from "@/components/materials/material-picker";
+import { MaterialPicker } from "@/components/materials/material-picker-trigger";
 import type { MaterialView } from "@/components/materials/material-types";
 import { cn } from "@/lib/utils";
-import { PromptOptimizerDialog } from "./prompt-optimizer-dialog";
 import type { PromptOptimizationResult, PromptOptimizeRequest } from "../types";
+
+const PromptOptimizerDialog = dynamic(
+  () => import("./prompt-optimizer-dialog").then((mod) => mod.PromptOptimizerDialog),
+  { ssr: false }
+);
 
 const RATIO_LABELS: Record<string, string> = {
   "1:1": "1:1 正方形",
@@ -95,6 +100,8 @@ export function PromptComposer({
   const [preview, setPreview] = useState<ReferencePreview | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [optimizerOpen, setOptimizerOpen] = useState(false);
+  // 首次打开后才挂载优化弹窗，配合 dynamic 按需加载
+  const [optimizerMounted, setOptimizerMounted] = useState(false);
   const canSubmit = prompt.trim().length > 0 && (mode === "generate" || references.length > 0) && !submitting;
   const qualityMeta =
     IMAGE_QUALITY_META[quality as keyof typeof IMAGE_QUALITY_META] ?? IMAGE_QUALITY_META.standard;
@@ -143,7 +150,10 @@ export function PromptComposer({
                 variant="ghost"
                 size="xs"
                 disabled={!prompt.trim() || submitting}
-                onClick={() => setOptimizerOpen(true)}
+                onClick={() => {
+                  setOptimizerMounted(true);
+                  setOptimizerOpen(true);
+                }}
               >
                 <Sparkles className="size-3" />
                 优化
@@ -356,24 +366,26 @@ export function PromptComposer({
         </DialogContent>
       </Dialog>
 
-      <PromptOptimizerDialog
-        open={optimizerOpen}
-        prompt={prompt}
-        mode={mode}
-        ratio={ratio}
-        quality={quality}
-        count={count}
-        model={activeModel}
-        submitting={submitting}
-        onOpenChange={setOptimizerOpen}
-        onOptimize={onOptimizePrompt}
-        onApplyPrompt={onPromptChange}
-        onApplySettings={({ ratio: nextRatio, quality: nextQuality, count: nextCount }) => {
-          if (nextRatio) onRatioChange(nextRatio);
-          if (nextQuality) onQualityChange(nextQuality);
-          if (typeof nextCount === "number") onCountChange(nextCount);
-        }}
-      />
+      {optimizerMounted && (
+        <PromptOptimizerDialog
+          open={optimizerOpen}
+          prompt={prompt}
+          mode={mode}
+          ratio={ratio}
+          quality={quality}
+          count={count}
+          model={activeModel}
+          submitting={submitting}
+          onOpenChange={setOptimizerOpen}
+          onOptimize={onOptimizePrompt}
+          onApplyPrompt={onPromptChange}
+          onApplySettings={({ ratio: nextRatio, quality: nextQuality, count: nextCount }) => {
+            if (nextRatio) onRatioChange(nextRatio);
+            if (nextQuality) onQualityChange(nextQuality);
+            if (typeof nextCount === "number") onCountChange(nextCount);
+          }}
+        />
+      )}
     </>
   );
 }

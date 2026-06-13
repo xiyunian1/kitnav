@@ -10,36 +10,17 @@ import { ImageWorkbench } from "./components/workbench";
 
 export const metadata = { title: "图片生成" };
 
-async function getAccessibleImageMaterial(materialId: string | undefined, userId: string) {
+async function getAccessibleMaterial(
+  materialId: string | undefined,
+  type: "IMAGE" | "PROMPT",
+  userId: string
+) {
   if (!materialId) return null;
 
   const material = await prisma.material.findFirst({
     where: {
       id: materialId,
-      type: "IMAGE",
-      OR: [
-        { ownerId: userId },
-        { visibility: "PUBLIC", status: "APPROVED" },
-      ],
-    },
-    include: {
-      owner: { select: { id: true, name: true, email: true } },
-      favorites: { where: { userId } },
-      likes: { where: { userId } },
-      _count: { select: { favorites: true, likes: true } },
-    },
-  });
-
-  return material ? serializeMaterial(material, userId) : null;
-}
-
-async function getAccessiblePromptMaterial(materialId: string | undefined, userId: string) {
-  if (!materialId) return null;
-
-  const material = await prisma.material.findFirst({
-    where: {
-      id: materialId,
-      type: "PROMPT",
+      type,
       OR: [
         { ownerId: userId },
         { visibility: "PUBLIC", status: "APPROVED" },
@@ -85,8 +66,10 @@ export default async function ImagePage({
   }
   const userId = session!.user.id;
   const params = await searchParams;
-  const promptMaterial = await getAccessiblePromptMaterial(params.promptMaterialId, userId);
-  const imageMaterial = await getAccessibleImageMaterial(params.materialId, userId);
+  const [promptMaterial, imageMaterial] = await Promise.all([
+    getAccessibleMaterial(params.promptMaterialId, "PROMPT", userId),
+    getAccessibleMaterial(params.materialId, "IMAGE", userId),
+  ]);
   const promptMeta = promptMaterial?.promptMeta || {};
   const imageMeta = imageMaterial?.promptMeta || {};
   const initialPrompt =

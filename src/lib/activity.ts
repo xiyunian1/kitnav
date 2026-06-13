@@ -42,12 +42,23 @@ export function getChinaDayStart(dayKey: string) {
   return new Date(`${dayKey}T00:00:00.000+08:00`);
 }
 
+// 进程内去重：每用户每天只 upsert 一次（analytics 只按天计数，重复写无意义）。
+// RSC 渲染期间无法写 cookie，故用内存标记；重启后最多多写一次。
+let recordedDay = "";
+const recordedUsers = new Set<string>();
+
 export async function recordDailyActivity(userId: string) {
   if (!hasPostgresDatabaseUrl()) {
     return;
   }
 
   const day = getChinaDayKey();
+  if (day !== recordedDay) {
+    recordedDay = day;
+    recordedUsers.clear();
+  }
+  if (recordedUsers.has(userId)) return;
+  recordedUsers.add(userId);
 
   try {
     await prisma.userDailyActivity.upsert({
@@ -56,6 +67,7 @@ export async function recordDailyActivity(userId: string) {
       create: { userId, day },
     });
   } catch {
+    recordedUsers.delete(userId);
     if (process.env.NODE_ENV === "production") {
       console.warn("Failed to record daily activity");
     }

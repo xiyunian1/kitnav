@@ -4,6 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Card } from "@/components/ui/card";
+import { isOptimizableImageUrl } from "@/lib/utils";
 
 interface Props {
   urls: string[];
@@ -30,7 +31,7 @@ export function HistoryResultGrid({ urls }: Props) {
                   src={url}
                   alt={alt}
                   fill
-                  unoptimized
+                  unoptimized={!isOptimizableImageUrl(url)}
                   sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
                   className="object-cover"
                 />

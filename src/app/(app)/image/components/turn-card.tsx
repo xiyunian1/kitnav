@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { memo, useState, useTransition } from "react";
 import Image from "next/image";
 import { Clock3, FileText, Loader2, Sparkles, ImageOff, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
+import { cn, isOptimizableImageUrl } from "@/lib/utils";
 import type { ReuseTurnInput, Turn } from "../types";
 
 function aspectClass(ratio: string) {
@@ -80,7 +80,7 @@ interface Props {
   onGenerateSimilar: (url: string, input: ReuseTurnInput) => void;
 }
 
-export function TurnCard({ turn, index, onContinueEdit, onReusePrompt, onRegenerate, onGenerateSimilar }: Props) {
+export const TurnCard = memo(function TurnCard({ turn, index, onContinueEdit, onReusePrompt, onRegenerate, onGenerateSimilar }: Props) {
   const ac = aspectClass(turn.ratio);
   const [preview, setPreview] = useState<{ src: string; alt: string } | null>(null);
   const [saving, startSaving] = useTransition();
@@ -143,7 +143,10 @@ export function TurnCard({ turn, index, onContinueEdit, onReusePrompt, onRegener
 
   return (
     <>
-      <section className="overflow-hidden rounded-xl border bg-card">
+      <section
+        className="overflow-hidden rounded-xl border bg-card"
+        style={{ contentVisibility: "auto", containIntrinsicSize: "auto 480px" }}
+      >
         <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
           <div className="min-w-0">
             <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -226,7 +229,7 @@ export function TurnCard({ turn, index, onContinueEdit, onReusePrompt, onRegener
                       src={img.url}
                       alt={alt}
                       fill
-                      unoptimized
+                      unoptimized={!isOptimizableImageUrl(img.url)}
                       loading="lazy"
                       sizes="(min-width: 1024px) 28vw, (min-width: 640px) 42vw, 90vw"
                       className="object-cover"
@@ -346,4 +349,4 @@ export function TurnCard({ turn, index, onContinueEdit, onReusePrompt, onRegener
       </Dialog>
     </>
   );
-}
+});

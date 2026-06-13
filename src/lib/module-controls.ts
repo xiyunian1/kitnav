@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type { ModuleType, Role } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { MODULES } from "@/lib/modules";
@@ -212,19 +213,22 @@ export function isModuleUsable(control: Pick<ModuleControl, "status">, isAdmin: 
   return false;
 }
 
-export async function getModuleControls(): Promise<Record<ControlledModuleKey, ModuleControl>> {
-  const keys = MODULE_CONTROL_DEFINITIONS.flatMap((item) => [statusKey(item.key), messageKey(item.key)]);
-  const rows = await prisma.setting.findMany({ where: { key: { in: keys } } });
-  const values = new Map(rows.map((row) => [row.key, row.value]));
+// React cache：同一请求内（layout/header/sidebar/page 各处调用）只查一次库
+export const getModuleControls = cache(
+  async (): Promise<Record<ControlledModuleKey, ModuleControl>> => {
+    const keys = MODULE_CONTROL_DEFINITIONS.flatMap((item) => [statusKey(item.key), messageKey(item.key)]);
+    const rows = await prisma.setting.findMany({ where: { key: { in: keys } } });
+    const values = new Map(rows.map((row) => [row.key, row.value]));
 
-  return Object.fromEntries(
-    MODULE_CONTROL_DEFINITIONS.map((definition) => {
-      const status = normalizeStatus(values.get(statusKey(definition.key)), definition.defaultStatus);
-      const message = values.get(messageKey(definition.key))?.trim() || defaultMessage(definition, status);
-      return [definition.key, { ...definition, status, message }];
-    })
-  ) as Record<ControlledModuleKey, ModuleControl>;
-}
+    return Object.fromEntries(
+      MODULE_CONTROL_DEFINITIONS.map((definition) => {
+        const status = normalizeStatus(values.get(statusKey(definition.key)), definition.defaultStatus);
+        const message = values.get(messageKey(definition.key))?.trim() || defaultMessage(definition, status);
+        return [definition.key, { ...definition, status, message }];
+      })
+    ) as Record<ControlledModuleKey, ModuleControl>;
+  }
+);
 
 export async function getModuleControl(key: ControlledModuleKey) {
   const controls = await getModuleControls();

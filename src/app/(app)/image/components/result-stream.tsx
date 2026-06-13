@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useRef } from "react";
+import { memo, useCallback, useLayoutEffect, useRef } from "react";
 import { ImageIcon, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,7 +18,7 @@ interface Props {
   onGenerateSimilar: (url: string, input: ReuseTurnInput) => void;
 }
 
-export function ResultStream({
+export const ResultStream = memo(function ResultStream({
   detail,
   loading,
   loadingMore,
@@ -164,4 +164,4 @@ export function ResultStream({
       ))}
     </div>
   );
-}
+});

@@ -12,6 +12,7 @@ import { MaterialCard } from "@/components/materials/material-card";
 import { MaterialDetailActions } from "@/components/materials/material-detail-actions";
 import { ModuleUnavailable } from "@/components/module-unavailable";
 import { requireModulePageAccess } from "@/lib/module-controls";
+import { isOptimizableImageUrl } from "@/lib/utils";
 
 export async function generateMetadata({
   params,
@@ -128,7 +129,8 @@ export default async function MaterialDetailPage({
                 src={item.url}
                 alt={item.title}
                 fill
-                unoptimized
+                unoptimized={!isOptimizableImageUrl(item.url)}
+                sizes="(min-width: 1024px) 60vw, 100vw"
                 className="object-contain"
               />
             </div>
@@ -141,7 +143,7 @@ export default async function MaterialDetailPage({
                     alt={`${item.title} 参考图`}
                     width={900}
                     height={900}
-                    unoptimized
+                    unoptimized={!isOptimizableImageUrl(item.thumbnailUrl)}
                     className="max-h-[560px] w-full object-contain"
                   />
                 ) : (

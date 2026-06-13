@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FileText, Images, Search } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { FileText, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -11,7 +10,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -19,6 +17,8 @@ import { IMAGE_PRESETS, type ImagePreset } from "@/lib/image-presets";
 import type { MaterialView } from "@/components/materials/material-types";
 
 interface Props {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onPick: (preset: ImagePreset) => void;
 }
 
@@ -135,16 +135,9 @@ function PromptMaterialList({
   );
 }
 
-export function PresetPrompts({ onPick }: Props) {
-  const [open, setOpen] = useState(false);
-
+export function PresetPromptsDialog({ open, onOpenChange, onPick }: Props) {
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="w-full justify-center">
-          <Images className="size-4" /> 选择预设
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[80vh] overflow-hidden sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>提示词预设</DialogTitle>
@@ -166,7 +159,7 @@ export function PresetPrompts({ onPick }: Props) {
                   type="button"
                   onClick={() => {
                     onPick(p);
-                    setOpen(false);
+                    onOpenChange(false);
                   }}
                   className="flex flex-col gap-1 rounded-lg border bg-background p-3 text-left transition hover:bg-muted"
                 >
@@ -182,10 +175,10 @@ export function PresetPrompts({ onPick }: Props) {
             </div>
           </TabsContent>
           <TabsContent value="mine" className="mt-4">
-            <PromptMaterialList scope="mine" onPick={onPick} onClose={() => setOpen(false)} />
+            <PromptMaterialList scope="mine" onPick={onPick} onClose={() => onOpenChange(false)} />
           </TabsContent>
           <TabsContent value="square" className="mt-4">
-            <PromptMaterialList scope="square" onPick={onPick} onClose={() => setOpen(false)} />
+            <PromptMaterialList scope="square" onPick={onPick} onClose={() => onOpenChange(false)} />
           </TabsContent>
         </Tabs>
       </DialogContent>

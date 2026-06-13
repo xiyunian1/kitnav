@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { getAllSettings } from "@/lib/credits";
 import { SETTING_KEYS, SETTING_META } from "@/lib/settings-config";
 import { parseTags } from "@/lib/materials";
+import { isOptimizableImageUrl } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -175,7 +176,8 @@ export default async function AdminMaterialsPage({
                               src={material.thumbnailUrl || material.url}
                               alt={material.title}
                               fill
-                              unoptimized
+                              unoptimized={!isOptimizableImageUrl(material.thumbnailUrl || material.url)}
+                              sizes="56px"
                               className="object-cover"
                             />
                           ) : (

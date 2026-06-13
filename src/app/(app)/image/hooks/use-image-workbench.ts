@@ -19,6 +19,18 @@ function getTurnErrorMessage(turn: Turn, fallback = "生成失败") {
   return turn.images.find((img) => img.status === "error" && img.error)?.error || turn.error || fallback;
 }
 
+const DETAIL_CACHE_LIMIT = 20;
+
+// LRU 写入：重插键使其移到 Map 尾部，超限时淘汰最旧（头部）条目
+function cacheDetail(cache: Map<string, ConversationDetail>, detail: ConversationDetail) {
+  cache.delete(detail.id);
+  cache.set(detail.id, detail);
+  if (cache.size > DETAIL_CACHE_LIMIT) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+}
+
 // 把刷新前残留的 PENDING（queued/loading）轮次标记为失败展示
 function recoverStaleTurns(detail: ConversationDetail): ConversationDetail {
   const FIVE_MIN = 5 * 60 * 1000;
@@ -70,6 +82,17 @@ export function useImageWorkbench(initialBalance: number) {
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeTurnIdRef = useRef<string | null>(null);
   const detailCacheRef = useRef<Map<string, ConversationDetail>>(new Map());
+  // 镜像最新 state，让 submit/loadMoreTurns 不依赖响应式值，保持引用稳定（配合 memo 子组件）
+  const detailRef = useRef<ConversationDetail | null>(null);
+  const searchRef = useRef("");
+  const submittingRef = useRef(false);
+  const loadingMoreRef = useRef(false);
+  useEffect(() => {
+    detailRef.current = detail;
+  }, [detail]);
+  useEffect(() => {
+    searchRef.current = search;
+  }, [search]);
   const setCurrentActiveId = useCallback((id: string | null) => {
     activeIdRef.current = id;
     setActiveId(id);
@@ -99,7 +122,7 @@ export function useImageWorkbench(initialBalance: number) {
           updatedAt: turn.createdAt,
           totalTurns: exists ? prev.totalTurns : Math.max(prev.totalTurns + 1, prev.turns.length + 1),
         };
-        detailCacheRef.current.set(next.id, next);
+        cacheDetail(detailCacheRef.current, next);
         return next;
       }
       const next = {
@@ -112,7 +135,7 @@ export function useImageWorkbench(initialBalance: number) {
         hasMore: false,
         nextBefore: null,
       };
-      detailCacheRef.current.set(next.id, next);
+      cacheDetail(detailCacheRef.current, next);
       return next;
     });
   }, [setCurrentActiveId]);
@@ -130,7 +153,7 @@ export function useImageWorkbench(initialBalance: number) {
           };
         }),
       };
-      detailCacheRef.current.set(next.id, next);
+      cacheDetail(detailCacheRef.current, next);
       return next;
     });
   }, []);
@@ -161,7 +184,7 @@ export function useImageWorkbench(initialBalance: number) {
       const d = await getConversation(id);
       if (activeIdRef.current === id) {
         const recovered = recoverStaleTurns(d);
-        detailCacheRef.current.set(id, recovered);
+        cacheDetail(detailCacheRef.current, recovered);
         setDetail(recovered);
       }
     } catch (e) {
@@ -172,57 +195,35 @@ export function useImageWorkbench(initialBalance: number) {
   }, [setCurrentActiveId]);
 
   const loadMoreTurns = useCallback(async () => {
-    const current = detail;
-    if (!current || !current.hasMore || !current.nextBefore || loadingMoreTurns) return;
+    const current = detailRef.current;
+    if (!current || !current.hasMore || !current.nextBefore || loadingMoreRef.current) return;
+    loadingMoreRef.current = true;
     setLoadingMoreTurns(true);
     try {
-      const olderPages: Turn[][] = [];
-      let hasMore: boolean = current.hasMore;
-      let nextBefore: string | null = current.nextBefore;
-      let totalTurns = current.totalTurns;
-
-      while (hasMore && nextBefore) {
-        const older = await getConversation(current.id, { before: nextBefore, take: 20 });
-        if (activeIdRef.current !== current.id) return;
-        if (older.turns.length === 0) {
-          hasMore = false;
-          nextBefore = null;
-          break;
-        }
-
-        olderPages.push(older.turns);
-        totalTurns = older.totalTurns;
-        hasMore = older.hasMore;
-        nextBefore = older.nextBefore;
-      }
+      const older = await getConversation(current.id, { before: current.nextBefore, take: 20 });
+      if (activeIdRef.current !== current.id) return;
 
       setDetail((prev) => {
         if (!prev || prev.id !== current.id) return prev;
         const existing = new Set(prev.turns.map((turn) => turn.id));
-        const olderTurns = olderPages
-          .reverse()
-          .flat()
-          .filter((turn) => !existing.has(turn.id));
-        const mergedTurns = [
-          ...olderTurns,
-          ...prev.turns,
-        ];
+        const olderTurns = older.turns.filter((turn) => !existing.has(turn.id));
         const next = recoverStaleTurns({
           ...prev,
-          turns: mergedTurns,
-          totalTurns,
-          hasMore,
-          nextBefore,
+          turns: [...olderTurns, ...prev.turns],
+          totalTurns: older.totalTurns,
+          hasMore: olderTurns.length === 0 ? false : older.hasMore,
+          nextBefore: olderTurns.length === 0 ? null : older.nextBefore,
         });
-        detailCacheRef.current.set(next.id, next);
+        cacheDetail(detailCacheRef.current, next);
         return next;
       });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "读取更早记录失败");
     } finally {
+      loadingMoreRef.current = false;
       setLoadingMoreTurns(false);
     }
-  }, [detail, loadingMoreTurns]);
+  }, []);
 
   const startNewDraft = useCallback(() => {
     setCurrentActiveId(null);
@@ -261,7 +262,7 @@ export function useImageWorkbench(initialBalance: number) {
           };
         }),
       };
-      detailCacheRef.current.set(next.id, next);
+      cacheDetail(detailCacheRef.current, next);
       return next;
     });
     controller.abort("用户已停止生成");
@@ -270,7 +271,8 @@ export function useImageWorkbench(initialBalance: number) {
   // 提交一轮生成
   const submit = useCallback(
     async (input: SubmitInput) => {
-      if (submitting) return false;
+      if (submittingRef.current) return false;
+      submittingRef.current = true;
       const controller = new AbortController();
       abortControllerRef.current = controller;
       activeTurnIdRef.current = null;
@@ -343,7 +345,7 @@ export function useImageWorkbench(initialBalance: number) {
         }
 
         if (!turn.usedOwnKey) setBalance((b) => b - turn.creditsCost);
-        void refreshList(search);
+        void refreshList(searchRef.current);
         return true;
       } catch (e) {
         if (controller.signal.aborted) {
@@ -359,11 +361,12 @@ export function useImageWorkbench(initialBalance: number) {
         if (abortControllerRef.current === null) {
           activeTurnIdRef.current = null;
         }
+        submittingRef.current = false;
         setSubmitting(false);
         setStopping(false);
       }
     },
-    [mergeTurn, patchTurnImage, refreshList, search, submitting]
+    [mergeTurn, patchTurnImage, refreshList]
   );
 
   const rename = useCallback(async (id: string, title: string) => {
