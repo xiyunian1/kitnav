@@ -45,7 +45,7 @@ export async function POST(req: Request) {
   }
 
   const result =
-    module === "PROMPT_OPTIMIZER" || module === "PPT"
+    module === "PROMPT_OPTIMIZER"
       ? await testTextConnection({ baseUrl, apiKey: key, model })
       : await testImageConnection({ baseUrl, apiKey: key, model });
   return NextResponse.json(result);

@@ -20,7 +20,7 @@ export default async function AdminModulesPage() {
         <CardHeader>
           <CardTitle className="text-base">模块状态</CardTitle>
           <CardDescription>
-            前台入口会按状态自动显示或隐藏；图片、PPT 等生成动作也会在服务端校验状态。
+          前台入口会按状态自动显示或隐藏；图片等生成动作也会在服务端校验状态。
           </CardDescription>
         </CardHeader>
         <CardContent>

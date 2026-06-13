@@ -13,9 +13,12 @@ import { Info } from "lucide-react";
 export const metadata = { title: "API 配置" };
 
 const CONFIGURABLE = API_CONFIG_MODULES;
+const CONFIGURABLE_MODULES = CONFIGURABLE.map((item) => item.moduleType);
 
 export default async function AdminApiConfigPage() {
-  const configs = await prisma.providerConfig.findMany();
+  const configs = await prisma.providerConfig.findMany({
+    where: { module: { in: CONFIGURABLE_MODULES } },
+  });
   const byModule = new Map(configs.map((c) => [c.module, c]));
 
   function initialFor(

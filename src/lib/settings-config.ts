@@ -20,7 +20,6 @@ export const SETTING_KEYS = {
   CREDITS_RECHARGE_ENABLED: "credits_recharge_enabled",
   MATERIAL_REVIEW_MODE: "material_review_mode",
   VIDEO_CREDIT_COST: "video_credit_cost",
-  PPT_CREDIT_COST: "ppt_credit_cost",
 } as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
@@ -44,7 +43,6 @@ export const DEFAULT_SETTINGS: Record<string, string> = {
   [SETTING_KEYS.CREDITS_RECHARGE_ENABLED]: "1",
   [SETTING_KEYS.MATERIAL_REVIEW_MODE]: "manual",
   [SETTING_KEYS.VIDEO_CREDIT_COST]: "50",
-  [SETTING_KEYS.PPT_CREDIT_COST]: "30",
 };
 
 // 设置项的展示元数据，供后台设置页渲染表单
@@ -139,5 +137,4 @@ export const SETTING_META: {
     ],
   },
   { key: SETTING_KEYS.VIDEO_CREDIT_COST, label: "视频生成单价", description: "每个视频消耗的积分（模块未上线）", type: "number", group: "未来模块", min: 0, integer: true },
-  { key: SETTING_KEYS.PPT_CREDIT_COST, label: "PPT 生成单价", description: "每份 PPT 消耗的积分", type: "number", group: "PPT", min: 0, integer: true },
 ];

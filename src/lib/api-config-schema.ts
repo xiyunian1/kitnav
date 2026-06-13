@@ -3,7 +3,7 @@ import { z } from "zod";
 // API 配置的共享校验 schema，用户接口和后台 Action 复用。
 // apiKey 可选：留空表示「不修改现有 key」（编辑场景，避免要求重填）。
 
-export const MODULE_TYPES = ["IMAGE", "VIDEO", "PPT", "PROMPT_OPTIMIZER"] as const;
+export const MODULE_TYPES = ["IMAGE", "VIDEO", "PROMPT_OPTIMIZER"] as const;
 export type ConfigModule = (typeof MODULE_TYPES)[number];
 
 export const API_CONFIG_MODULES: Array<{
@@ -37,14 +37,6 @@ export const API_CONFIG_MODULES: Array<{
     description: "视频模型配置，模块即将上线",
     active: false,
     modelKind: "image",
-  },
-  {
-    key: "ppt",
-    moduleType: "PPT",
-    name: "PPT 生成",
-    description: "用于生成 PPT 大纲、页面内容和单页改写的文本模型配置",
-    active: true,
-    modelKind: "text",
   },
 ];
 

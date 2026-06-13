@@ -38,7 +38,6 @@ export async function updateModuleControlsAction(formData: FormData) {
   revalidatePath("/", "layout");
   revalidatePath("/");
   revalidatePath("/image");
-  revalidatePath("/ppt");
   revalidatePath("/materials");
   revalidatePath("/library");
   revalidatePath("/credits");

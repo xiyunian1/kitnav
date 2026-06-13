@@ -14,7 +14,7 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://example.com";
 
 export async function generateMetadata(): Promise<Metadata> {
   const siteName = DEFAULT_SETTINGS[SETTING_KEYS.SITE_NAME] || "AI 聚合站";
-  const description = "一站式 AI 创作平台：图片生成、视频生成、PPT 生成等";
+  const description = "一站式 AI 创作平台：图片生成、素材管理和提示词工作流等";
   return {
     title: {
       default: siteName,

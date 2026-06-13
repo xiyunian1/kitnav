@@ -8,7 +8,6 @@ const { auth } = NextAuth(authConfig);
 const PROTECTED_PREFIXES = [
   "/image",
   "/video",
-  "/ppt",
   "/audio",
   "/copywriting",
   "/code",

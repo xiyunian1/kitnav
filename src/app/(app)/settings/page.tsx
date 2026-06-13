@@ -14,12 +14,15 @@ import { Info } from "lucide-react";
 export const metadata = { title: "API 设置" };
 
 const CONFIGURABLE = API_CONFIG_MODULES;
+const CONFIGURABLE_MODULES = CONFIGURABLE.map((item) => item.moduleType);
 
 export default async function ApiSettingsPage() {
   const session = await auth();
   const userId = session!.user.id;
 
-  const configs = await prisma.userApiConfig.findMany({ where: { userId } });
+  const configs = await prisma.userApiConfig.findMany({
+    where: { userId, module: { in: CONFIGURABLE_MODULES } },
+  });
   const byModule = new Map(configs.map((c) => [c.module, c]));
 
   function initialFor(moduleType: string): UserConfigInitial {

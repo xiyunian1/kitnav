@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, Clock, ImageIcon, Layers, Library, Presentation, Sparkles } from "lucide-react";
+import { ArrowRight, CheckCircle2, Clock, ImageIcon, Layers, Library, Sparkles } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { getVisibleMarketingModules } from "@/lib/module-controls";
 import { Button } from "@/components/ui/button";
@@ -8,16 +8,15 @@ import { cn } from "@/lib/utils";
 
 const highlights = [
   { label: "图片生成", value: "多图并行" },
-  { label: "PPT 生成", value: "可导出 PPTX" },
   { label: "素材广场", value: "素材可复用" },
+  { label: "提示词工具", value: "创作提效" },
 ];
 
 export default async function HomePage() {
   const session = await auth();
   const modules = await getVisibleMarketingModules(session?.user?.role);
   const imageModule = modules.find((module) => module.key === "image");
-  const pptModule = modules.find((module) => module.key === "ppt");
-  const primaryHref = imageModule?.usable ? imageModule.href : pptModule?.usable ? pptModule.href : "/materials";
+  const primaryHref = imageModule?.usable ? imageModule.href : "/materials";
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://example.com";
   const jsonLd = {
@@ -25,7 +24,7 @@ export default async function HomePage() {
     "@type": "WebSite",
     name: "AI 聚合站",
     url: siteUrl,
-    description: "一站式 AI 创作平台：图片生成、视频生成、PPT 生成等",
+    description: "一站式 AI 创作平台：图片生成、素材管理和提示词工作流等",
   };
 
   return (
@@ -45,7 +44,7 @@ export default async function HomePage() {
               AI 聚合站
             </h1>
             <p className="mt-5 max-w-xl text-lg leading-8 text-muted-foreground">
-              把图片生成、PPT、素材库和提示词工作流放在同一个创作台里，少切换工具，更快完成内容生产。
+              把图片生成、素材库和提示词工作流放在同一个创作台里，少切换工具，更快完成内容生产。
             </p>
 
             <div className="mt-7 flex flex-wrap items-center gap-3">
@@ -56,11 +55,6 @@ export default async function HomePage() {
                       开始创作 <ArrowRight className="size-4" />
                     </Link>
                   </Button>
-                  {pptModule?.usable && (
-                    <Button size="lg" variant="outline" asChild>
-                      <Link href="/ppt">生成 PPT</Link>
-                    </Button>
-                  )}
                 </>
               ) : (
                 <>
@@ -105,7 +99,6 @@ export default async function HomePage() {
                   <div className="space-y-2">
                     {[
                       [ImageIcon, "图"],
-                      [Presentation, "PPT"],
                       [Library, "库"],
                     ].map(([Icon, label], index) => (
                       <div

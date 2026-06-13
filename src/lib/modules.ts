@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { ImageIcon, Video, Presentation, Music, FileText, Code } from "lucide-react";
+import { ImageIcon, Video, Music, FileText, Code } from "lucide-react";
 
 export type ModuleStatus = "active" | "coming-soon";
 
@@ -11,7 +11,7 @@ export interface AppModule {
   href: string;
   status: ModuleStatus;
   // 对应数据库 ModuleType 枚举（仅 active 模块需要）
-  moduleType?: "IMAGE" | "VIDEO" | "PPT";
+  moduleType?: "IMAGE" | "VIDEO";
   // 主题色，用于卡片渐变
   accent: string;
 }
@@ -38,16 +38,6 @@ export const MODULES: AppModule[] = [
     status: "coming-soon",
     moduleType: "VIDEO",
     accent: "from-sky-500 to-blue-600",
-  },
-  {
-    key: "ppt",
-    name: "PPT 生成",
-    description: "输入主题和资料，生成可编辑演示文稿并导出 PPTX",
-    icon: Presentation,
-    href: "/ppt",
-    status: "active",
-    moduleType: "PPT",
-    accent: "from-orange-500 to-red-600",
   },
   {
     key: "audio",

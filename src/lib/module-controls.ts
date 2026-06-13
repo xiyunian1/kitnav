@@ -15,7 +15,6 @@ export const MODULE_CONTROL_STATUSES = [
 export type ModuleControlStatus = (typeof MODULE_CONTROL_STATUSES)[number];
 export type ControlledModuleKey =
   | "image"
-  | "ppt"
   | "video"
   | "audio"
   | "copywriting"
@@ -74,15 +73,6 @@ export const MODULE_CONTROL_DEFINITIONS: ModuleControlDefinition[] = [
     group: "AI 工具",
     defaultStatus: "open",
     moduleType: "IMAGE",
-  },
-  {
-    key: "ppt",
-    name: "PPT 生成",
-    description: "PPT 工作台、项目生成和导出",
-    href: "/ppt",
-    group: "AI 工具",
-    defaultStatus: "open",
-    moduleType: "PPT",
   },
   {
     key: "video",

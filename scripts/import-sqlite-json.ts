@@ -34,8 +34,6 @@ const dateFields: Record<string, string[]> = {
   UserApiConfig: ["updatedAt"],
   ImageConversation: ["createdAt", "updatedAt"],
   ImageTurn: ["createdAt"],
-  PptProject: ["createdAt", "updatedAt"],
-  PptSlide: ["createdAt", "updatedAt"],
   Material: ["reviewedAt", "createdAt", "updatedAt"],
   MaterialReport: ["createdAt", "resolvedAt"],
   MaterialFavorite: ["createdAt"],
@@ -50,7 +48,6 @@ const booleanFields: Record<string, string[]> = {
   ProviderConfig: ["enabled"],
   UserApiConfig: ["enabled"],
   ImageTurn: ["usedOwnKey"],
-  PptProject: ["usedOwnKey"],
 };
 
 const importOrder = [
@@ -73,8 +70,6 @@ const importOrder = [
   "UserApiConfig",
   "ImageConversation",
   "ImageTurn",
-  "PptProject",
-  "PptSlide",
   "Material",
   "MaterialReport",
   "MaterialFavorite",
@@ -108,8 +103,6 @@ const delegates: Record<string, ModelDelegate> = {
   UserApiConfig: prisma.userApiConfig as unknown as ModelDelegate,
   ImageConversation: prisma.imageConversation as unknown as ModelDelegate,
   ImageTurn: prisma.imageTurn as unknown as ModelDelegate,
-  PptProject: prisma.pptProject as unknown as ModelDelegate,
-  PptSlide: prisma.pptSlide as unknown as ModelDelegate,
   Material: prisma.material as unknown as ModelDelegate,
   MaterialReport: prisma.materialReport as unknown as ModelDelegate,
   MaterialFavorite: prisma.materialFavorite as unknown as ModelDelegate,

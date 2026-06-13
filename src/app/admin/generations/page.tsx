@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { GenerationStatus } from "@prisma/client";
+import type { GenerationStatus, ModuleType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import {
   Table,
@@ -19,8 +19,8 @@ export const metadata = { title: "生成记录" };
 const MODULE_LABEL: Record<string, string> = {
   IMAGE: "图片",
   VIDEO: "视频",
-  PPT: "PPT",
 };
+const SUPPORTED_GENERATION_MODULES: ModuleType[] = ["IMAGE", "VIDEO"];
 
 const STATUS: Record<
   string,
@@ -62,7 +62,8 @@ export default async function AdminGenerationsPage({
     ? params.status!
     : "ALL";
   const upstreamStatus = params.upstreamStatus?.trim();
-  const where = {
+  const where: Prisma.GenerationWhereInput = {
+    module: { in: SUPPORTED_GENERATION_MODULES },
     ...(status === "ALL" ? {} : { status: status as GenerationStatus }),
     ...(upstreamStatus && /^\d+$/.test(upstreamStatus)
       ? { upstreamStatus: Number(upstreamStatus) }
@@ -79,10 +80,12 @@ export default async function AdminGenerationsPage({
       include: { user: { select: { email: true } } },
     }),
     prisma.generation.count({ where }),
-    prisma.generation.count({ where: { createdAt: { gte: since }, status: "FAILED" } }),
+    prisma.generation.count({
+      where: { module: { in: SUPPORTED_GENERATION_MODULES }, createdAt: { gte: since }, status: "FAILED" },
+    }),
     prisma.imageTurn.count({ where: { status: "PENDING" } }),
     prisma.generation.count({
-      where: { createdAt: { gte: since }, upstreamStatus: 524 },
+      where: { module: { in: SUPPORTED_GENERATION_MODULES }, createdAt: { gte: since }, upstreamStatus: 524 },
     }),
   ]);
 

@@ -82,7 +82,7 @@ export async function testProviderConfigAction(input: {
     key = decrypt(existing.apiKey);
   }
 
-  if (module === "PROMPT_OPTIMIZER" || module === "PPT") {
+  if (module === "PROMPT_OPTIMIZER") {
     return testTextConnection({ baseUrl, apiKey: key, model });
   }
   return testImageConnection({ baseUrl, apiKey: key, model });

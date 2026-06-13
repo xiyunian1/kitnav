@@ -1,14 +1,16 @@
 import { prisma } from "@/lib/db";
+import type { ModuleType } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, ImageIcon, ShoppingCart, Coins } from "lucide-react";
 
 export const metadata = { title: "仪表盘" };
+const SUPPORTED_GENERATION_MODULES: ModuleType[] = ["IMAGE", "VIDEO"];
 
 export default async function AdminDashboard() {
   const [userCount, genCount, orderAgg, recentUsers, recentGens] =
     await Promise.all([
       prisma.user.count(),
-      prisma.generation.count(),
+      prisma.generation.count({ where: { module: { in: SUPPORTED_GENERATION_MODULES } } }),
       prisma.order.aggregate({
         where: { status: "PAID" },
         _count: true,
@@ -20,6 +22,7 @@ export default async function AdminDashboard() {
         select: { id: true, email: true, name: true, createdAt: true, credits: true },
       }),
       prisma.generation.findMany({
+        where: { module: { in: SUPPORTED_GENERATION_MODULES } },
         orderBy: { createdAt: "desc" },
         take: 5,
         include: { user: { select: { email: true } } },

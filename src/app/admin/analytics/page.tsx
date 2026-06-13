@@ -1,9 +1,11 @@
 import { prisma } from "@/lib/db";
+import type { ModuleType } from "@prisma/client";
 import { getChinaDayStart, getRecentChinaDayKeys, recordDailyActivity } from "@/lib/activity";
 import { requireAdmin } from "@/lib/admin-guard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export const metadata = { title: "数据看板" };
+const SUPPORTED_GENERATION_MODULES: ModuleType[] = ["IMAGE", "VIDEO"];
 
 export default async function AdminAnalyticsPage() {
   const session = await requireAdmin();
@@ -25,7 +27,9 @@ export default async function AdminAnalyticsPage() {
     popularMaterials,
   ] = await Promise.all([
     prisma.user.count({ where: { createdAt: { gte: today } } }),
-    prisma.generation.count({ where: { createdAt: { gte: today } } }),
+    prisma.generation.count({
+      where: { module: { in: SUPPORTED_GENERATION_MODULES }, createdAt: { gte: today } },
+    }),
     prisma.order.count({ where: { status: "PAID", paidAt: { gte: today } } }),
     prisma.userDailyActivity.groupBy({
       by: ["day"],
@@ -33,8 +37,12 @@ export default async function AdminAnalyticsPage() {
       _count: { _all: true },
       orderBy: { day: "asc" },
     }),
-    prisma.generation.count({ where: { createdAt: { gte: last7 }, status: "SUCCESS" } }),
-    prisma.generation.count({ where: { createdAt: { gte: last7 }, status: "FAILED" } }),
+    prisma.generation.count({
+      where: { module: { in: SUPPORTED_GENERATION_MODULES }, createdAt: { gte: last7 }, status: "SUCCESS" },
+    }),
+    prisma.generation.count({
+      where: { module: { in: SUPPORTED_GENERATION_MODULES }, createdAt: { gte: last7 }, status: "FAILED" },
+    }),
     prisma.creditTransaction.aggregate({
       where: { createdAt: { gte: last7 }, type: "CONSUME" },
       _sum: { amount: true },
