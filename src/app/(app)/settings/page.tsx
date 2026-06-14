@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { maskKey } from "@/lib/crypto";
 import { parseModelList } from "@/lib/model-options";
 import { API_CONFIG_MODULES } from "@/lib/api-config-schema";
+import { redirect } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -19,6 +20,12 @@ const CONFIGURABLE_MODULES = CONFIGURABLE.map((item) => item.moduleType);
 export default async function ApiSettingsPage() {
   const session = await auth();
   const userId = session!.user.id;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true },
+  });
+  if (!user) redirect("/login");
 
   const configs = await prisma.userApiConfig.findMany({
     where: { userId, module: { in: CONFIGURABLE_MODULES } },

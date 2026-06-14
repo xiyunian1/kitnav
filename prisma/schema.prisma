@@ -23,33 +23,34 @@ enum UserStatus {
 }
 
 model User {
-  id           String     @id @default(cuid())
-  email        String     @unique
+  id            String     @id @default(cuid())
+  email         String     @unique
   emailVerified DateTime?
-  name         String?
-  image        String?
-  passwordHash String?
-  role         Role       @default(USER)
-  status       UserStatus @default(ACTIVE)
-  credits      Int        @default(0)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  name          String?
+  image         String?
+  passwordHash  String?
+  role          Role       @default(USER)
+  status        UserStatus @default(ACTIVE)
+  credits       Int        @default(0)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 
-  accounts            Account[]
-  sessions            Session[]
-  generations         Generation[]
-  creditTransactions  CreditTransaction[]
-  orders              Order[]
-  apiConfigs          UserApiConfig[]
-  imageConversations  ImageConversation[]
-  materials           Material[]
-  materialFavorites   MaterialFavorite[]
-  materialLikes       MaterialLike[]
-  materialReports     MaterialReport[]
-  feedbacks           Feedback[]
-  adminAuditLogs      AdminAuditLog[]
-  registrationEvents  RegistrationEvent[]
-  dailyActivities     UserDailyActivity[]
+  accounts           Account[]
+  sessions           Session[]
+  generations        Generation[]
+  creditTransactions CreditTransaction[]
+  orders             Order[]
+  apiConfigs         UserApiConfig[]
+  imageConversations ImageConversation[]
+  materials          Material[]
+  materialFavorites  MaterialFavorite[]
+  materialLikes      MaterialLike[]
+  materialReports    MaterialReport[]
+  feedbacks          Feedback[]
+  adminAuditLogs     AdminAuditLog[]
+  registrationEvents RegistrationEvent[]
+  dailyActivities    UserDailyActivity[]
+  pptProjects        PptProject[]
 }
 
 // Auth.js 标准表（预留 OAuth；session 策略用 JWT，但保留表结构便于扩展）
@@ -94,6 +95,7 @@ enum ModuleType {
   IMAGE
   VIDEO
   PROMPT_OPTIMIZER
+  PPT
 }
 
 enum GenerationStatus {
@@ -104,24 +106,24 @@ enum GenerationStatus {
 
 // 所有 AI 模块共用一张生成记录表，靠 module 字段区分
 model Generation {
-  id          String           @id @default(cuid())
-  userId      String
-  module      ModuleType
-  prompt      String
-  params      String?          // JSON 字符串（尺寸、数量等模块特有参数）
-  status      GenerationStatus @default(PENDING)
-  resultUrl   String?          // 主结果地址；多结果时存 JSON 数组
-  creditsCost Int              @default(0)
-  usedOwnKey  Boolean          @default(false) // true=用户自带 key（不扣分），false=平台
-  error       String?
-  providerSource String?       // user/platform，便于排查用的是哪条通道
-  providerModel  String?       // 实际下发的模型
-  upstreamStatus Int?          // 上游 HTTP 状态码，如 524
-  durationMs     Int?          // 本轮生成总耗时
-  imageCount     Int           @default(1)
-  successCount   Int           @default(0)
-  failedCount    Int           @default(0)
-  createdAt   DateTime         @default(now())
+  id             String           @id @default(cuid())
+  userId         String
+  module         ModuleType
+  prompt         String
+  params         String? // JSON 字符串（尺寸、数量等模块特有参数）
+  status         GenerationStatus @default(PENDING)
+  resultUrl      String? // 主结果地址；多结果时存 JSON 数组
+  creditsCost    Int              @default(0)
+  usedOwnKey     Boolean          @default(false) // true=用户自带 key（不扣分），false=平台
+  error          String?
+  providerSource String? // user/platform，便于排查用的是哪条通道
+  providerModel  String? // 实际下发的模型
+  upstreamStatus Int? // 上游 HTTP 状态码，如 524
+  durationMs     Int? // 本轮生成总耗时
+  imageCount     Int              @default(1)
+  successCount   Int              @default(0)
+  failedCount    Int              @default(0)
+  createdAt      DateTime         @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -132,19 +134,19 @@ model Generation {
 
 enum CreditTxType {
   SIGNUP_BONUS // 注册赠送
-  CONSUME      // 生成消耗
-  RECHARGE     // 充值
+  CONSUME // 生成消耗
+  RECHARGE // 充值
   ADMIN_ADJUST // 管理员调整
-  REFUND       // 生成失败退款
+  REFUND // 生成失败退款
 }
 
 // 积分流水
 model CreditTransaction {
   id           String       @id @default(cuid())
   userId       String
-  amount       Int          // 正为增加，负为减少
+  amount       Int // 正为增加，负为减少
   type         CreditTxType
-  balanceAfter Int          // 交易后余额（便于审计）
+  balanceAfter Int // 交易后余额（便于审计）
   description  String?
   createdAt    DateTime     @default(now())
 
@@ -165,8 +167,8 @@ enum OrderStatus {
 model Order {
   id        String      @id @default(cuid())
   userId    String
-  credits   Int         // 购买的积分数
-  amount    Int         // 金额（单位：分）
+  credits   Int // 购买的积分数
+  amount    Int // 金额（单位：分）
   status    OrderStatus @default(PENDING)
   provider  String      @default("mock")
   createdAt DateTime    @default(now())
@@ -224,13 +226,13 @@ model InviteCode {
 }
 
 model RegistrationEvent {
-  id        String   @id @default(cuid())
-  userId    String?
-  email     String?
-  provider  String
-  ip        String?
+  id         String   @id @default(cuid())
+  userId     String?
+  email      String?
+  provider   String
+  ip         String?
   inviteCode String?
-  createdAt DateTime @default(now())
+  createdAt  DateTime @default(now())
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
@@ -295,7 +297,7 @@ model Feedback {
   module         FeedbackModule
   title          String
   content        String
-  screenshotUrls String?        // JSON 字符串数组，最多 3 张截图
+  screenshotUrls String? // JSON 字符串数组，最多 3 张截图
   pagePath       String?
   status         FeedbackStatus @default(NEW)
   adminNote      String?
@@ -313,11 +315,12 @@ model Feedback {
 model ProviderConfig {
   id        String     @id @default(cuid())
   module    ModuleType @unique
-  baseUrl   String     // 如 https://api.openai.com/v1
-  apiKey    String     // AES-256-GCM 加密存储
-  model     String     // 默认模型，如 dall-e-3 / gpt-image-1
-  models    String?    // JSON 字符串数组：同一 API 下允许用户切换的模型列表
-  modelMeta String?     // JSON：模型启用状态、单价、备注等运营配置
+  baseUrl   String // 如 https://api.openai.com/v1
+  apiKey    String // AES-256-GCM 加密存储
+  model     String // 默认模型，如 dall-e-3 / gpt-image-1
+  models    String? // JSON 字符串数组：同一 API 下允许用户切换的模型列表
+  modelMeta String? // JSON：模型启用状态、单价、备注等运营配置
+  modelOptions String? // 保留字段：历史模型参数配置，当前不再使用
   enabled   Boolean    @default(true)
   updatedAt DateTime   @updatedAt
 }
@@ -328,9 +331,10 @@ model UserApiConfig {
   userId    String
   module    ModuleType
   baseUrl   String
-  apiKey    String     // AES-256-GCM 加密存储
-  model     String     // 默认模型
-  models    String?    // JSON 字符串数组：同一 API 下允许切换的模型列表
+  apiKey    String // AES-256-GCM 加密存储
+  model     String // 默认模型
+  models    String? // JSON 字符串数组：同一 API 下允许切换的模型列表
+  modelOptions String? // 保留字段：历史模型参数配置，当前不再使用
   enabled   Boolean    @default(false)
   updatedAt DateTime   @updatedAt
 
@@ -361,21 +365,21 @@ model ImageTurn {
   id              String           @id @default(cuid())
   conversationId  String
   prompt          String
-  mode            String           // "generate" | "edit"
-  model           String           // 使用的上游模型名快照
-  ratio           String           // UI 比例原值，如 "1:1"
-  pixelSize       String           // 实际下发上游的像素，如 "1024x1024"
+  mode            String // "generate" | "edit"
+  model           String // 使用的上游模型名快照
+  ratio           String // UI 比例原值，如 "1:1"
+  pixelSize       String // 实际下发上游的像素，如 "1024x1024"
   count           Int              @default(1)
   status          GenerationStatus @default(PENDING)
-  images          String?          // JSON 数组：[{id,status,url?,error?}]，与前端 StoredImage 对齐
-  referenceThumbs String?          // JSON 数组：图生图参考图的压缩缩略 data URL（仅展示用，可空）
+  images          String? // JSON 数组：[{id,status,url?,error?}]，与前端 StoredImage 对齐
+  referenceThumbs String? // JSON 数组：图生图参考图的压缩缩略 data URL（仅展示用，可空）
   error           String?
   creditsCost     Int              @default(0)
   usedOwnKey      Boolean          @default(false)
   providerSource  String?
   upstreamStatus  Int?
   durationMs      Int?
-  generationId    String?          // 关联写入的 Generation id（便于回查）
+  generationId    String? // 关联写入的 Generation id（便于回查）
   createdAt       DateTime         @default(now())
 
   conversation ImageConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -435,12 +439,12 @@ model Material {
   status             MaterialStatus     @default(DRAFT)
   title              String
   description        String?
-  tags               String?            // JSON 字符串数组，MVP 先不拆标签表
+  tags               String? // JSON 字符串数组，MVP 先不拆标签表
   url                String
   storageKey         String?
   thumbnailUrl       String?
   promptText         String?
-  promptMeta         String?            // JSON：提示词适用模块、模式、比例、张数、模型等
+  promptMeta         String? // JSON：提示词适用模块、模式、比例、张数、模型等
   rejectionReason    String?
   reviewedAt         DateTime?
   mimeType           String?
@@ -502,4 +506,115 @@ model MaterialLike {
 
   @@unique([userId, materialId])
   @@index([materialId])
+}
+
+// ---------- PPT 生成模块 ----------
+
+enum PptProjectStatus {
+  DRAFT // 旧版 PPT 模块草稿状态，保留用于兼容历史数据
+  PENDING // 等待生成
+  QUEUED // 队列中
+  GENERATING // 旧版 PPT 模块生成中状态，保留用于兼容历史数据
+  STRATEGIZING // Strategist 阶段
+  ACQUIRING_IMAGES // 图片采集
+  EXECUTING // Executor 渲染 SVG
+  EXPORTING // 生成 PPTX
+  READY // 旧版 PPT 模块完成状态，保留用于兼容历史数据
+  COMPLETED // 完成
+  FAILED // 失败
+}
+
+enum PptSourceType {
+  TOPIC // 纯主题输入
+  DOCUMENT // 上传文档（PDF/DOCX/PPTX）
+  URL // 网页链接
+  MARKDOWN // Markdown 输入
+}
+
+model PptProject {
+  id             String        @id @default(cuid())
+  userId         String
+  title          String // 项目标题（用户输入或自动提取）
+
+  // 旧版 PPT 模块字段：保留以兼容已存在的本地数据和过渡期迁移。
+  topic        String?
+  audience     String?
+  sourceText   String?
+  tone         String?
+  language     String?
+  model        String?
+  outline      String?
+  theme        String?
+  generationId String?
+
+  sourceType     PptSourceType @default(TOPIC)
+  sourceTopic    String? // 主题描述（sourceType=TOPIC）
+  sourceFileUrl  String? // 上传文档路径（sourceType=DOCUMENT）
+  sourceUrl      String? // 网页 URL（sourceType=URL）
+  sourceMarkdown String? // Markdown 内容（sourceType=MARKDOWN）
+
+  status        PptProjectStatus @default(PENDING)
+  currentPhase  String? // 当前阶段描述
+  progress      Int              @default(0) // 0-100
+  queuePosition Int? // 队列位置
+
+  // 生成参数
+  template    String? // 模板 ID（ppt169_general_dark_tech 等）
+  slideCount  Int? // 目标页数
+  aspectRatio String  @default("16:9") // 16:9 或 4:3
+  style       String? // 风格（general/consultant/consultant-top）
+
+  // 输出路径（相对 public/ 或绝对路径）
+  projectPath   String? // projects/<cuid>/
+  specPath      String? // design_spec.md 路径
+  specLockPath  String? // spec_lock.md 路径
+  svgOutputPath String? // svg_output/ 目录
+  pptxPath      String? // 最终 PPTX 文件路径
+
+  // 执行日志
+  logs  String? // 流式日志累积（换行分隔）
+  error String?
+
+  // 积分与计费
+  creditsCost Int     @default(0)
+  usedOwnKey  Boolean @default(false)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slides PptSlide[]
+
+  @@index([userId, createdAt])
+  @@index([userId, updatedAt])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model PptSlide {
+  id              String            @id
+  projectId       String
+  order           Int
+  title           String
+  subtitle        String?
+  layout          String            @default("CONTENT")
+  bullets         String?
+  speakerNotes    String?
+  visualPrompt    String?
+  accent          String?
+  imageUrl        String?
+  imageStorageKey String?
+  imagePrompt     String?
+  imageModel      String?
+  imageStatus     GenerationStatus?
+  imageError      String?
+  imageDurationMs Int?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime
+
+  project PptProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, order])
+  @@index([projectId, order])
 }

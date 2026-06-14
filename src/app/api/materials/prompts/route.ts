@@ -14,6 +14,8 @@ import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
 export const runtime = "nodejs";
 
 const promptMetaSchema = z.object({
+  module: z.enum(["IMAGE", "PPT"]).default("IMAGE"),
+  kind: z.string().trim().max(40).optional(),
   mode: z.enum(["generate", "edit"]).default("generate"),
   ratio: z.string().optional(),
   quality: z.string().optional(),
@@ -45,6 +47,8 @@ async function readPromptInput(req: Request) {
         tags: form.get("tags") || undefined,
         visibility: form.get("visibility") || "PRIVATE",
         meta: {
+          module: form.get("module") || "IMAGE",
+          kind: form.get("kind") || undefined,
           mode: form.get("mode") || "generate",
           ratio: form.get("ratio") || undefined,
           count: form.get("count") ? Number(form.get("count")) : undefined,
@@ -175,7 +179,7 @@ export async function POST(req: Request) {
     type: "PROMPT",
     title: parsed.data.title,
     description: parsed.data.description,
-    tags: parsed.data.tags,
+    tags: normalizePromptTags(parsed.data.tags, parsed.data.meta),
     promptText: parsed.data.promptText,
     mimeType: cover?.mimeType || "text/plain",
     sizeBytes: cover?.sizeBytes,
@@ -193,7 +197,7 @@ export async function POST(req: Request) {
       reviewedAt: submission.reviewedAt,
       title: parsed.data.title,
       description: parsed.data.description || null,
-      tags: tagsToJson(parsed.data.tags),
+      tags: tagsToJson(normalizePromptTags(parsed.data.tags, parsed.data.meta)),
       url: "",
       storageKey: cover?.storageKey,
       thumbnailUrl: cover?.url,
@@ -273,7 +277,7 @@ export async function PATCH(req: Request) {
     type: "PROMPT",
     title: parsed.data.title,
     description: parsed.data.description,
-    tags: parsed.data.tags,
+    tags: normalizePromptTags(parsed.data.tags, parsed.data.meta),
     promptText: parsed.data.promptText,
     mimeType: cover?.mimeType || "text/plain",
     sizeBytes: cover?.sizeBytes,
@@ -284,7 +288,7 @@ export async function PATCH(req: Request) {
     data: {
       title: parsed.data.title,
       description: parsed.data.description || null,
-      tags: tagsToJson(parsed.data.tags),
+      tags: tagsToJson(normalizePromptTags(parsed.data.tags, parsed.data.meta)),
       visibility: submission.visibility,
       status: submission.status,
       rejectionReason: submission.rejectionReason,
@@ -305,4 +309,15 @@ export async function PATCH(req: Request) {
   if (cover) await deleteStoredMaterialFile(existing.storageKey);
 
   return NextResponse.json({ ok: true, id: updated.id, status: updated.status });
+}
+
+function normalizePromptTags(
+  tags: string | undefined,
+  meta?: z.infer<typeof promptMetaSchema>
+) {
+  if (meta?.module !== "PPT") return tags;
+  const base = tags?.trim() || "";
+  const required = ["PPT风格", "ppt-style"];
+  const text = `${base} ${required.join(" ")}`.trim();
+  return text;
 }

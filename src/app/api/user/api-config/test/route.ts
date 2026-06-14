@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { decrypt } from "@/lib/crypto";
 import { testImageConnection, testTextConnection } from "@/lib/providers";
 import { testConnectionSchema } from "@/lib/api-config-schema";
+import { getCurrentUserOrUnauthorized } from "@/lib/current-user";
 
 // 用户测试自己的 API 配置连接。apiKey 留空则用已存的 key 测试。
 export async function POST(req: Request) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "请先登录" }, { status: 401 });
+  const current = await getCurrentUserOrUnauthorized();
+  if ("error" in current) {
+    return NextResponse.json({ ok: false, error: current.error }, { status: current.status });
   }
-  const userId = session.user.id;
+  const userId = current.user.id;
 
   let raw: unknown;
   try {
@@ -45,7 +45,7 @@ export async function POST(req: Request) {
   }
 
   const result =
-    module === "PROMPT_OPTIMIZER"
+    module === "PROMPT_OPTIMIZER" || module === "PPT"
       ? await testTextConnection({ baseUrl, apiKey: key, model })
       : await testImageConnection({ baseUrl, apiKey: key, model });
   return NextResponse.json(result);

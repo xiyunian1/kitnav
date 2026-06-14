@@ -4,7 +4,8 @@ import { EmptyState } from "@/components/empty-state";
 import type { MaterialType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { serializeMaterial } from "@/lib/materials";
+import { parsePromptMeta, parseTags, serializeMaterial } from "@/lib/materials";
+import { isPptStylePrompt } from "@/lib/ppt-agent/styles";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -36,12 +37,14 @@ export default async function LibraryPage({
   const params = await searchParams;
   const q = params.q?.trim() || "";
   const type =
-    params.type === "IMAGE" || params.type === "PROMPT" || params.type === "VIDEO"
+    params.type === "IMAGE" || params.type === "PROMPT" || params.type === "VIDEO" || params.type === "PPT_STYLE"
       ? params.type
       : "ALL";
   const typeWhere: MaterialType | { in: MaterialType[] } =
     type === "ALL"
       ? { in: ["IMAGE", "PROMPT"] }
+      : type === "PPT_STYLE"
+        ? "PROMPT"
       : type === "VIDEO"
         ? "VIDEO"
         : type;
@@ -88,8 +91,18 @@ export default async function LibraryPage({
     }),
   ]);
 
-  const mineItems = mine.map((material) => serializeMaterial(material, userId));
-  const favoriteItems = favorites.map((material) => serializeMaterial(material, userId));
+  const filterPromptKind = <T extends { type: MaterialType; promptMeta: string | null; tags: string | null }>(items: T[]) => {
+    if (type === "PPT_STYLE") {
+      return items.filter((material) => isPptStylePrompt(parsePromptMeta(material.promptMeta), parseTags(material.tags)));
+    }
+    if (type === "PROMPT") {
+      return items.filter((material) => !isPptStylePrompt(parsePromptMeta(material.promptMeta), parseTags(material.tags)));
+    }
+    return items;
+  };
+
+  const mineItems = filterPromptKind(mine).map((material) => serializeMaterial(material, userId));
+  const favoriteItems = filterPromptKind(favorites).map((material) => serializeMaterial(material, userId));
 
   return (
     <div className="space-y-6">
@@ -104,7 +117,7 @@ export default async function LibraryPage({
             {type !== "ALL" && <input type="hidden" name="type" value={type} />}
             <Input name="q" defaultValue={q} className="pl-9" placeholder="搜索我的素材" />
           </form>
-          <PromptMaterialForm />
+          <PromptMaterialForm defaultModule={type === "PPT_STYLE" ? "PPT" : "IMAGE"} />
           <MaterialUploadForm />
         </div>
       </div>
@@ -114,6 +127,7 @@ export default async function LibraryPage({
           ["ALL", "全部"],
           ["IMAGE", "图片素材"],
           ["PROMPT", "提示词"],
+          ["PPT_STYLE", "PPT 风格"],
           ["VIDEO", "视频素材"],
         ].map(([value, label]) => (
           <Link
@@ -149,7 +163,13 @@ export default async function LibraryPage({
             <EmptyState
               icon={type === "PROMPT" ? FileText : FolderOpen}
               title="还没有自己的素材"
-              description={type === "PROMPT" ? "保存常用提示词，随时复用" : "上传图片或保存生成结果到素材库"}
+              description={
+                type === "PPT_STYLE"
+                  ? "新建 PPT 风格后，可以在 PPT 生成时直接选用"
+                  : type === "PROMPT"
+                    ? "保存常用提示词，随时复用"
+                    : "上传图片或保存生成结果到素材库"
+              }
               action={{ label: "浏览素材广场", href: "/materials" }}
             />
           ) : (

@@ -19,20 +19,28 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 *.log
+__pycache__/
+*.py[cod]
 
 # local tooling / screenshots
 /.claude/
 /.playwright-mcp/
 *.png
+!/scripts/ppt-master/**/*.png
 
 # env files
 .env
 .env*.local
+.env.production
 
 # database
+/data/
 /prisma/dev.db
 /prisma/dev.db-journal
 *.db
+
+# generated PPT projects
+/public/projects/
 
 # typescript
 *.tsbuildinfo

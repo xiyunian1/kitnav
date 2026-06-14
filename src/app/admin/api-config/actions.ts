@@ -38,6 +38,7 @@ export async function saveProviderConfigAction(input: ApiConfigInput) {
       model,
       models: modelListToJson(models ?? [], model),
       modelMeta: modelMeta ? modelMetaToJson(modelMeta) : undefined,
+      modelOptions: null,
       enabled,
     },
     create: {
@@ -47,6 +48,7 @@ export async function saveProviderConfigAction(input: ApiConfigInput) {
       model,
       models: modelListToJson(models ?? [], model),
       modelMeta: modelMeta ? modelMetaToJson(modelMeta) : undefined,
+      modelOptions: null,
       enabled,
     },
   });
@@ -82,7 +84,7 @@ export async function testProviderConfigAction(input: {
     key = decrypt(existing.apiKey);
   }
 
-  if (module === "PROMPT_OPTIMIZER") {
+  if (module === "PROMPT_OPTIMIZER" || module === "PPT") {
     return testTextConnection({ baseUrl, apiKey: key, model });
   }
   return testImageConnection({ baseUrl, apiKey: key, model });

@@ -1,5 +1,6 @@
 import type { ProviderCredentials } from "./types";
 import { OpenAIImageProvider } from "./image-openai";
+import { OpenAITextProvider } from "./text-openai";
 
 export interface TestResult {
   ok: boolean;
@@ -38,39 +39,15 @@ export async function testTextConnection(
   }
 
   try {
-    const res = await fetch(`${creds.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${creds.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: creds.model,
-        temperature: 0,
-        messages: [
-          { role: "system", content: "Return only OK." },
-          { role: "user", content: "connection test" },
-        ],
-      }),
-      signal: AbortSignal.timeout(30_000),
+    const provider = new OpenAITextProvider(creds);
+    const text = await provider.generateText({
+      temperature: 0,
+      timeoutMs: 30_000,
+      messages: [
+        { role: "system", content: "Return only OK." },
+        { role: "user", content: "connection test" },
+      ],
     });
-
-    if (!res.ok) {
-      let detail = "";
-      try {
-        const err = await res.json();
-        detail = err?.error?.message || err?.message || JSON.stringify(err);
-      } catch {
-        detail = await res.text().catch(() => "");
-      }
-      return {
-        ok: false,
-        error: `上游返回 ${res.status}：${detail.slice(0, 200) || "请求失败"}`,
-      };
-    }
-
-    const data = await res.json().catch(() => null);
-    const text = String(data?.choices?.[0]?.message?.content || "").trim();
     if (!text) return { ok: false, error: "上游未返回文本内容" };
     return { ok: true };
   } catch (e) {

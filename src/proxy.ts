@@ -7,6 +7,7 @@ const { auth } = NextAuth(authConfig);
 // 需要登录的用户区路径前缀
 const PROTECTED_PREFIXES = [
   "/image",
+  "/ppt",
   "/video",
   "/audio",
   "/copywriting",

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { MODULE_TYPES } from "@/lib/api-config-schema";
+import { getCurrentUserOrUnauthorized } from "@/lib/current-user";
 
 const schema = z.object({
   module: z.enum(MODULE_TYPES),
@@ -10,9 +10,9 @@ const schema = z.object({
 });
 
 export async function POST(req: Request) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "请先登录" }, { status: 401 });
+  const current = await getCurrentUserOrUnauthorized();
+  if ("error" in current) {
+    return NextResponse.json({ error: current.error }, { status: current.status });
   }
 
   let raw: unknown;
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
   const existing = await prisma.userApiConfig.findUnique({
     where: {
       userId_module: {
-        userId: session.user.id,
+        userId: current.user.id,
         module: parsed.data.module,
       },
     },

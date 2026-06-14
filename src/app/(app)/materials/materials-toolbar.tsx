@@ -10,6 +10,7 @@ const TABS = [
   { value: "IMAGE", label: "图片素材" },
   { value: "VIDEO", label: "视频素材" },
   { value: "PROMPT", label: "提示词" },
+  { value: "PPT_STYLE", label: "PPT 风格" },
 ] as const;
 
 interface Props {

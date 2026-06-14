@@ -8,6 +8,7 @@ const eslintConfig = [
     ignores: [
       ".next/**",
       "node_modules/**",
+      "scripts/ppt-master/**",
       "prisma/seed.ts",
       "tsconfig.tsbuildinfo",
     ],

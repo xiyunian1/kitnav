@@ -17,6 +17,14 @@ export async function writeAuditLog(input: {
     }
   }
 
+  if (adminId) {
+    const admin = await prisma.user.findUnique({
+      where: { id: adminId },
+      select: { id: true },
+    });
+    adminId = admin?.id ?? null;
+  }
+
   const detail =
     typeof input.detail === "string"
       ? input.detail

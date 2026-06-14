@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { decrypt } from "@/lib/crypto";
 import { parseModelList } from "@/lib/model-options";
+import { OpenAITextProvider } from "@/lib/providers/text-openai";
 
 export const runtime = "nodejs";
 
@@ -132,10 +133,6 @@ async function resolvePromptOptimizerConfig(userId: string) {
   }
 
   return null;
-}
-
-function normalizeBaseUrl(baseUrl: string) {
-  return baseUrl.replace(/\/+$/, "");
 }
 
 function suggestedRatioFor(input: OptimizeInput) {
@@ -277,16 +274,11 @@ export async function POST(req: Request) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30_000);
   try {
-    const res = await fetch(`${normalizeBaseUrl(cfg.baseUrl)}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${cfg.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: cfg.model,
-        temperature: 0.4,
-        messages: [
+    const provider = new OpenAITextProvider(cfg);
+    const text = await provider.generateText({
+      temperature: 0.4,
+      signal: controller.signal,
+      messages: [
           {
             role: "system",
             content:
@@ -315,14 +307,7 @@ export async function POST(req: Request) {
             ].join("\n"),
           },
         ],
-      }),
-      signal: controller.signal,
     });
-
-    if (!res.ok) return NextResponse.json(fallbackOptimizePrompt(parsed.data));
-
-    const data = await res.json();
-    const text = String(data?.choices?.[0]?.message?.content || "").trim();
     const optimized = normalizeOptimization(parseJsonObject(text), parsed.data);
     if (!optimized) return NextResponse.json(fallbackOptimizePrompt(parsed.data));
     return NextResponse.json(optimized);

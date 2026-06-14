@@ -3,7 +3,8 @@ import { FileText, ImageIcon } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { EmptyState } from "@/components/empty-state";
 import { prisma } from "@/lib/db";
-import { serializeMaterial } from "@/lib/materials";
+import { parsePromptMeta, parseTags, serializeMaterial } from "@/lib/materials";
+import { isPptStylePrompt } from "@/lib/ppt-agent/styles";
 import { MaterialCard } from "@/components/materials/material-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { requireModulePageAccess } from "@/lib/module-controls";
@@ -18,7 +19,7 @@ async function MaterialGrid({
   userId,
 }: {
   q: string;
-  type: "IMAGE" | "VIDEO" | "PROMPT";
+  type: "IMAGE" | "VIDEO" | "PROMPT" | "PPT_STYLE";
   userId: string;
 }) {
   if (type === "VIDEO") {
@@ -33,7 +34,7 @@ async function MaterialGrid({
 
   const materials = await prisma.material.findMany({
     where: {
-      type,
+      type: type === "PPT_STYLE" ? "PROMPT" : type,
       visibility: "PUBLIC",
       status: "APPROVED",
       ...(q
@@ -55,13 +56,25 @@ async function MaterialGrid({
       _count: { select: { favorites: true, likes: true } },
     },
   });
-  const items = materials.map((material) => serializeMaterial(material, userId));
+  const filteredMaterials =
+    type === "PPT_STYLE"
+      ? materials.filter((material) => isPptStylePrompt(parsePromptMeta(material.promptMeta), parseTags(material.tags)))
+      : type === "PROMPT"
+        ? materials.filter((material) => !isPptStylePrompt(parsePromptMeta(material.promptMeta), parseTags(material.tags)))
+        : materials;
+  const items = filteredMaterials.map((material) => serializeMaterial(material, userId));
 
   if (items.length === 0) {
     return (
       <EmptyState
-        icon={type === "PROMPT" ? FileText : ImageIcon}
-        title={type === "PROMPT" ? "暂无公开提示词" : "暂无公开图片素材"}
+        icon={type === "PROMPT" || type === "PPT_STYLE" ? FileText : ImageIcon}
+        title={
+          type === "PPT_STYLE"
+            ? "暂无公开 PPT 风格"
+            : type === "PROMPT"
+              ? "暂无公开提示词"
+              : "暂无公开图片素材"
+        }
         description="成为第一个分享素材的人吧"
         action={{ label: "去我的素材库", href: "/library" }}
       />
@@ -112,7 +125,10 @@ export default async function MaterialsPage({
   const userId = session!.user.id;
   const params = await searchParams;
   const q = params.q?.trim() || "";
-  const type = params.type === "VIDEO" || params.type === "PROMPT" ? params.type : "IMAGE";
+  const type =
+    params.type === "VIDEO" || params.type === "PROMPT" || params.type === "PPT_STYLE"
+      ? params.type
+      : "IMAGE";
 
   return (
     <div className="space-y-6">

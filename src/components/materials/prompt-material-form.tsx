@@ -2,7 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, ImagePlus, Loader2 } from "lucide-react";
+import { FileText, ImagePlus, Loader2, Palette } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,12 +26,27 @@ import {
 import { ASPECT_RATIOS } from "@/lib/providers/types";
 import type { MaterialView } from "./material-types";
 
+type PromptModule = "IMAGE" | "PPT";
+
 interface Props {
   material?: MaterialView;
   trigger?: React.ReactNode;
+  defaultModule?: PromptModule;
 }
 
-export function PromptMaterialForm({ material, trigger }: Props) {
+function initialPromptModule(material?: MaterialView): PromptModule {
+  if (
+    material?.promptMeta?.module === "PPT" ||
+    material?.promptMeta?.kind === "ppt-style" ||
+    material?.tags.includes("PPT风格") ||
+    material?.tags.includes("ppt-style")
+  ) {
+    return "PPT";
+  }
+  return "IMAGE";
+}
+
+export function PromptMaterialForm({ material, trigger, defaultModule = "IMAGE" }: Props) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
@@ -39,6 +54,7 @@ export function PromptMaterialForm({ material, trigger }: Props) {
   const [visibility, setVisibility] = useState<"PRIVATE" | "PUBLIC">(
     material?.visibility === "PUBLIC" ? "PUBLIC" : "PRIVATE"
   );
+  const [module, setModule] = useState<PromptModule>(material ? initialPromptModule(material) : defaultModule);
   const [mode, setMode] = useState<"generate" | "edit">(
     material?.promptMeta?.mode === "edit" ? "edit" : "generate"
   );
@@ -67,8 +83,16 @@ export function PromptMaterialForm({ material, trigger }: Props) {
       try {
         if (material) formData.set("id", material.id);
         formData.set("visibility", visibility);
-        formData.set("mode", mode);
-        formData.set("ratio", ratio);
+        formData.set("module", module);
+        if (module === "PPT") {
+          formData.set("kind", "ppt-style");
+          formData.set("mode", "generate");
+          formData.set("ratio", "16:9");
+        } else {
+          formData.delete("kind");
+          formData.set("mode", mode);
+          formData.set("ratio", ratio);
+        }
         const res = await fetch("/api/materials/prompts", {
           method: material ? "PATCH" : "POST",
           body: formData,
@@ -82,16 +106,16 @@ export function PromptMaterialForm({ material, trigger }: Props) {
           visibility === "PUBLIC"
             ? data.status === "APPROVED"
               ? material
-                ? "提示词已更新并公开"
-                : "提示词已公开"
+                ? `${module === "PPT" ? "PPT 风格" : "提示词"}已更新并公开`
+                : `${module === "PPT" ? "PPT 风格" : "提示词"}已公开`
               : data.status === "REJECTED"
-                ? "提示词已保存，自动审核未通过"
+                ? `${module === "PPT" ? "PPT 风格" : "提示词"}已保存，自动审核未通过`
                 : material
-                  ? "提示词已更新并提交审核"
-                  : "提示词已提交审核"
+                  ? `${module === "PPT" ? "PPT 风格" : "提示词"}已更新并提交审核`
+                  : `${module === "PPT" ? "PPT 风格" : "提示词"}已提交审核`
             : material
-              ? "提示词已更新"
-              : "提示词已保存"
+              ? `${module === "PPT" ? "PPT 风格" : "提示词"}已更新`
+              : `${module === "PPT" ? "PPT 风格" : "提示词"}已保存`
         );
         setOpen(false);
         if (!material) {
@@ -118,7 +142,7 @@ export function PromptMaterialForm({ material, trigger }: Props) {
         <DialogHeader className="border-b px-5 py-4 pr-12">
           <DialogTitle>{material ? "编辑提示词" : "新建提示词"}</DialogTitle>
           <DialogDescription>
-            可上传一张参考图作为提示词封面，方便在素材广场和预设里识别效果。
+            可保存图片提示词，也可以创建 PPT 风格并分享到素材广场供他人收藏使用。
           </DialogDescription>
         </DialogHeader>
         <form action={handleSubmit} className="flex min-h-0 flex-col">
@@ -142,7 +166,21 @@ export function PromptMaterialForm({ material, trigger }: Props) {
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>用途</Label>
+              <Select value={module} onValueChange={(value) => setModule(value as PromptModule)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="IMAGE">图片提示词</SelectItem>
+                  <SelectItem value="PPT">PPT 风格</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {module === "IMAGE" && (
+              <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>模式</Label>
                 <Select value={mode} onValueChange={(value) => setMode(value as "generate" | "edit")}>
@@ -170,21 +208,27 @@ export function PromptMaterialForm({ material, trigger }: Props) {
                   </SelectContent>
                 </Select>
               </div>
-            </div>
+              </div>
+            )}
 
             <div className="space-y-2">
-              <Label htmlFor="prompt-text">提示词</Label>
+              <Label htmlFor="prompt-text">{module === "PPT" ? "PPT 风格描述" : "提示词"}</Label>
               <Textarea
                 id="prompt-text"
                 name="promptText"
                 required
-                rows={4}
+                rows={module === "PPT" ? 6 : 4}
                 maxLength={4000}
+                placeholder={
+                  module === "PPT"
+                    ? "描述版式、配色、信息密度、适用场景和应避免的元素。例如：高密度咨询报告风，标题结论先行，使用矩阵、流程图和数据卡片。"
+                    : undefined
+                }
                 defaultValue={material?.promptText || ""}
               />
             </div>
             <div className="space-y-2">
-              <Label>参考图 / 封面图</Label>
+              <Label>{module === "PPT" ? "封面图" : "参考图 / 封面图"}</Label>
               <div className="relative flex h-32 w-full items-center justify-center overflow-hidden rounded-lg border bg-muted text-muted-foreground transition hover:bg-muted/80">
                 <input
                   ref={fileRef}
@@ -201,7 +245,8 @@ export function PromptMaterialForm({ material, trigger }: Props) {
                   <img src={preview} alt="提示词参考图" className="size-full object-contain" />
                 ) : (
                   <span className="flex items-center gap-2 text-sm">
-                    <ImagePlus className="size-5" /> 点击上传参考图
+                    {module === "PPT" ? <Palette className="size-5" /> : <ImagePlus className="size-5" />}
+                    点击上传{module === "PPT" ? "封面图" : "参考图"}
                   </span>
                 )}
               </div>
@@ -211,7 +256,7 @@ export function PromptMaterialForm({ material, trigger }: Props) {
               <Input
                 id="prompt-tags"
                 name="tags"
-                placeholder="用空格或逗号分隔"
+                placeholder={module === "PPT" ? "例如：咨询 科技 深色" : "用空格或逗号分隔"}
                 maxLength={200}
                 defaultValue={material?.tags.join(" ") || ""}
               />

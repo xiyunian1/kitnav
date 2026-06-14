@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Image from "next/image";
-import { BookmarkPlus, Clipboard, CopyPlus, FileText, Heart, ImageIcon, Library, MoreHorizontal, Pencil, Send, Sparkles, Trash2, Eye, Lock } from "lucide-react";
+import { BookmarkPlus, Clipboard, CopyPlus, FileText, Heart, ImageIcon, Library, MoreHorizontal, Palette, Pencil, Send, Sparkles, Trash2, Eye, Lock } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +45,12 @@ export function MaterialCard({ material, mode, onPick }: Props) {
   const [pending, startTransition] = useTransition();
   const isImage = material.type === "IMAGE";
   const isPrompt = material.type === "PROMPT";
+  const isPptStyle =
+    isPrompt &&
+    (material.promptMeta?.module === "PPT" ||
+      material.promptMeta?.kind === "ppt-style" ||
+      material.tags.includes("PPT风格") ||
+      material.tags.includes("ppt-style"));
   const promptText = material.promptText || "";
   const modeMeta = material.promptMeta?.mode === "edit" ? "edit" : "generate";
   const ratioMeta = typeof material.promptMeta?.ratio === "string" ? material.promptMeta.ratio : "";
@@ -59,6 +65,7 @@ export function MaterialCard({ material, mode, onPick }: Props) {
     modelMeta ? `model=${encodeURIComponent(modelMeta)}` : "",
   ].filter(Boolean).join("&");
   const usePromptHref = `/image?promptMaterialId=${encodeURIComponent(material.id)}&${metaQuery}`;
+  const usePptStyleHref = `/ppt?styleMaterialId=${encodeURIComponent(material.id)}`;
   const useImageHref = `/image?materialId=${encodeURIComponent(material.id)}&mode=edit${ratioMeta ? `&ratio=${encodeURIComponent(ratioMeta)}` : ""}${qualityMeta ? `&quality=${encodeURIComponent(qualityMeta)}` : ""}${modelMeta ? `&model=${encodeURIComponent(modelMeta)}` : ""}`;
 
   function runAction(action: () => Promise<{ ok?: boolean; error?: string }>, message: string) {
@@ -108,9 +115,9 @@ export function MaterialCard({ material, mode, onPick }: Props) {
             />
           ) : isPrompt ? (
             <div className="flex h-full flex-col justify-between p-3 text-left">
-              <FileText className="size-6 text-primary" />
+              {isPptStyle ? <Palette className="size-6 text-primary" /> : <FileText className="size-6 text-primary" />}
               <p className="line-clamp-4 text-xs leading-5 text-muted-foreground">
-                {promptText || material.description || "提示词"}
+                {promptText || material.description || (isPptStyle ? "PPT 风格" : "提示词")}
               </p>
             </div>
           ) : (
@@ -209,7 +216,9 @@ export function MaterialCard({ material, mode, onPick }: Props) {
               )}
               {isPrompt && mode !== "picker" && (
                 <Button size="xs" className="shrink-0" asChild>
-                  <Link href={usePromptHref}>使用</Link>
+                  <Link href={isPptStyle ? usePptStyleHref : usePromptHref}>
+                    {isPptStyle ? "用于 PPT" : "使用"}
+                  </Link>
                 </Button>
               )}
               {isImage && mode !== "picker" && (
@@ -264,8 +273,8 @@ export function MaterialCard({ material, mode, onPick }: Props) {
                     )}
                     {isPrompt && (
                       <DropdownMenuItem asChild>
-                        <Link href={usePromptHref}>
-                          <Sparkles className="size-4" /> 使用到创作台
+                        <Link href={isPptStyle ? usePptStyleHref : usePromptHref}>
+                          <Sparkles className="size-4" /> {isPptStyle ? "用于 PPT 生成" : "使用到创作台"}
                         </Link>
                       </DropdownMenuItem>
                     )}
@@ -299,7 +308,11 @@ export function MaterialCard({ material, mode, onPick }: Props) {
                         {material.favorited ? "取消收藏" : "收藏"}
                       </DropdownMenuItem>
                     )}
-                    {isPrompt && <DropdownMenuItem disabled>请用卡片下方编辑按钮修改提示词</DropdownMenuItem>}
+                    {isPrompt && (
+                      <DropdownMenuItem disabled>
+                        请用卡片下方编辑按钮修改{isPptStyle ? "PPT 风格" : "提示词"}
+                      </DropdownMenuItem>
+                    )}
                     {mode === "library" && (material.visibility === "PRIVATE" || material.status === "REJECTED") ? (
                       <DropdownMenuItem
                         onClick={() =>

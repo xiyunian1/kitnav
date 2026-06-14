@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { decrypt } from "@/lib/crypto";
 import { listModels } from "@/lib/providers";
 import { listModelsSchema } from "@/lib/api-config-schema";
+import { getCurrentUserOrUnauthorized } from "@/lib/current-user";
 
 export async function POST(req: Request) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ ok: false, error: "请先登录" }, { status: 401 });
+  const current = await getCurrentUserOrUnauthorized();
+  if ("error" in current) {
+    return NextResponse.json({ ok: false, error: current.error }, { status: current.status });
   }
-  const userId = session.user.id;
+  const userId = current.user.id;
 
   let raw: unknown;
   try {

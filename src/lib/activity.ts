@@ -61,6 +61,12 @@ export async function recordDailyActivity(userId: string) {
   recordedUsers.add(userId);
 
   try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!user) return;
+
     await prisma.userDailyActivity.upsert({
       where: { userId_day: { userId, day } },
       update: { lastSeenAt: new Date() },

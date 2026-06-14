@@ -112,7 +112,12 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
       const res = await fetch("/api/user/api-config/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ module: initial.module, baseUrl, apiKey, model }),
+        body: JSON.stringify({
+          module: initial.module,
+          baseUrl,
+          apiKey,
+          model,
+        }),
       });
       const data = await res.json();
       if (data.ok) toast.success("连接成功，API 可用");

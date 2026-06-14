@@ -22,6 +22,14 @@ interface Props {
 }
 
 function promptHref(material: MaterialView) {
+  if (
+    material.promptMeta?.module === "PPT" ||
+    material.promptMeta?.kind === "ppt-style" ||
+    material.tags.includes("PPT风格") ||
+    material.tags.includes("ppt-style")
+  ) {
+    return `/ppt?styleMaterialId=${encodeURIComponent(material.id)}`;
+  }
   const mode = material.promptMeta?.mode === "edit" ? "edit" : "generate";
   const ratio =
     typeof material.promptMeta?.ratio === "string"
@@ -62,7 +70,14 @@ export function MaterialDetailActions({ material }: Props) {
       <Button asChild>
         <Link href={useHref}>
           <Sparkles className="size-4" />
-          {isPrompt ? "使用提示词" : "用作参考图"}
+          {isPrompt
+            ? material.promptMeta?.module === "PPT" ||
+              material.promptMeta?.kind === "ppt-style" ||
+              material.tags.includes("PPT风格") ||
+              material.tags.includes("ppt-style")
+              ? "用于 PPT"
+              : "使用提示词"
+            : "用作参考图"}
         </Link>
       </Button>
       <Button

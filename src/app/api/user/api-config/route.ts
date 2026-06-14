@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { encrypt } from "@/lib/crypto";
 import { apiConfigSchema } from "@/lib/api-config-schema";
 import { modelListToJson } from "@/lib/model-options";
+import { getCurrentUserOrUnauthorized } from "@/lib/current-user";
 
 // 用户保存自己某模块的 API 配置（BYOK）。apiKey 留空表示沿用已存的 key。
 export async function POST(req: Request) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "请先登录" }, { status: 401 });
+  const current = await getCurrentUserOrUnauthorized();
+  if ("error" in current) {
+    return NextResponse.json({ error: current.error }, { status: current.status });
   }
-  const userId = session.user.id;
+  const userId = current.user.id;
 
   let raw: unknown;
   try {
@@ -42,7 +42,14 @@ export async function POST(req: Request) {
 
   await prisma.userApiConfig.upsert({
     where: { userId_module: { userId, module } },
-    update: { baseUrl, apiKey: encryptedKey, model, models: modelListToJson(models ?? [], model), enabled },
+    update: {
+      baseUrl,
+      apiKey: encryptedKey,
+      model,
+      models: modelListToJson(models ?? [], model),
+      modelOptions: null,
+      enabled,
+    },
     create: {
       userId,
       module,
@@ -50,6 +57,7 @@ export async function POST(req: Request) {
       apiKey: encryptedKey,
       model,
       models: modelListToJson(models ?? [], model),
+      modelOptions: null,
       enabled,
     },
   });
