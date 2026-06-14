@@ -14,6 +14,10 @@ npm-debug.log
 *.jpg
 *.jpeg
 *.webp
+!scripts/ppt-master/**/*.png
+!scripts/ppt-master/**/*.jpg
+!scripts/ppt-master/**/*.jpeg
+!scripts/ppt-master/**/*.webp
 *.log
 tsconfig.tsbuildinfo
 credits-before.json
