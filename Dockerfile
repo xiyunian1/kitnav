@@ -23,7 +23,7 @@ RUN npm init -y >/dev/null \
   && npm install --no-audit --no-fund "prisma@$(node -p "require('/tmp/prisma-version.json').version")"
 
 FROM base AS ppt-python
-RUN apk add --no-cache python3 py3-pip
+RUN apk add --no-cache build-base cairo-dev pkgconf python3 py3-pip
 COPY scripts/ppt-master/requirements.txt /tmp/ppt-master-requirements.txt
 RUN python3 -m venv /opt/ppt-venv \
   && /opt/ppt-venv/bin/pip install --no-cache-dir --upgrade pip \
@@ -34,7 +34,7 @@ ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3001
 ENV PATH="/opt/ppt-venv/bin:${PATH}"
-RUN apk add --no-cache openssl python3
+RUN apk add --no-cache cairo fontconfig gdk-pixbuf openssl pango python3 ttf-dejavu
 
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
