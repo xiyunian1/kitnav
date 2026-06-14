@@ -4,6 +4,7 @@ import { ModuleUnavailable } from "@/components/module-unavailable";
 import { prisma } from "@/lib/db";
 import { resolvePptAgentBillingMode } from "@/lib/ppt-agent/billing";
 import { isPptStylePrompt, type PptStyleMaterialOption } from "@/lib/ppt-agent/styles";
+import { listPptTemplateOptions } from "@/lib/ppt-agent/templates";
 import { parsePromptMeta, parseTags } from "@/lib/materials";
 import { PptWorkbench } from "./components/workbench";
 
@@ -31,6 +32,7 @@ export default async function PptPage({
 
   const params = await searchParams;
   const selectedStyleMaterialId = params.styleMaterialId?.trim() || "";
+  const templateOptions = listPptTemplateOptions();
 
   const [recentProjects, billingMode, rawStyleMaterials] = await Promise.all([
     prisma.pptProject.findMany({
@@ -116,6 +118,7 @@ export default async function PptPage({
         creditsPerSlide={creditsPerSlide}
         styleMaterials={styleMaterials}
         initialStyleMaterialId={selectedStyleMaterialId}
+        templateOptions={templateOptions}
       />
     </div>
   );

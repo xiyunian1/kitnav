@@ -13,6 +13,7 @@ import { Loader2, FileText, LinkIcon, ListChecks, Presentation, Upload } from "l
 import { toast } from "sonner";
 import { PPT_STYLE_PRESETS, type PptStyleMaterialOption } from "@/lib/ppt-agent/styles";
 import { CancelProjectButton } from "./cancel-project-button";
+import type { PptTemplateOption } from "@/lib/ppt-agent/templates";
 
 type SourceType = "topic" | "markdown" | "url" | "document";
 
@@ -49,6 +50,7 @@ interface GenerationFormProps {
   creditsPerSlide: number;
   styleMaterials: PptStyleMaterialOption[];
   initialStyleMaterialId?: string;
+  templateOptions: PptTemplateOption[];
 }
 
 type StyleSource = "preset" | "material" | "custom";
@@ -58,6 +60,7 @@ export function GenerationForm({
   creditsPerSlide,
   styleMaterials,
   initialStyleMaterialId,
+  templateOptions,
 }: GenerationFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -70,6 +73,7 @@ export function GenerationForm({
   const [uploading, setUploading] = useState(false);
   const [slideCount, setSlideCount] = useState(10);
   const [aspectRatio, setAspectRatio] = useState("16:9");
+  const [template, setTemplate] = useState("none");
   const [style, setStyle] = useState("general");
   const initialMaterialExists = Boolean(
     initialStyleMaterialId && styleMaterials.some((item) => item.id === initialStyleMaterialId)
@@ -137,6 +141,7 @@ export function GenerationForm({
           sourceFileUrl: sourceType === "document" ? sourceFilePath : undefined,
           slideCount,
           aspectRatio,
+          template: template === "none" ? undefined : template,
           style: styleSource === "preset" ? style : styleSource,
           styleMaterialId: styleSource === "material" ? styleMaterialId : undefined,
           customStyle: styleSource === "custom" ? customStyle.trim() : undefined,
@@ -328,6 +333,28 @@ export function GenerationForm({
             </SelectContent>
           </Select>
         </div>
+      </div>
+
+      <div className="space-y-3">
+        <Label htmlFor="template">PPT Master 模板</Label>
+        <Select value={template} onValueChange={setTemplate}>
+          <SelectTrigger id="template">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">自由设计</SelectItem>
+            {templateOptions.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.title}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-sm text-muted-foreground">
+          {template === "none"
+            ? "不套用固定模板，由 agent 按内容自由设计。"
+            : templateOptions.find((item) => item.value === template)?.summary || "使用选定模板的品牌、版式或整套视觉规范。"}
+        </p>
       </div>
 
       <div className="space-y-3">

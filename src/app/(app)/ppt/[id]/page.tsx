@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/card";
 import { Download, RefreshCw } from "lucide-react";
 import { getProjectSvgPreviews } from "@/lib/ppt-agent/paths";
 import { CancelProjectButton } from "../components/cancel-project-button";
+import { SlideTextEditor } from "./slide-text-editor";
 
 export const metadata = { title: "PPT 项目" };
 
@@ -111,6 +112,13 @@ export default async function PptProjectPage({ params }: { params: Promise<{ id:
             </Card>
           ))}
         </div>
+      )}
+
+      {previews.length > 0 && (
+        <Card className="p-4">
+          <h2 className="font-semibold">文本编辑与重新导出</h2>
+          <SlideTextEditor projectId={project.id} slides={previews} />
+        </Card>
       )}
 
       {logs.length > 0 && (

@@ -6,11 +6,100 @@ import type { ToolDefinition } from "@/lib/providers/text-openai";
 
 const PYTHON_CMD = process.platform === "win32" ? "python" : "python3";
 const ALLOWED_SCRIPT_NAMES = new Set([
+  "analyze_images.py",
+  "animation_config.py",
   "svg_quality_checker.py",
+  "image_gen.py",
+  "image_search.py",
+  "latex_render.py",
+  "notes_to_audio.py",
   "total_md_split.py",
   "finalize_svg.py",
   "svg_to_pptx.py",
+  "visual_review.py",
 ]);
+
+const ALLOWED_SCRIPT_OPTIONS: Record<string, Set<string>> = {
+  "analyze_images.py": new Set(["--output", "-o"]),
+  "animation_config.py": new Set(["scaffold", "list-groups", "validate", "--force", "--output", "-o", "--config", "-c"]),
+  "finalize_svg.py": new Set(["--only", "--dry-run", "-n", "--quiet", "-q", "--compress", "--max-dimension"]),
+  "image_gen.py": new Set(["--manifest", "--render-md", "--output", "-o", "--concurrency", "--backend", "--model", "--image-size"]),
+  "image_search.py": new Set([
+    "--manifest",
+    "--filename",
+    "--output",
+    "-o",
+    "--orientation",
+    "--provider",
+    "--purpose",
+    "--slide",
+    "--strict-no-attribution",
+    "--min-width",
+    "--min-height",
+    "--no-candidates",
+    "--max-candidates",
+  ]),
+  "latex_render.py": new Set(["--manifest", "--providers", "--output-dir", "--timeout"]),
+  "notes_to_audio.py": new Set([
+    "--output",
+    "-o",
+    "--provider",
+    "--voice",
+    "--voice-id",
+    "--rate",
+    "--list-common-voices",
+    "--locale",
+  ]),
+  "svg_quality_checker.py": new Set(["--format"]),
+  "svg_to_pptx.py": new Set([
+    "--source",
+    "-s",
+    "--animation",
+    "-a",
+    "--animation-trigger",
+    "--animation-config",
+    "--animation-stagger",
+    "--auto-advance",
+    "--svg-snapshot",
+  ]),
+  "total_md_split.py": new Set([]),
+  "visual_review.py": new Set(["--output", "-o", "--source", "-s", "--format"]),
+};
+
+const ALLOWED_FREE_VALUE_OPTIONS: Record<string, Set<string>> = {
+  "image_gen.py": new Set(["--concurrency", "--backend", "--model", "--image-size"]),
+  "image_search.py": new Set([
+    "--filename",
+    "--orientation",
+    "--provider",
+    "--purpose",
+    "--slide",
+    "--min-width",
+    "--min-height",
+    "--max-candidates",
+  ]),
+  "latex_render.py": new Set(["--providers", "--timeout"]),
+  "notes_to_audio.py": new Set(["--provider", "--voice", "--voice-id", "--rate", "--locale"]),
+  "svg_quality_checker.py": new Set(["--format"]),
+  "svg_to_pptx.py": new Set(["--animation", "-a", "--animation-trigger", "--animation-stagger", "--auto-advance"]),
+  "visual_review.py": new Set(["--source", "-s", "--format"]),
+};
+
+const ALLOWED_PROJECT_PATH_OPTIONS: Record<string, Set<string>> = {
+  "analyze_images.py": new Set(["--output", "-o"]),
+  "animation_config.py": new Set(["--output", "-o", "--config", "-c"]),
+  "image_gen.py": new Set(["--manifest", "--render-md", "--output", "-o"]),
+  "image_search.py": new Set(["--manifest", "--output", "-o"]),
+  "latex_render.py": new Set(["--manifest", "--output-dir"]),
+  "notes_to_audio.py": new Set(["--output", "-o"]),
+  "svg_to_pptx.py": new Set(["--animation-config"]),
+  "visual_review.py": new Set(["--output", "-o"]),
+};
+
+const ALLOWED_SUBCOMMANDS: Record<string, Set<string>> = {
+  "animation_config.py": new Set(["scaffold", "list-groups", "validate"]),
+  "finalize_svg.py": new Set(["embed-icons", "align-images", "flatten-text", "fix-rounded"]),
+};
 
 export const PPT_AGENT_TOOLS: ToolDefinition[] = [
   {
@@ -151,19 +240,39 @@ export class PptToolRuntime {
     }
     const scriptPath = join(this.skillDir, ["scr", "ipts"].join(""), script);
     if (!existsSync(scriptPath)) throw new Error(`PPT script not found: ${script}`);
-    const safeArgs = args.map((arg, index) => this.resolveScriptArg(arg, args[index - 1]));
+    const safeArgs = args.map((arg, index) => this.resolveScriptArg(script, arg, args[index - 1]));
     if (safeArgs.length === 0) safeArgs.push(this.projectDir);
     return executePython(scriptPath, safeArgs, this.signal);
   }
 
-  private resolveScriptArg(arg: string, previousArg?: string) {
+  private resolveScriptArg(script: string, arg: string, previousArg?: string) {
     if (arg === "{projectDir}") return this.projectDir;
-    if (arg.startsWith("-")) return arg;
+    if (arg.startsWith("-")) return this.resolveScriptOption(script, arg);
+    if (ALLOWED_SUBCOMMANDS[script]?.has(arg)) return arg;
     if (previousArg === "-s" || previousArg === "--source") {
       if (arg === "output" || arg === "final" || arg === "svg_output" || arg === "svg_final") return arg;
       throw new Error(`Unsupported PPT script source argument: ${arg}`);
     }
+    if (this.isProjectPathOption(script, previousArg)) return this.resolveProjectPath(arg);
+    if (this.isFreeValueOption(script, previousArg)) return arg;
+    if (script === "image_search.py" && !previousArg) return arg.slice(0, 160);
     return this.resolveProjectPath(arg);
+  }
+
+  private resolveScriptOption(script: string, option: string) {
+    const allowed = ALLOWED_SCRIPT_OPTIONS[script] || new Set<string>();
+    if (!allowed.has(option)) throw new Error(`Unsupported option for ${script}: ${option}`);
+    return option;
+  }
+
+  private isFreeValueOption(script: string, previousArg?: string) {
+    if (!previousArg) return false;
+    return Boolean(ALLOWED_FREE_VALUE_OPTIONS[script]?.has(previousArg));
+  }
+
+  private isProjectPathOption(script: string, previousArg?: string) {
+    if (!previousArg) return false;
+    return Boolean(ALLOWED_PROJECT_PATH_OPTIONS[script]?.has(previousArg));
   }
 
   private resolveReadablePath(path: string) {

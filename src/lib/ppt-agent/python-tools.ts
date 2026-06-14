@@ -15,7 +15,7 @@ export interface PythonResult {
   exitCode: number;
 }
 
-async function executePython(scriptPath: string, args: string[], timeoutMs = 180_000): Promise<PythonResult> {
+export async function executePptPython(scriptPath: string, args: string[], timeoutMs = 180_000): Promise<PythonResult> {
   if (!existsSync(scriptPath)) {
     throw new Error(`PPT Master script not found: ${scriptPath}`);
   }
@@ -60,25 +60,25 @@ async function executePython(scriptPath: string, args: string[], timeoutMs = 180
 
 export async function convertPdfToMarkdown(pdfPath: string): Promise<string> {
   const script = join(getScriptsDir(), "source_to_md", "pdf_to_md.py");
-  const result = await executePython(script, [pdfPath]);
+  const result = await executePptPython(script, [pdfPath]);
   return result.stdout;
 }
 
 export async function convertDocxToMarkdown(docxPath: string): Promise<string> {
   const script = join(getScriptsDir(), "source_to_md", "doc_to_md.py");
-  const result = await executePython(script, [docxPath]);
+  const result = await executePptPython(script, [docxPath]);
   return result.stdout;
 }
 
 export async function convertUrlToMarkdown(url: string): Promise<string> {
   const script = join(getScriptsDir(), "source_to_md", "web_to_md.py");
-  const result = await executePython(script, [url], 120_000);
+  const result = await executePptPython(script, [url], 120_000);
   return result.stdout;
 }
 
 export async function convertSvgToPptx(projectPath: string): Promise<string> {
   const script = join(getScriptsDir(), "svg_to_pptx.py");
-  const result = await executePython(script, [projectPath], 300_000);
+  const result = await executePptPython(script, [projectPath], 300_000);
   const match = result.stdout.match(/exports[\\/][^\r\n]+\.pptx/i);
   if (!match) {
     throw new Error("PPTX path not found in svg_to_pptx output");
@@ -88,18 +88,18 @@ export async function convertSvgToPptx(projectPath: string): Promise<string> {
 
 export async function splitNotes(projectPath: string): Promise<void> {
   const script = join(getScriptsDir(), "total_md_split.py");
-  await executePython(script, [projectPath]);
+  await executePptPython(script, [projectPath]);
 }
 
 export async function finalizeSvg(projectPath: string): Promise<void> {
   const script = join(getScriptsDir(), "finalize_svg.py");
-  await executePython(script, [projectPath], 300_000);
+  await executePptPython(script, [projectPath], 300_000);
 }
 
 export async function checkSvgQuality(projectPath: string): Promise<{ errors: string[]; warnings: string[] }> {
   const script = join(getScriptsDir(), "svg_quality_checker.py");
   try {
-    const result = await executePython(script, [projectPath]);
+    const result = await executePptPython(script, [projectPath]);
     const errors = result.stdout.match(/ERROR:.*$/gm) || [];
     const warnings = result.stdout.match(/WARNING:.*$/gm) || [];
     return {

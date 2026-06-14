@@ -10,6 +10,7 @@ import { getPptStyleLabel, getPptStylePreset, isPptStylePrompt } from "@/lib/ppt
 import { parsePromptMeta, parseTags } from "@/lib/materials";
 import { isPptGenerationCancelled, registerPptGeneration } from "@/lib/ppt-agent/cancellation";
 import { refundPptProjectCredits } from "@/lib/ppt-agent/refund";
+import { listPptTemplateOptions } from "@/lib/ppt-agent/templates";
 
 export const maxDuration = 600;
 export const runtime = "nodejs";
@@ -95,6 +96,7 @@ export async function POST(req: NextRequest) {
   const creditsCost = useOwnKey ? 0 : parsed.slideCount * Number(process.env.PPT_CREDITS_PER_SLIDE || 10);
   const title = buildTitle(parsed);
   let resolvedStyle: Awaited<ReturnType<typeof resolveStyleInput>>;
+  let resolvedTemplate: string | undefined;
   try {
     resolvedStyle = await resolveStyleInput({
       userId: session.user.id,
@@ -102,9 +104,10 @@ export async function POST(req: NextRequest) {
       styleMaterialId: parsed.styleMaterialId,
       customStyle: parsed.customStyle,
     });
+    resolvedTemplate = resolveTemplateInput(parsed.template);
   } catch (error) {
     return Response.json(
-      { error: error instanceof Error ? error.message : "PPT 风格不可用" },
+      { error: error instanceof Error ? error.message : "PPT 风格或模板不可用" },
       { status: 400 }
     );
   }
@@ -122,7 +125,7 @@ export async function POST(req: NextRequest) {
       sourceMarkdown: parsed.sourceMarkdown,
       sourceFileUrl: parsed.sourceFileUrl,
       sourceUrl: parsed.sourceUrl,
-      template: resolvedStyle.template,
+      template: resolvedTemplate || resolvedStyle.template,
       slideCount: parsed.slideCount,
       aspectRatio: parsed.aspectRatio,
       style: resolvedStyle.style,
@@ -182,7 +185,7 @@ export async function POST(req: NextRequest) {
           sourceMarkdown: parsed.sourceMarkdown,
           sourceFileUrl: parsed.sourceFileUrl,
           sourceUrl: parsed.sourceUrl,
-          template: resolvedStyle.template,
+          template: resolvedTemplate || resolvedStyle.template,
           slideCount: parsed.slideCount,
           aspectRatio: parsed.aspectRatio,
           style: resolvedStyle.style,
@@ -221,6 +224,16 @@ export async function POST(req: NextRequest) {
       Connection: "keep-alive",
     },
   });
+}
+
+function resolveTemplateInput(template?: string) {
+  const value = template?.trim();
+  if (!value || value === "none") return undefined;
+  const allowed = new Set(listPptTemplateOptions().map((item) => item.value));
+  if (!allowed.has(value)) {
+    throw new Error("选择的 PPT 模板不可用。");
+  }
+  return value;
 }
 
 async function releaseStaleProject(projectId: string, logs: string | null) {

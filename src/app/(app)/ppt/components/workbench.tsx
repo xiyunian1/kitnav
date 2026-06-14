@@ -7,6 +7,7 @@ import { GenerationForm } from "./generation-form";
 import { ProjectList, type ProjectListItem } from "./project-list";
 import { Plus, History } from "lucide-react";
 import type { PptStyleMaterialOption } from "@/lib/ppt-agent/styles";
+import type { PptTemplateOption } from "@/lib/ppt-agent/templates";
 
 interface Props {
   recentProjects: ProjectListItem[];
@@ -14,6 +15,7 @@ interface Props {
   creditsPerSlide: number;
   styleMaterials: PptStyleMaterialOption[];
   initialStyleMaterialId?: string;
+  templateOptions: PptTemplateOption[];
 }
 
 export function PptWorkbench({
@@ -22,6 +24,7 @@ export function PptWorkbench({
   creditsPerSlide,
   styleMaterials,
   initialStyleMaterialId,
+  templateOptions,
 }: Props) {
   const [activeTab, setActiveTab] = useState<"new" | "history">("new");
 
@@ -46,6 +49,7 @@ export function PptWorkbench({
               creditsPerSlide={creditsPerSlide}
               styleMaterials={styleMaterials}
               initialStyleMaterialId={initialStyleMaterialId}
+              templateOptions={templateOptions}
             />
           </Card>
         </TabsContent>

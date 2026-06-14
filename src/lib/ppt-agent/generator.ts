@@ -10,6 +10,7 @@ import { clampSlideCount, ensureProjectStructure, resolveSourceMarkdown } from "
 import { buildPptStyleInstruction, getPptStyleLabel } from "./styles";
 import { isPptGenerationCancelled, throwIfPptCancelled } from "./cancellation";
 import { collectPptArtifactPaths } from "./artifacts";
+import { preparePptTemplateSelection } from "./templates";
 
 export interface GenerationParams {
   projectId: string;
@@ -58,6 +59,7 @@ export async function generatePPT(params: GenerationParams, emit: EventEmitter):
 
     const sourceMd = await resolveSourceMarkdown(params, projectDir);
     writeFileSync(join(projectDir, "sources", "source.md"), sourceMd, "utf-8");
+    const templateInstruction = preparePptTemplateSelection(params.template, projectDir);
 
     const runnerOptions: {
       projectDir: string;
@@ -77,11 +79,16 @@ export async function generatePPT(params: GenerationParams, emit: EventEmitter):
       aspectRatio,
       canvasFormat,
       style: params.style || "general",
-      stylePrompt: buildPptStyleInstruction({
-        style: params.style,
-        stylePrompt: params.stylePrompt,
-        styleLabel: params.styleLabel,
-      }),
+      stylePrompt: [
+        templateInstruction,
+        buildPptStyleInstruction({
+          style: params.style,
+          stylePrompt: params.stylePrompt,
+          styleLabel: params.styleLabel,
+        }),
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
       styleLabel: getPptStyleLabel(params.style, params.styleLabel),
       signal: params.signal,
       emit,
