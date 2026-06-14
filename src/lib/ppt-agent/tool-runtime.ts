@@ -62,6 +62,18 @@ export const PPT_AGENT_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "quality_check",
+      description: "Run the PPT Master SVG quality checker on the current project.",
+      parameters: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "run_ppt_script",
       description: "Run a whitelisted ppt-master Python script against the current project.",
       parameters: {
@@ -80,10 +92,12 @@ export const PPT_AGENT_TOOLS: ToolDefinition[] = [
 export class PptToolRuntime {
   private readonly projectDir: string;
   private readonly skillDir: string;
+  private readonly signal?: AbortSignal;
 
-  constructor(projectDir: string) {
+  constructor(projectDir: string, signal?: AbortSignal) {
     this.projectDir = resolve(projectDir);
     this.skillDir = resolve(getPptMasterSkillDir());
+    this.signal = signal;
   }
 
   async execute(name: string, rawArgs: string) {
@@ -91,6 +105,7 @@ export class PptToolRuntime {
     if (name === "read_file") return this.readFile(requireString(args.path, "path"));
     if (name === "write_file") return this.writeFile(requireString(args.path, "path"), requireString(args.content, "content"));
     if (name === "list_dir") return this.listDir(requireString(args.path, "path"));
+    if (name === "quality_check") return this.runPptScript("svg_quality_checker.py", [this.projectDir]);
     if (name === "run_ppt_script") {
       const script = requireString(args.script, "script");
       const scriptArgs = Array.isArray(args.args) ? args.args.map(String) : [];
@@ -136,9 +151,19 @@ export class PptToolRuntime {
     }
     const scriptPath = join(this.skillDir, ["scr", "ipts"].join(""), script);
     if (!existsSync(scriptPath)) throw new Error(`PPT script not found: ${script}`);
-    const safeArgs = args.map((arg) => (arg === "{projectDir}" ? this.projectDir : this.resolveProjectPath(arg)));
+    const safeArgs = args.map((arg, index) => this.resolveScriptArg(arg, args[index - 1]));
     if (safeArgs.length === 0) safeArgs.push(this.projectDir);
-    return executePython(scriptPath, safeArgs);
+    return executePython(scriptPath, safeArgs, this.signal);
+  }
+
+  private resolveScriptArg(arg: string, previousArg?: string) {
+    if (arg === "{projectDir}") return this.projectDir;
+    if (arg.startsWith("-")) return arg;
+    if (previousArg === "-s" || previousArg === "--source") {
+      if (arg === "output" || arg === "final" || arg === "svg_output" || arg === "svg_final") return arg;
+      throw new Error(`Unsupported PPT script source argument: ${arg}`);
+    }
+    return this.resolveProjectPath(arg);
   }
 
   private resolveReadablePath(path: string) {
@@ -184,7 +209,7 @@ function isInside(path: string, root: string) {
   return path === root || path.startsWith(normalizedRoot);
 }
 
-async function executePython(scriptPath: string, args: string[]) {
+async function executePython(scriptPath: string, args: string[], signal?: AbortSignal) {
   return new Promise<string>((resolvePromise, reject) => {
     const proc = spawn(PYTHON_CMD, [scriptPath, ...args], {
       cwd: getPptMasterSkillDir(),
@@ -197,6 +222,16 @@ async function executePython(scriptPath: string, args: string[]) {
       proc.kill();
       reject(new Error(`PPT script timed out: ${scriptPath}`));
     }, 300_000);
+    const abort = () => {
+      clearTimeout(timer);
+      proc.kill();
+      reject(signal?.reason instanceof Error ? signal.reason : new Error("PPT generation was cancelled"));
+    };
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
+    signal?.addEventListener("abort", abort, { once: true });
     proc.stdout.on("data", (chunk) => {
       stdout += chunk.toString("utf-8");
     });
@@ -205,10 +240,12 @@ async function executePython(scriptPath: string, args: string[]) {
     });
     proc.on("error", (error) => {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
       reject(error);
     });
     proc.on("close", (code) => {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
       if (code === 0) {
         resolvePromise((stdout || stderr || "OK").slice(0, 10_000));
         return;

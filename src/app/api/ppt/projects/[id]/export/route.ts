@@ -4,6 +4,8 @@ import { prisma } from "@/lib/db";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
 import { assertInsidePptProject, safeDownloadName } from "@/lib/ppt-agent/paths";
 
+export const runtime = "nodejs";
+
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   if (!session?.user?.id) {

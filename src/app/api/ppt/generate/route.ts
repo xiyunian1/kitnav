@@ -12,13 +12,14 @@ import { isPptGenerationCancelled, registerPptGeneration } from "@/lib/ppt-agent
 import { refundPptProjectCredits } from "@/lib/ppt-agent/refund";
 
 export const maxDuration = 600;
+export const runtime = "nodejs";
 
 const requestSchema = z
   .object({
     sourceType: z.enum(["topic", "markdown", "document", "url"]),
     sourceTopic: z.string().trim().max(4000).optional(),
     sourceMarkdown: z.string().trim().max(80000).optional(),
-    sourceFileUrl: z.string().trim().max(1000).optional(),
+    sourceFileUrl: z.string().trim().max(2000).optional(),
     sourceUrl: z.string().trim().url().max(1000).optional(),
     template: z.string().trim().max(120).optional(),
     slideCount: z.coerce.number().int().min(3).max(30).default(10),
@@ -34,11 +35,11 @@ const requestSchema = z
     if (data.sourceType === "markdown" && !data.sourceMarkdown) {
       ctx.addIssue({ code: "custom", path: ["sourceMarkdown"], message: "请粘贴 Markdown 内容" });
     }
-    if (data.sourceType === "document") {
-      ctx.addIssue({ code: "custom", path: ["sourceType"], message: "文档上传暂未开放" });
+    if (data.sourceType === "document" && !data.sourceFileUrl) {
+      ctx.addIssue({ code: "custom", path: ["sourceFileUrl"], message: "请先上传文档" });
     }
-    if (data.sourceType === "url") {
-      ctx.addIssue({ code: "custom", path: ["sourceType"], message: "网页抓取暂未开放" });
+    if (data.sourceType === "url" && !data.sourceUrl) {
+      ctx.addIssue({ code: "custom", path: ["sourceUrl"], message: "请输入网页 URL" });
     }
   });
 
@@ -249,7 +250,14 @@ function formatGenerationError(error: unknown) {
 }
 
 function buildTitle(input: z.infer<typeof requestSchema>) {
-  const text = input.sourceType === "topic" ? input.sourceTopic : input.sourceMarkdown;
+  const text =
+    input.sourceType === "topic"
+      ? input.sourceTopic
+      : input.sourceType === "url"
+        ? input.sourceUrl
+        : input.sourceType === "document"
+          ? input.sourceFileUrl?.split(/[\\/]/).pop()
+          : input.sourceMarkdown;
   return (text || "未命名 PPT")
     .replace(/\s+/g, " ")
     .trim()

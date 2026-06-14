@@ -5,6 +5,7 @@ import { pptSemaphore } from "./semaphore";
 import { getPptProjectDir, publicProjectUrl } from "./paths";
 import { runPptMasterAgent } from "./agent-runner";
 import { runConfiguredPptAgent } from "./configured-runner";
+import { runHostedPptAgent } from "./hosted-agent-runner";
 import { clampSlideCount, ensureProjectStructure, resolveSourceMarkdown } from "./project-utils";
 import { buildPptStyleInstruction, getPptStyleLabel } from "./styles";
 import { isPptGenerationCancelled, throwIfPptCancelled } from "./cancellation";
@@ -54,7 +55,7 @@ export async function generatePPT(params: GenerationParams, emit: EventEmitter):
     ensureProjectStructure(projectDir, params.projectId, canvasFormat);
     throwIfPptCancelled(params.signal);
 
-    const sourceMd = resolveSourceMarkdown(params);
+    const sourceMd = await resolveSourceMarkdown(params, projectDir);
     writeFileSync(join(projectDir, "sources", "source.md"), sourceMd, "utf-8");
 
     const runnerOptions: {
@@ -85,15 +86,22 @@ export async function generatePPT(params: GenerationParams, emit: EventEmitter):
       emit,
     };
     throwIfPptCancelled(params.signal);
-    const useCliAgent = process.env.PPT_AGENT_MODE === "cli";
+    const agentMode = process.env.PPT_AGENT_MODE?.trim() || "hosted";
     await log(
       params.projectId,
       emit,
-      useCliAgent ? "交给 PPT Master CLI agent 执行完整工作流" : "使用站内 PPT API 配置执行生成流程"
+      agentMode === "cli"
+        ? "交给 PPT Master CLI agent 执行完整工作流"
+        : agentMode === "simple"
+          ? "使用站内 PPT API 配置执行简化生成流程"
+          : "使用站内 PPT Master agent 执行完整工具工作流"
     );
-    const result = useCliAgent
-      ? await runPptMasterAgent(params, runnerOptions)
-      : await runConfiguredPptAgent(params, runnerOptions);
+    const result =
+      agentMode === "cli"
+        ? await runPptMasterAgent(params, runnerOptions)
+        : agentMode === "simple"
+          ? await runConfiguredPptAgent(params, runnerOptions)
+          : await runHostedPptAgent(params, runnerOptions);
     const pptxUrl = publicProjectUrl(params.projectId, result.pptxPath);
 
     await updateProject(params.projectId, {

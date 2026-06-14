@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { PPT_PROJECTS_ROOT } from "./paths";
+import { convertDocumentToMarkdown, convertUrlToMarkdownFile } from "./source-converters";
 
 export interface PptSourceParams {
   sourceType: "topic" | "document" | "url" | "markdown";
@@ -10,7 +11,7 @@ export interface PptSourceParams {
   sourceMarkdown?: string;
 }
 
-export function resolveSourceMarkdown(params: PptSourceParams) {
+export async function resolveSourceMarkdown(params: PptSourceParams, projectDir: string) {
   if (params.sourceType === "topic") {
     return `# ${params.sourceTopic?.trim() || "未命名主题"}\n\n请围绕该主题生成结构完整、逻辑清晰、可直接演示的 PPT。`;
   }
@@ -19,7 +20,19 @@ export function resolveSourceMarkdown(params: PptSourceParams) {
     return params.sourceMarkdown?.trim() || "";
   }
 
-  throw new Error("当前版本暂未开放文档上传和网页抓取，请先使用主题或 Markdown 输入。");
+  if (params.sourceType === "url") {
+    if (!params.sourceUrl) throw new Error("请输入网页 URL。");
+    const outputPath = join(projectDir, "sources", "source.md");
+    return convertUrlToMarkdownFile(params.sourceUrl, outputPath);
+  }
+
+  if (params.sourceType === "document") {
+    if (!params.sourceFileUrl) throw new Error("请先上传文档。");
+    const outputPath = join(projectDir, "sources", "source.md");
+    return convertDocumentToMarkdown(params.sourceFileUrl, outputPath);
+  }
+
+  throw new Error("不支持的 PPT 输入来源。");
 }
 
 export function ensureProjectStructure(projectDir: string, projectId: string, canvasFormat: string) {

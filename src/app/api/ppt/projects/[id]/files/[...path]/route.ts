@@ -6,6 +6,8 @@ import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
 import { assertInsidePptProject } from "@/lib/ppt-agent/paths";
 
 const ALLOWED_PREFIXES = ["svg_output/", "svg_final/"];
+export const runtime = "nodejs";
+
 const CONTENT_TYPES: Record<string, string> = {
   ".svg": "image/svg+xml; charset=utf-8",
   ".png": "image/png",
