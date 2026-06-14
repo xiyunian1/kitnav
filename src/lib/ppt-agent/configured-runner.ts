@@ -53,6 +53,7 @@ export async function runConfiguredPptAgent(
     provider: resolved.provider,
     useTools: process.env.PPT_AGENT_API_TOOLS === "true",
     signal: options.signal,
+    onRetry: (message) => log(params.projectId, options.emit, message),
   };
 
   options.emit({ type: "phase", data: { phase: "STRATEGIZING", progress: 12 } });

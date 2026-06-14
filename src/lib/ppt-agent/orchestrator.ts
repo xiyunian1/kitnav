@@ -19,6 +19,7 @@ export interface AgentContext {
   provider?: OpenAITextProvider;
   useTools?: boolean;
   signal?: AbortSignal;
+  onRetry?: (message: string) => void | Promise<void>;
 }
 
 export interface StrategistResult {
@@ -117,9 +118,13 @@ ${trimForPrompt(context.sourceMd, sourceLimit)}
           timeoutMs: Number(process.env.PPT_AGENT_STRATEGIST_TIMEOUT_MS || 180_000),
           signal: context.signal,
           messages: strategistMessages,
-        }),
+      }),
       context.signal,
-      Number(process.env.PPT_AGENT_STRATEGIST_ATTEMPTS || 1)
+      Number(process.env.PPT_AGENT_STRATEGIST_ATTEMPTS || 2),
+      (info) =>
+        context.onRetry?.(
+          `Strategist 第 ${info.attempt} 次请求失败，${Math.round(info.delayMs / 1000)} 秒后重试（${info.nextAttempt}/${info.attempts}）：${summarizeRetryError(info.error)}`
+        )
     );
   } catch (error) {
     throw formatStrategistFailure(error);
@@ -208,9 +213,13 @@ Requirements:
           timeoutMs: Number(process.env.PPT_AGENT_EXECUTOR_TIMEOUT_MS || 120_000),
           signal: context.signal,
           messages,
-        }),
+      }),
       context.signal,
-      Number(process.env.PPT_AGENT_EXECUTOR_ATTEMPTS || 1)
+      Number(process.env.PPT_AGENT_EXECUTOR_ATTEMPTS || 3),
+      (info) =>
+        context.onRetry?.(
+          `第 ${pageIndex + 1} 页 SVG 第 ${info.attempt} 次生成失败，${Math.round(info.delayMs / 1000)} 秒后重试（${info.nextAttempt}/${info.attempts}）：${summarizeRetryError(info.error)}`
+        )
     );
   } catch (error) {
     throw formatExecutorFailure(error, pageIndex);
@@ -452,7 +461,20 @@ function trimForPrompt(text: string, maxChars: number) {
   return `${text.slice(0, maxChars)}\n\n[truncated]`;
 }
 
-async function withGenerationRetry<T>(run: () => Promise<T>, signal?: AbortSignal, attempts = 3): Promise<T> {
+interface GenerationRetryInfo {
+  attempt: number;
+  nextAttempt: number;
+  attempts: number;
+  delayMs: number;
+  error: unknown;
+}
+
+async function withGenerationRetry<T>(
+  run: () => Promise<T>,
+  signal?: AbortSignal,
+  attempts = 3,
+  onRetry?: (info: GenerationRetryInfo) => void | Promise<void>
+): Promise<T> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
@@ -464,10 +486,21 @@ async function withGenerationRetry<T>(run: () => Promise<T>, signal?: AbortSigna
       if (attempt >= attempts || !isTransientGenerationError(error)) {
         throw error;
       }
-      await sleep(1000 * attempt * attempt, signal);
+      const delayMs = 1000 * attempt * attempt;
+      try {
+        await onRetry?.({ attempt, nextAttempt: attempt + 1, attempts, delayMs, error });
+      } catch (retryLogError) {
+        console.error(retryLogError);
+      }
+      await sleep(delayMs, signal);
     }
   }
   throw lastError;
+}
+
+function summarizeRetryError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/\s+/g, " ").slice(0, 220);
 }
 
 function sleep(ms: number, signal?: AbortSignal) {
