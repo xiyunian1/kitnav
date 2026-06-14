@@ -1,5 +1,5 @@
 import { spawn } from "child_process";
-import { existsSync } from "fs";
+import { existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { getPptMasterSkillDir } from "./runtime-paths";
 
@@ -58,6 +58,10 @@ export async function executePptPython(scriptPath: string, args: string[], timeo
   });
 }
 
+export function getPptScriptPath(name: string) {
+  return join(getScriptsDir(), name);
+}
+
 export async function convertPdfToMarkdown(pdfPath: string): Promise<string> {
   const script = join(getScriptsDir(), "source_to_md", "pdf_to_md.py");
   const result = await executePptPython(script, [pdfPath]);
@@ -78,7 +82,7 @@ export async function convertUrlToMarkdown(url: string): Promise<string> {
 
 export async function convertSvgToPptx(projectPath: string): Promise<string> {
   const script = join(getScriptsDir(), "svg_to_pptx.py");
-  const result = await executePptPython(script, [projectPath], 300_000);
+  const result = await executePptPython(script, buildPptxExportArgs(projectPath), 300_000);
   const match = result.stdout.match(/exports[\\/][^\r\n]+\.pptx/i);
   if (!match) {
     throw new Error("PPTX path not found in svg_to_pptx output");
@@ -112,4 +116,24 @@ export async function checkSvgQuality(projectPath: string): Promise<{ errors: st
       warnings: [],
     };
   }
+}
+
+function buildPptxExportArgs(projectPath: string) {
+  const args = [projectPath];
+  const animationConfig = join(projectPath, "animations.json");
+  const audioDir = join(projectPath, "audio");
+
+  if (existsSync(animationConfig)) {
+    args.push("--animation-config", animationConfig);
+  }
+  if (hasNarrationAudio(audioDir)) {
+    args.push("--recorded-narration", audioDir, "--use-narration-timings");
+  }
+
+  return args;
+}
+
+function hasNarrationAudio(audioDir: string) {
+  if (!existsSync(audioDir)) return false;
+  return readdirSync(audioDir).some((file) => [".mp3", ".m4a", ".wav"].some((ext) => file.toLowerCase().endsWith(ext)));
 }

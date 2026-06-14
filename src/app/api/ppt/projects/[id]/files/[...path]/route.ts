@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
 import { assertInsidePptProject } from "@/lib/ppt-agent/paths";
 
-const ALLOWED_PREFIXES = ["svg_output/", "svg_final/"];
+const ALLOWED_PREFIXES = ["svg_output/", "svg_final/", "images/", "audio/", "templates/imported/svg/", "templates/imported/svg-flat/"];
 export const runtime = "nodejs";
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -14,6 +14,9 @@ const CONTENT_TYPES: Record<string, string> = {
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
   ".webp": "image/webp",
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
+  ".wav": "audio/wav",
 };
 
 export async function GET(
