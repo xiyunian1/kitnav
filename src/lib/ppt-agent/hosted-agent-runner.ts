@@ -8,6 +8,7 @@ import { resolvePptTextProvider } from "./resolve-claude";
 import { buildPptStyleInstruction } from "./styles";
 import { PptToolRuntime, PPT_AGENT_TOOLS } from "./tool-runtime";
 import { throwIfPptCancelled } from "./cancellation";
+import { collectPptArtifactPaths, normalizePptSvgArtifacts } from "./artifacts";
 import type { TextMessage, ToolCall } from "@/lib/providers/text-openai";
 import type { EventEmitter, GenerationParams } from "./generator";
 
@@ -122,11 +123,7 @@ export async function runHostedPptAgent(
       await updateExecutionProgress(params.projectId, options, svgCount);
     }
 
-    const pptxPath = findLatestPptx(options.projectDir);
-    if (pptxPath) {
-      await log(params.projectId, options.emit, `PPTX 已生成：${publicProjectUrl(params.projectId, pptxPath)}`);
-      return { pptxPath, slideCount: svgCount || options.slideCount };
-    }
+    if (findLatestPptx(options.projectDir)) break;
 
     if (svgCount >= options.slideCount && result.toolCalls.length === 0) {
       break;
@@ -158,7 +155,7 @@ export async function runHostedPptAgent(
   await updateProject(params.projectId, {
     status: "EXPORTING",
     currentPhase: "质量检查与导出 PPTX",
-    svgOutputPath: join(options.projectDir, "svg_output"),
+    ...collectPptArtifactPaths(options.projectDir),
     progress: 86,
   });
 
@@ -338,6 +335,14 @@ function buildAssistantMessage(result: AgentStepResult): TextMessage {
 async function runServerSideExport(projectId: string, options: RunnerOptions) {
   await ensureFallbackSpeakerNotes(options.projectDir, options.slideCount);
   throwIfPptCancelled(options.signal);
+  const normalized = normalizePptSvgArtifacts(options.projectDir);
+  if (normalized.namedGroups > 0 || normalized.addedColors > 0 || normalized.addedFonts > 0) {
+    await log(
+      projectId,
+      options.emit,
+      `已规范化 SVG 产物：补充 ${normalized.namedGroups} 个页面的分组 id，写入 ${normalized.addedColors} 个 spec_lock 颜色和 ${normalized.addedFonts} 个字体栈`
+    );
+  }
   const quality = await checkSvgQuality(options.projectDir);
   if (quality.errors.length > 0) {
     throw new Error(`SVG 质量检查失败：${quality.errors.slice(0, 8).join("; ")}`);

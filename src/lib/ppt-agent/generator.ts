@@ -9,6 +9,7 @@ import { runHostedPptAgent } from "./hosted-agent-runner";
 import { clampSlideCount, ensureProjectStructure, resolveSourceMarkdown } from "./project-utils";
 import { buildPptStyleInstruction, getPptStyleLabel } from "./styles";
 import { isPptGenerationCancelled, throwIfPptCancelled } from "./cancellation";
+import { collectPptArtifactPaths } from "./artifacts";
 
 export interface GenerationParams {
   projectId: string;
@@ -107,7 +108,7 @@ export async function generatePPT(params: GenerationParams, emit: EventEmitter):
     await updateProject(params.projectId, {
       status: "COMPLETED",
       currentPhase: "生成完成",
-      pptxPath: result.pptxPath,
+      ...collectPptArtifactPaths(projectDir, result.pptxPath),
       slideCount: result.slideCount,
       progress: 100,
       completedAt: new Date(),
