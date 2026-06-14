@@ -47,4 +47,4 @@ COPY --from=builder /app/scripts ./scripts
 RUN chmod +x ./scripts/docker-entrypoint.sh
 
 EXPOSE 3001
-CMD ["./scripts/docker-entrypoint.sh"]
+CMD ["sh", "./scripts/docker-entrypoint.sh"]
