@@ -9,18 +9,32 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, FileText, LinkIcon, ListChecks, Presentation, Upload } from "lucide-react";
+import { LinkIcon, Loader2, Paperclip, Plus, Presentation, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PPT_STYLE_PRESETS, type PptStyleMaterialOption } from "@/lib/ppt-agent/styles";
 import { CancelProjectButton } from "./cancel-project-button";
 import type { PptTemplateOption } from "@/lib/ppt-agent/templates";
 
-type SourceType = "topic" | "markdown" | "url" | "document";
-
 interface StreamEvent {
   event: string;
   data: unknown;
 }
+
+interface GenerationFormProps {
+  useOwnKey: boolean;
+  creditsPerSlide: number;
+  styleMaterials: PptStyleMaterialOption[];
+  initialStyleMaterialId?: string;
+  templateOptions: PptTemplateOption[];
+}
+
+interface UploadedFile {
+  path: string;
+  name: string;
+  size: number;
+}
+
+type StyleSource = "preset" | "material" | "custom";
 
 function parseSseChunk(chunk: string): StreamEvent[] {
   return chunk
@@ -45,16 +59,6 @@ function parseSseChunk(chunk: string): StreamEvent[] {
     .filter((item): item is StreamEvent => Boolean(item));
 }
 
-interface GenerationFormProps {
-  useOwnKey: boolean;
-  creditsPerSlide: number;
-  styleMaterials: PptStyleMaterialOption[];
-  initialStyleMaterialId?: string;
-  templateOptions: PptTemplateOption[];
-}
-
-type StyleSource = "preset" | "material" | "custom";
-
 export function GenerationForm({
   useOwnKey,
   creditsPerSlide,
@@ -64,12 +68,10 @@ export function GenerationForm({
 }: GenerationFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [sourceType, setSourceType] = useState<SourceType>("topic");
-  const [topic, setTopic] = useState("");
-  const [markdown, setMarkdown] = useState("");
-  const [sourceUrl, setSourceUrl] = useState("");
-  const [sourceFilePath, setSourceFilePath] = useState("");
-  const [sourceFileName, setSourceFileName] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [urlInput, setUrlInput] = useState("");
+  const [sourceUrls, setSourceUrls] = useState<string[]>([]);
+  const [sourceFiles, setSourceFiles] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [slideCount, setSlideCount] = useState(10);
   const [aspectRatio, setAspectRatio] = useState("16:9");
@@ -93,23 +95,9 @@ export function GenerationForm({
   );
 
   async function handleSubmit() {
-    const normalizedTopic = topic.trim();
-    const normalizedMarkdown = markdown.trim();
-
-    if (sourceType === "topic" && !normalizedTopic) {
-      toast.error("请输入 PPT 主题。");
-      return;
-    }
-    if (sourceType === "markdown" && !normalizedMarkdown) {
-      toast.error("请粘贴 Markdown 或结构化内容。");
-      return;
-    }
-    if (sourceType === "url" && !sourceUrl.trim()) {
-      toast.error("请输入网页 URL。");
-      return;
-    }
-    if (sourceType === "document" && !sourceFilePath) {
-      toast.error("请先上传文档。");
+    const normalizedPrompt = prompt.trim();
+    if (!normalizedPrompt && sourceUrls.length === 0 && sourceFiles.length === 0) {
+      toast.error("请描述你想生成的 PPT，或添加网页/文件资料。");
       return;
     }
     if (styleSource === "material" && !styleMaterialId) {
@@ -134,11 +122,9 @@ export function GenerationForm({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sourceType,
-          sourceTopic: sourceType === "topic" ? normalizedTopic : undefined,
-          sourceMarkdown: sourceType === "markdown" ? normalizedMarkdown : undefined,
-          sourceUrl: sourceType === "url" ? sourceUrl.trim() : undefined,
-          sourceFileUrl: sourceType === "document" ? sourceFilePath : undefined,
+          prompt: normalizedPrompt,
+          sourceUrls,
+          sourceFileUrls: sourceFiles.map((file) => file.path),
           slideCount,
           aspectRatio,
           template: template === "none" ? undefined : template,
@@ -204,22 +190,41 @@ export function GenerationForm({
     }
   }
 
-  async function handleFileChange(file?: File) {
-    if (!file) return;
+  function addUrl() {
+    const value = urlInput.trim();
+    if (!value) return;
+    try {
+      const url = new URL(value);
+      if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error();
+      if (sourceUrls.includes(url.toString())) {
+        setUrlInput("");
+        return;
+      }
+      setSourceUrls((prev) => [...prev, url.toString()]);
+      setUrlInput("");
+    } catch {
+      toast.error("请输入有效的网页链接。");
+    }
+  }
+
+  async function handleFileChange(files?: FileList | null) {
+    const list = Array.from(files || []);
+    if (list.length === 0) return;
     setUploading(true);
     try {
-      const form = new FormData();
-      form.append("file", file);
-      const res = await fetch("/api/ppt/upload", { method: "POST", body: form });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(data?.error || "文档上传失败");
-      setSourceFilePath(data.path);
-      setSourceFileName(data.name || file.name);
-      toast.success("文档已上传。");
+      const uploaded: UploadedFile[] = [];
+      for (const file of list) {
+        const form = new FormData();
+        form.append("file", file);
+        const res = await fetch("/api/ppt/upload", { method: "POST", body: form });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(data?.error || `${file.name} 上传失败`);
+        uploaded.push({ path: data.path, name: data.name || file.name, size: data.size || file.size });
+      }
+      setSourceFiles((prev) => [...prev, ...uploaded]);
+      toast.success(uploaded.length === 1 ? "文件已上传。" : `已上传 ${uploaded.length} 个文件。`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "文档上传失败");
-      setSourceFilePath("");
-      setSourceFileName("");
+      toast.error(error instanceof Error ? error.message : "文件上传失败");
     } finally {
       setUploading(false);
     }
@@ -227,86 +232,83 @@ export function GenerationForm({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold">创建 PPT 项目</h2>
-        <p className="text-sm text-muted-foreground">支持主题、Markdown、网页和文档输入，生成过程会按 PPT Master 流程执行。</p>
+      <div className="space-y-2">
+        <h2 className="text-xl font-semibold">你想生成什么 PPT？</h2>
+        <p className="text-sm text-muted-foreground">
+          直接描述需求，也可以同时上传文件、添加网页链接，系统会合并理解后按 PPT Master 流程生成。
+        </p>
       </div>
 
-      <Tabs value={sourceType} onValueChange={(value) => setSourceType(value as SourceType)}>
-        <TabsList className="grid h-auto w-full grid-cols-2 sm:grid-cols-4">
-          <TabsTrigger value="topic">
-            <FileText className="size-4" />
-            输入主题
-          </TabsTrigger>
-          <TabsTrigger value="markdown">
-            <ListChecks className="size-4" />
-            粘贴内容
-          </TabsTrigger>
-          <TabsTrigger value="url">
-            <LinkIcon className="size-4" />
-            网页
-          </TabsTrigger>
-          <TabsTrigger value="document">
-            <Upload className="size-4" />
-            文档
-          </TabsTrigger>
-        </TabsList>
+      <div className="space-y-3">
+        <Label htmlFor="pptPrompt">PPT 需求</Label>
+        <Textarea
+          id="pptPrompt"
+          value={prompt}
+          onChange={(event) => setPrompt(event.target.value)}
+          rows={9}
+          maxLength={80000}
+          placeholder="例如：帮我做一份 12 页中文融资路演 PPT，面向投资人，重点突出市场规模、产品壁垒和商业模式。可以参考我上传的文档和下面的网页链接。"
+          className="min-h-52"
+        />
+      </div>
 
-        <TabsContent value="topic" className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="topic">PPT 主题</Label>
-            <Textarea
-              id="topic"
-              placeholder="例如：AI Agent 在企业知识管理中的落地路径"
-              value={topic}
-              onChange={(event) => setTopic(event.target.value)}
-              rows={4}
-            />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="markdown" className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="markdown">Markdown / 结构化内容</Label>
-            <Textarea
-              id="markdown"
-              placeholder="粘贴文章、提纲、会议纪要或 Markdown 内容"
-              value={markdown}
-              onChange={(event) => setMarkdown(event.target.value)}
-              rows={9}
-            />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="url" className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="sourceUrl">网页 URL</Label>
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
+        <div className="space-y-2">
+          <Label htmlFor="sourceUrl">网页链接</Label>
+          <div className="flex gap-2">
             <Input
               id="sourceUrl"
               type="url"
               placeholder="https://example.com/article"
-              value={sourceUrl}
-              onChange={(event) => setSourceUrl(event.target.value)}
+              value={urlInput}
+              onChange={(event) => setUrlInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  addUrl();
+                }
+              }}
             />
+            <Button type="button" variant="outline" onClick={addUrl}>
+              <Plus className="size-4" />
+              添加
+            </Button>
           </div>
-        </TabsContent>
+        </div>
 
-        <TabsContent value="document" className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="sourceFile">上传文档</Label>
-            <Input
-              id="sourceFile"
-              type="file"
-              accept=".pdf,.docx,.html,.htm,.epub,.ipynb,.pptx,.pptm,.ppsx,.ppsm,.potx,.potm,.xlsx,.xlsm"
-              disabled={uploading}
-              onChange={(event) => handleFileChange(event.target.files?.[0])}
+        <div className="space-y-2">
+          <Label htmlFor="sourceFiles">参考文件</Label>
+          <Input
+            id="sourceFiles"
+            type="file"
+            multiple
+            accept=".pdf,.docx,.html,.htm,.epub,.ipynb,.pptx,.pptm,.ppsx,.ppsm,.potx,.potm,.xlsx,.xlsm"
+            disabled={uploading}
+            onChange={(event) => handleFileChange(event.target.files)}
+          />
+        </div>
+      </div>
+
+      {(sourceUrls.length > 0 || sourceFiles.length > 0) && (
+        <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+          {sourceUrls.map((url) => (
+            <AttachmentRow
+              key={url}
+              icon={<LinkIcon className="size-4" />}
+              label={url}
+              onRemove={() => setSourceUrls((prev) => prev.filter((item) => item !== url))}
             />
-            <p className="text-sm text-muted-foreground">
-              {uploading ? "正在上传文档..." : sourceFileName ? `已上传：${sourceFileName}` : "支持 PDF、DOCX、PPTX、XLSX、HTML、EPUB 等格式。"}
-            </p>
-          </div>
-        </TabsContent>
-      </Tabs>
+          ))}
+          {sourceFiles.map((file) => (
+            <AttachmentRow
+              key={file.path}
+              icon={<Paperclip className="size-4" />}
+              label={`${file.name} · ${formatBytes(file.size)}`}
+              onRemove={() => setSourceFiles((prev) => prev.filter((item) => item.path !== file.path))}
+            />
+          ))}
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
@@ -448,12 +450,14 @@ export function GenerationForm({
       )}
 
       <Button onClick={handleSubmit} disabled={loading || uploading} className="w-full">
-        {loading ? <Loader2 className="size-4 animate-spin" /> : <Presentation className="size-4" />}
-        {loading
-          ? "正在生成"
-          : useOwnKey
-            ? "开始生成 · 使用我的 API"
-            : `开始生成 · 预估 ${estimatedCost} 积分`}
+        {loading || uploading ? <Loader2 className="size-4 animate-spin" /> : <Presentation className="size-4" />}
+        {uploading
+          ? "正在上传文件"
+          : loading
+            ? "正在生成"
+            : useOwnKey
+              ? "开始生成 · 使用我的 API"
+              : `开始生成 · 预计 ${estimatedCost} 积分`}
       </Button>
       {loading && activeProjectId && (
         <CancelProjectButton
@@ -468,4 +472,22 @@ export function GenerationForm({
       )}
     </div>
   );
+}
+
+function AttachmentRow({ icon, label, onRemove }: { icon: React.ReactNode; label: string; onRemove: () => void }) {
+  return (
+    <div className="flex items-center gap-2 rounded-md bg-background px-3 py-2 text-sm">
+      <span className="text-muted-foreground">{icon}</span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <Button type="button" variant="outline" size="icon" onClick={onRemove} aria-label="移除附件">
+        <Trash2 className="size-4" />
+      </Button>
+    </div>
+  );
+}
+
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 KB";
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }

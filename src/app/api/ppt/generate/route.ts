@@ -17,7 +17,10 @@ export const runtime = "nodejs";
 
 const requestSchema = z
   .object({
-    sourceType: z.enum(["topic", "markdown", "document", "url"]),
+    sourceType: z.enum(["topic", "markdown", "document", "url"]).optional(),
+    prompt: z.string().trim().max(80000).optional(),
+    sourceUrls: z.array(z.string().trim().url().max(1000)).max(10).optional(),
+    sourceFileUrls: z.array(z.string().trim().max(2000)).max(10).optional(),
     sourceTopic: z.string().trim().max(4000).optional(),
     sourceMarkdown: z.string().trim().max(80000).optional(),
     sourceFileUrl: z.string().trim().max(2000).optional(),
@@ -30,6 +33,16 @@ const requestSchema = z
     customStyle: z.string().trim().max(2000).optional(),
   })
   .superRefine((data, ctx) => {
+    const hasCombinedInput = Boolean(
+      data.prompt ||
+        data.sourceUrls?.length ||
+        data.sourceFileUrls?.length
+    );
+    if (hasCombinedInput) return;
+    if (!data.sourceType) {
+      ctx.addIssue({ code: "custom", path: ["prompt"], message: "请描述你想生成的 PPT，或添加网页/文件资料" });
+      return;
+    }
     if (data.sourceType === "topic" && !data.sourceTopic) {
       ctx.addIssue({ code: "custom", path: ["sourceTopic"], message: "请输入 PPT 主题" });
     }
@@ -95,6 +108,7 @@ export async function POST(req: NextRequest) {
   const useOwnKey = billingMode.useOwnKey;
   const creditsCost = useOwnKey ? 0 : parsed.slideCount * Number(process.env.PPT_CREDITS_PER_SLIDE || 10);
   const title = buildTitle(parsed);
+  const normalizedSourceType = resolveSourceType(parsed);
   let resolvedStyle: Awaited<ReturnType<typeof resolveStyleInput>>;
   let resolvedTemplate: string | undefined;
   try {
@@ -117,10 +131,10 @@ export async function POST(req: NextRequest) {
       userId: session.user.id,
       title,
       topic: title,
-      sourceText: parsed.sourceType === "topic" ? parsed.sourceTopic : parsed.sourceMarkdown,
+      sourceText: parsed.prompt || (normalizedSourceType === "topic" ? parsed.sourceTopic : parsed.sourceMarkdown),
       language: "zh-CN",
       tone: "PROFESSIONAL",
-      sourceType: parsed.sourceType.toUpperCase() as "TOPIC" | "MARKDOWN" | "DOCUMENT" | "URL",
+      sourceType: normalizedSourceType.toUpperCase() as "TOPIC" | "MARKDOWN" | "DOCUMENT" | "URL",
       sourceTopic: parsed.sourceTopic,
       sourceMarkdown: parsed.sourceMarkdown,
       sourceFileUrl: parsed.sourceFileUrl,
@@ -180,11 +194,14 @@ export async function POST(req: NextRequest) {
         const params: GenerationParams = {
           projectId: project.id,
           userId: session.user.id,
-          sourceType: parsed.sourceType,
+          sourceType: normalizedSourceType,
           sourceTopic: parsed.sourceTopic,
           sourceMarkdown: parsed.sourceMarkdown,
           sourceFileUrl: parsed.sourceFileUrl,
           sourceUrl: parsed.sourceUrl,
+          prompt: parsed.prompt,
+          sourceUrls: parsed.sourceUrls,
+          sourceFileUrls: parsed.sourceFileUrls,
           template: resolvedTemplate || resolvedStyle.template,
           slideCount: parsed.slideCount,
           aspectRatio: parsed.aspectRatio,
@@ -262,7 +279,17 @@ function formatGenerationError(error: unknown) {
   return message;
 }
 
+function resolveSourceType(input: z.infer<typeof requestSchema>): "topic" | "markdown" | "document" | "url" {
+  if (input.prompt || input.sourceUrls?.length || input.sourceFileUrls?.length) return "markdown";
+  return input.sourceType || "topic";
+}
+
 function buildTitle(input: z.infer<typeof requestSchema>) {
+  if (input.prompt) {
+    return input.prompt.replace(/\s+/g, " ").trim().slice(0, 60) || "未命名 PPT";
+  }
+  if (input.sourceUrls?.[0]) return input.sourceUrls[0];
+  if (input.sourceFileUrls?.[0]) return input.sourceFileUrls[0].split(/[\\/]/).pop() || "未命名 PPT";
   const text =
     input.sourceType === "topic"
       ? input.sourceTopic

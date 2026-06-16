@@ -9,9 +9,16 @@ export interface PptSourceParams {
   sourceFileUrl?: string;
   sourceUrl?: string;
   sourceMarkdown?: string;
+  prompt?: string;
+  sourceUrls?: string[];
+  sourceFileUrls?: string[];
 }
 
 export async function resolveSourceMarkdown(params: PptSourceParams, projectDir: string) {
+  if (params.prompt || params.sourceUrls?.length || params.sourceFileUrls?.length) {
+    return resolveCombinedSourceMarkdown(params, projectDir);
+  }
+
   if (params.sourceType === "topic") {
     return `# ${params.sourceTopic?.trim() || "未命名主题"}\n\n请围绕该主题生成结构完整、逻辑清晰、可直接演示的 PPT。`;
   }
@@ -33,6 +40,39 @@ export async function resolveSourceMarkdown(params: PptSourceParams, projectDir:
   }
 
   throw new Error("不支持的 PPT 输入来源。");
+}
+
+async function resolveCombinedSourceMarkdown(params: PptSourceParams, projectDir: string) {
+  const sections: string[] = [];
+  const prompt = params.prompt?.trim();
+  const urls = uniqueStrings(params.sourceUrls || []);
+  const files = uniqueStrings(params.sourceFileUrls || []);
+
+  if (prompt) {
+    sections.push(["# 用户需求", "", prompt].join("\n"));
+  }
+
+  for (const [index, url] of urls.entries()) {
+    const outputPath = join(projectDir, "sources", `url_${String(index + 1).padStart(2, "0")}.md`);
+    const content = await convertUrlToMarkdownFile(url, outputPath);
+    sections.push([`# 网页资料 ${index + 1}`, "", `来源：${url}`, "", content].join("\n"));
+  }
+
+  for (const [index, filePath] of files.entries()) {
+    const outputPath = join(projectDir, "sources", `document_${String(index + 1).padStart(2, "0")}.md`);
+    const content = await convertDocumentToMarkdown(filePath, outputPath);
+    sections.push([`# 文件资料 ${index + 1}`, "", content].join("\n"));
+  }
+
+  if (sections.length === 0) {
+    throw new Error("请描述你想生成的 PPT，或添加网页/文件资料。");
+  }
+
+  return sections.join("\n\n---\n\n");
+}
+
+function uniqueStrings(values: string[]) {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
 
 export function ensureProjectStructure(projectDir: string, projectId: string, canvasFormat: string) {

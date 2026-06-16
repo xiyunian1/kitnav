@@ -20,6 +20,9 @@ export interface GenerationParams {
   sourceFileUrl?: string;
   sourceUrl?: string;
   sourceMarkdown?: string;
+  prompt?: string;
+  sourceUrls?: string[];
+  sourceFileUrls?: string[];
   template?: string;
   slideCount?: number;
   aspectRatio?: string;
