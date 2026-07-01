@@ -17,6 +17,15 @@ import { PPT_PROCESSING_STATUSES } from "@/lib/ppt-agent/status";
 
 export const runtime = "nodejs";
 
+const UPLOADED_TEMPLATE_EXTENSIONS = new Set([
+	".pptx",
+	".pptm",
+	".ppsx",
+	".ppsm",
+	".potx",
+	".potm",
+]);
+
 class ActivePptProjectError extends Error {
 	constructor() {
 		super("你已有一个 PPT 项目正在生成，请等待完成或先停止当前项目。");
@@ -177,6 +186,28 @@ export async function POST(req: NextRequest) {
 	const resolvedFileUrls = (parsed.sourceFileUrls ?? []).map((token) =>
 		resolveUploadPath(userId, token),
 	);
+	const shouldTreatUploadedPptAsTemplate =
+		parsed.style === "match-template" || Boolean(parsed.templateUrls?.length);
+	const uploadedTemplateFileUrls = shouldTreatUploadedPptAsTemplate
+		? resolvedFileUrls.filter(isUploadedPptTemplateFile)
+		: [];
+	const contentFileUrls = resolvedFileUrls.filter(
+		(filePath) => !uploadedTemplateFileUrls.includes(filePath),
+	);
+	if (
+		uploadedTemplateFileUrls.length > 0 &&
+		!parsed.prompt &&
+		!parsed.sourceUrls?.length &&
+		contentFileUrls.length === 0 &&
+		!parsed.sourceMarkdown &&
+		!parsed.sourceTopic &&
+		!parsed.sourceUrl
+	) {
+		return Response.json(
+			{ error: "请描述你想生成的 PPT 内容，模板只用于控制版式和视觉风格。" },
+			{ status: 400 },
+		);
+	}
 	const resolvedSingleFileUrl = parsed.sourceFileUrl
 		? resolveUploadPath(userId, parsed.sourceFileUrl)
 		: undefined;
@@ -188,7 +219,8 @@ export async function POST(req: NextRequest) {
 		sourceUrl: parsed.sourceUrl,
 		prompt: parsed.prompt,
 		sourceUrls: parsed.sourceUrls,
-		sourceFileUrls: resolvedFileUrls,
+		sourceFileUrls: contentFileUrls,
+		templateFileUrls: uploadedTemplateFileUrls,
 		templateUrls: parsed.templateUrls,
 		template: resolvedTemplate || resolvedStyle.template,
 		slideCount: parsed.slideCount,
@@ -300,6 +332,13 @@ function resolveSourceType(
 	if (input.prompt || input.sourceUrls?.length || input.sourceFileUrls?.length)
 		return "markdown";
 	return input.sourceType || "topic";
+}
+
+function isUploadedPptTemplateFile(filePath: string) {
+	const lower = filePath.toLowerCase();
+	return Array.from(UPLOADED_TEMPLATE_EXTENSIONS).some((ext) =>
+		lower.endsWith(ext),
+	);
 }
 
 function buildTitle(input: z.infer<typeof requestSchema>) {

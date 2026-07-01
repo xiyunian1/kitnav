@@ -68,6 +68,39 @@ export async function importExternalPptTemplateUrls(
     .join("\n");
 }
 
+export async function importUploadedPptTemplateFiles(
+  projectDir: string,
+  filePaths: string[] | undefined,
+  slideCount: number
+) {
+  const templateFile = uniqueStrings(filePaths || []).find((filePath) =>
+    OOXML_TEMPLATE_EXTENSIONS.has(extname(filePath).toLowerCase())
+  );
+  if (!templateFile) return "";
+
+  const importName = normalizeImportFilename(templateFile);
+  const result = await importPptxTemplate(projectDir, importName, readFileSync(templateFile));
+  const sourceInfo = {
+    source: "upload",
+    filename: basename(templateFile),
+    importedFilename: result.filename,
+    importedAt: new Date().toISOString(),
+  };
+  const importedDir = join(projectDir, "templates", "imported");
+  writeFileSync(join(importedDir, "external-source.json"), `${JSON.stringify(sourceInfo, null, 2)}\n`, "utf-8");
+
+  const imported = readImportedTemplate(projectDir);
+  const templateBaseGuidance = buildImportedTemplateBaseGuidance(projectDir, slideCount);
+  return [
+    `已导入上传 PPT 模板：${basename(templateFile)}`,
+    "项目模板目录：templates/imported",
+    imported.summary ? `模板摘要：\n${imported.summary}` : "",
+    templateBaseGuidance,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 export function buildImportedTemplateBaseGuidance(projectDir: string, slideCount: number) {
   const flatDir = join(projectDir, "templates", "imported", "svg-flat");
   if (!existsSync(flatDir)) return "";

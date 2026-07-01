@@ -152,6 +152,7 @@ function rebuildGenerationParams(
 		prompt: stored.prompt,
 		sourceUrls: stored.sourceUrls,
 		sourceFileUrls: stored.sourceFileUrls,
+		templateFileUrls: stored.templateFileUrls,
 		templateUrls: stored.templateUrls,
 		template: stored.template,
 		slideCount: stored.slideCount,

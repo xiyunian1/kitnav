@@ -12,7 +12,10 @@ import { buildPptStyleInstruction, getPptStyleLabel } from "./styles";
 import { isPptGenerationCancelled, throwIfPptCancelled } from "./cancellation";
 import { collectPptArtifactPaths } from "./artifacts";
 import { preparePptTemplateSelection } from "./templates";
-import { importExternalPptTemplateUrls } from "./external-templates";
+import {
+	importExternalPptTemplateUrls,
+	importUploadedPptTemplateFiles,
+} from "./external-templates";
 import { emitProjectLog, updateProject } from "./project-log";
 
 export interface GenerationParams {
@@ -26,6 +29,7 @@ export interface GenerationParams {
 	prompt?: string;
 	sourceUrls?: string[];
 	sourceFileUrls?: string[];
+	templateFileUrls?: string[];
 	templateUrls?: string[];
 	template?: string;
 	slideCount?: number;
@@ -73,6 +77,18 @@ export async function generatePPT(
 			params.template,
 			projectDir,
 		);
+		let uploadedTemplateInstruction = "";
+		if (params.templateFileUrls?.length) {
+			await emitProjectLog(params.projectId, emit, "正在导入上传的 PPT 模板");
+			uploadedTemplateInstruction = await importUploadedPptTemplateFiles(
+				projectDir,
+				params.templateFileUrls,
+				requestedSlideCount,
+			);
+			if (uploadedTemplateInstruction) {
+				await emitProjectLog(params.projectId, emit, "上传的 PPT 模板已导入");
+			}
+		}
 		let externalTemplateInstruction = "";
 		if (params.templateUrls?.length) {
 			await emitProjectLog(params.projectId, emit, "正在导入外部 PPT 模板");
@@ -107,6 +123,7 @@ export async function generatePPT(
 			style: params.style || "general",
 			stylePrompt: [
 				templateInstruction,
+				uploadedTemplateInstruction,
 				externalTemplateInstruction,
 				buildPptStyleInstruction({
 					style: params.style,
