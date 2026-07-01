@@ -1,10 +1,9 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
+import { PPT_USER_FAILURE_MESSAGE } from "@/lib/ppt-agent/status";
 
 export const runtime = "nodejs";
-
-const LOG_TAIL_LINES = 6;
 
 /**
  * 返回单个 PPT 项目的状态快照，供前端轮询生成进度。
@@ -37,12 +36,11 @@ export async function GET(
 			status: true,
 			progress: true,
 			currentPhase: true,
-			error: true,
-			logs: true,
 			pptxPath: true,
 			slideCount: true,
 			aspectRatio: true,
 			creditsCost: true,
+			createdAt: true,
 			completedAt: true,
 			updatedAt: true,
 		},
@@ -52,22 +50,18 @@ export async function GET(
 		return Response.json({ error: "PPT 项目不存在" }, { status: 404 });
 	}
 
-	const logs = project.logs ? project.logs.split("\n").filter(Boolean) : [];
-
 	return Response.json({
 		id: project.id,
 		title: project.title,
 		status: project.status,
 		progress: project.progress,
 		currentPhase: project.currentPhase,
-		error: project.error,
-		// 只返回最近几行用于实时进度展示；完整日志在项目详情页查看。
-		recentLogs: logs.slice(-LOG_TAIL_LINES),
-		logCount: logs.length,
+		error: project.status === "FAILED" ? PPT_USER_FAILURE_MESSAGE : null,
 		pptxPath: project.pptxPath,
 		slideCount: project.slideCount,
 		aspectRatio: project.aspectRatio,
 		creditsCost: project.creditsCost,
+		createdAt: project.createdAt,
 		completedAt: project.completedAt,
 		updatedAt: project.updatedAt,
 	});

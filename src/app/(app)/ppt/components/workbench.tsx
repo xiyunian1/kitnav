@@ -17,6 +17,10 @@ export function PptWorkbench({
   creditsPerSlide,
   templateOptions,
 }: Props) {
+  const projectListKey = recentProjects
+    .map((project) => `${project.id}:${project.status}:${project.progress}`)
+    .join("|");
+
   return (
     <div className="grid items-start gap-6 2xl:grid-cols-[minmax(0,1fr)_320px]">
       <GenerationForm
@@ -24,7 +28,7 @@ export function PptWorkbench({
         creditsPerSlide={creditsPerSlide}
         templateOptions={templateOptions}
       />
-      <ProjectList projects={recentProjects} compact />
+      <ProjectList key={projectListKey} projects={recentProjects} compact />
     </div>
   );
 }

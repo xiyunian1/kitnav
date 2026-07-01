@@ -2,18 +2,27 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { consumeCredits, InsufficientCreditsError } from "@/lib/credits";
+import { consumeCreditsInTransaction, InsufficientCreditsError } from "@/lib/credits";
+import { logger } from "@/lib/logger";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
 import { resolvePptAgentBillingMode } from "@/lib/ppt-agent/billing";
 import { getPptStyleLabel, getPptStylePreset } from "@/lib/ppt-agent/styles";
 import { releaseStaleProject } from "@/lib/ppt-agent/queue";
-import { startPptWorker } from "@/lib/ppt-agent/worker";
+import { wakePptWorker } from "@/lib/ppt-agent/start-worker";
 import { getStaleActiveProjectMs } from "@/lib/ppt-agent/timings";
-import { resolveUploadPath } from "@/lib/ppt-agent/source-converters";
+import { resolveUploadPath } from "@/lib/ppt-agent/upload-paths";
 import { listPptTemplateOptions } from "@/lib/ppt-agent/templates";
 import { rateLimitCheck, rateLimitResponse } from "@/lib/rate-limit";
+import { PPT_PROCESSING_STATUSES } from "@/lib/ppt-agent/status";
 
 export const runtime = "nodejs";
+
+class ActivePptProjectError extends Error {
+	constructor() {
+		super("你已有一个 PPT 项目正在生成，请等待完成或先停止当前项目。");
+		this.name = "ActivePptProjectError";
+	}
+}
 
 const requestSchema = z
 	.object({
@@ -75,15 +84,6 @@ const requestSchema = z
 		}
 	});
 
-const ACTIVE_STATUSES = [
-	"PENDING",
-	"QUEUED",
-	"STRATEGIZING",
-	"ACQUIRING_IMAGES",
-	"EXECUTING",
-	"EXPORTING",
-] as const;
-
 /**
  * 创建一个 PPT 生成任务并入队。
  *
@@ -128,7 +128,7 @@ export async function POST(req: NextRequest) {
 	const activeProjects = await prisma.pptProject.findMany({
 		where: {
 			userId: session.user.id,
-			status: { in: [...ACTIVE_STATUSES] },
+			status: { in: [...PPT_PROCESSING_STATUSES] },
 		},
 		orderBy: { updatedAt: "desc" },
 		select: { id: true, updatedAt: true },
@@ -198,62 +198,90 @@ export async function POST(req: NextRequest) {
 		styleLabel: resolvedStyle.styleLabel,
 	});
 
-	const project = await prisma.pptProject.create({
-		data: {
-			userId: session.user.id,
-			title,
-			sourceType: normalizedSourceType.toUpperCase() as
-				| "TOPIC"
-				| "MARKDOWN"
-				| "DOCUMENT"
-				| "URL",
-			sourceTopic: parsed.sourceTopic,
-			sourceMarkdown: parsed.sourceMarkdown,
-			sourceFileUrl: parsed.sourceFileUrl,
-			sourceUrl: parsed.sourceUrl,
-			template: resolvedTemplate || resolvedStyle.template,
-			slideCount: parsed.slideCount,
-			aspectRatio: parsed.aspectRatio,
-			style: resolvedStyle.style,
-			params: storedParams,
-			projectPath: `projects/${crypto.randomUUID()}`,
-			status: "QUEUED",
-			creditsCost,
-			usedOwnKey: useOwnKey,
-		},
-	});
-
-	await prisma.pptProject.update({
-		where: { id: project.id },
-		data: { projectPath: `projects/${project.id}` },
-	});
-
-	if (creditsCost > 0) {
-		try {
-			await consumeCredits(
-				session.user.id,
-				creditsCost,
-				`PPT 生成预扣费（${parsed.slideCount} 页）`,
-			);
-		} catch (error) {
-			await prisma.pptProject.update({
-				where: { id: project.id },
-				data: { status: "FAILED", error: "积分不足", currentPhase: "扣费失败" },
+	let projectId = "";
+	try {
+		const project = await prisma.$transaction(async (tx) => {
+			const id = crypto.randomUUID();
+			await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${session.user.id} FOR UPDATE`;
+			const existingActive = await tx.pptProject.findFirst({
+				where: {
+					userId: session.user.id,
+					status: { in: [...PPT_PROCESSING_STATUSES] },
+				},
+				select: { id: true },
 			});
-			const message =
-				error instanceof InsufficientCreditsError
+			if (existingActive) throw new ActivePptProjectError();
+			if (creditsCost > 0) {
+				await consumeCreditsInTransaction(
+					tx,
+					session.user.id,
+					creditsCost,
+					`PPT 生成预扣费（${parsed.slideCount} 页）`,
+				);
+			}
+			return tx.pptProject.create({
+				data: {
+					id,
+					userId: session.user.id,
+					title,
+					sourceType: normalizedSourceType.toUpperCase() as
+						| "TOPIC"
+						| "MARKDOWN"
+						| "DOCUMENT"
+						| "URL",
+					sourceTopic: parsed.sourceTopic,
+					sourceMarkdown: parsed.sourceMarkdown,
+					sourceFileUrl: parsed.sourceFileUrl,
+					sourceUrl: parsed.sourceUrl,
+					template: resolvedTemplate || resolvedStyle.template,
+					slideCount: parsed.slideCount,
+					aspectRatio: parsed.aspectRatio,
+					style: resolvedStyle.style,
+					params: storedParams,
+					projectPath: `projects/${id}`,
+					status: "QUEUED",
+					currentPhase: "排队中",
+					progress: 0,
+					creditsCost,
+					usedOwnKey: useOwnKey,
+				},
+				select: { id: true },
+			});
+		});
+		projectId = project.id;
+	} catch (error) {
+		const message =
+			error instanceof ActivePptProjectError
+				? error.message
+				: error instanceof InsufficientCreditsError
 					? `积分不足，需要 ${error.required}，当前 ${error.balance}`
-					: error instanceof Error
-						? error.message
-						: "积分不足";
-			return Response.json({ error: message }, { status: 402 });
+					: "创建生成任务失败";
+		if (
+			!(error instanceof ActivePptProjectError) &&
+			!(error instanceof InsufficientCreditsError)
+		) {
+			logger.error("ppt-generate", "创建生成任务失败", {
+				error,
+				userId: session.user.id,
+			});
 		}
+		return Response.json(
+			{ error: message },
+			{
+				status:
+					error instanceof ActivePptProjectError
+						? 429
+						: error instanceof InsufficientCreditsError
+							? 402
+							: 500,
+			},
+		);
 	}
 
 	// 启动后台 worker（幂等）消费队列；立即返回，前端轮询项目状态。
-	startPptWorker();
+	wakePptWorker();
 
-	return Response.json({ projectId: project.id, status: "QUEUED" });
+	return Response.json({ projectId, status: "QUEUED" });
 }
 
 function resolveTemplateInput(template?: string) {

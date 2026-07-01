@@ -4,15 +4,10 @@ import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
 import { cancelPptGeneration } from "@/lib/ppt-agent/cancellation";
 import { appendProjectLog } from "@/lib/ppt-agent/project-log";
 import { refundPptProjectCredits } from "@/lib/ppt-agent/refund";
-
-const ACTIVE_STATUSES = [
-	"PENDING",
-	"QUEUED",
-	"STRATEGIZING",
-	"ACQUIRING_IMAGES",
-	"EXECUTING",
-	"EXPORTING",
-] as const;
+import {
+	isPptProcessingStatus,
+	PPT_PROCESSING_STATUSES,
+} from "@/lib/ppt-agent/status";
 
 export async function POST(
 	_req: Request,
@@ -45,11 +40,7 @@ export async function POST(
 		return Response.json({ error: "PPT 项目不存在" }, { status: 404 });
 	}
 
-	if (
-		!ACTIVE_STATUSES.includes(
-			project.status as (typeof ACTIVE_STATUSES)[number],
-		)
-	) {
+	if (!isPptProcessingStatus(project.status)) {
 		return Response.json({
 			ok: true,
 			status: project.status,
@@ -58,14 +49,26 @@ export async function POST(
 	}
 
 	const aborted = cancelPptGeneration(project.id);
-	await prisma.pptProject.update({
-		where: { id: project.id },
+	const claimed = await prisma.pptProject.updateMany({
+		where: { id: project.id, status: { in: [...PPT_PROCESSING_STATUSES] } },
 		data: {
 			status: "FAILED",
 			currentPhase: "已停止生成",
 			error: "用户已停止生成",
 		},
 	});
+	if (claimed.count !== 1) {
+		const latest = await prisma.pptProject.findUnique({
+			where: { id: project.id },
+			select: { status: true },
+		});
+		return Response.json({
+			ok: true,
+			aborted,
+			refunded: false,
+			status: latest?.status ?? project.status,
+		});
+	}
 	await appendProjectLog(project.id, "用户停止生成");
 	const refunded = await refundPptProjectCredits(
 		project.id,

@@ -1,9 +1,9 @@
 import { prisma } from "@/lib/db";
-import type { PptProjectStatus } from "@prisma/client";
 import { refundPptProjectCredits } from "./refund";
 import { appendProjectLog } from "./project-log";
 import { getStaleActiveProjectMs } from "./timings";
 import { onError } from "@/lib/logger";
+import { PPT_RUNNING_STATUSES, PPT_PROCESSING_STATUSES } from "./status";
 
 /**
  * 基于 PostgreSQL 的 PPT 生成任务队列。
@@ -12,14 +12,6 @@ import { onError } from "@/lib/logger";
  * 用 `SELECT ... FOR UPDATE SKIP LOCKED` 原子抢占，天然支持多副本：每个 worker
  * 抢到的都是互不相同的项目，不会重复处理或重复扣费。
  */
-
-const ACTIVE_STATUSES: PptProjectStatus[] = [
-	"PENDING",
-	"STRATEGIZING",
-	"ACQUIRING_IMAGES",
-	"EXECUTING",
-	"EXPORTING",
-];
 
 export interface ClaimedPptProject {
 	id: string;
@@ -54,36 +46,38 @@ export async function countQueuedPptProjects(): Promise<number> {
 }
 
 /**
- * 释放一个拓儿（卡死/崩溃）的活跃项目：退款 + 标记 FAILED + 记日志。
+ * 释放一个卡死/崩溃的活跃项目：退款 + 标记 FAILED + 记日志。
  * 幂等：refundPptProjectCredits 用乐观锁保证只退一次。
  */
 export async function releaseStaleProject(
 	projectId: string,
 	reason = "生成任务长时间无进度，已自动释放",
 ): Promise<void> {
-	await refundPptProjectCredits(
-		projectId,
-		`PPT 生成超时自动释放退款（${projectId}）`,
-	).catch(onError("ppt-queue", "超时退款失败"));
-	await prisma.pptProject.update({
-		where: { id: projectId },
+	const claimed = await prisma.pptProject.updateMany({
+		where: { id: projectId, status: { in: [...PPT_PROCESSING_STATUSES] } },
 		data: {
 			status: "FAILED",
 			currentPhase: "生成超时，已自动释放",
 			error: "生成任务长时间无进度，已自动释放，请重新生成。",
 		},
 	});
+	if (claimed.count !== 1) return;
+
+	await refundPptProjectCredits(
+		projectId,
+		`PPT 生成超时自动释放退款（${projectId}）`,
+	).catch(onError("ppt-queue", "超时退款失败"));
 	await appendProjectLog(projectId, reason);
 }
 
 /**
  * 扫描并释放所有超时的活跃项目。健康任务的心跳每 15s 刷新 updatedAt，
- * 因此只有真正拓儿（心跳停止）的项目才会被命中。返回释放数量。
+ * 因此只有真正卡死（心跳停止）的项目才会被命中。返回释放数量。
  */
 export async function sweepStalePptProjects(now = Date.now()): Promise<number> {
 	const since = new Date(now - getStaleActiveProjectMs());
 	const stale = await prisma.pptProject.findMany({
-		where: { status: { in: ACTIVE_STATUSES }, updatedAt: { lt: since } },
+		where: { status: { in: [...PPT_RUNNING_STATUSES] }, updatedAt: { lt: since } },
 		select: { id: true },
 		take: 10,
 	});

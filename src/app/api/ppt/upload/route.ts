@@ -3,7 +3,7 @@ import { basename, extname, join } from "path";
 import { randomUUID } from "crypto";
 import { auth } from "@/lib/auth";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
-import { getPptUploadRoot } from "@/lib/ppt-agent/source-converters";
+import { getPptUploadRoot } from "@/lib/ppt-agent/upload-paths";
 import { rateLimitCheck, rateLimitResponse } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";

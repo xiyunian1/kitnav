@@ -43,7 +43,7 @@ export function startPptWorker(): void {
 	// 无任务时按 POLL_INTERVAL_MS 退避。
 	void pollLoop();
 
-	// 周期性孤儿扫描：释放心跳停止的拓儿项目（退款 + 标记失败），自愈崩溃场景。
+	// 周期性孤儿扫描：释放心跳停止的卡死项目（退款 + 标记失败），自愈崩溃场景。
 	sweepTimer = setInterval(() => {
 		sweepStalePptProjects().catch((error) => {
 			logger.error("ppt-worker", "孤儿扫描失败", { error });

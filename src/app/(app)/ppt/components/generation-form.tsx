@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,11 @@ import {
 import { toast } from "sonner";
 import { PPT_STYLE_PRESETS } from "@/lib/ppt-agent/styles";
 import { CancelProjectButton } from "./cancel-project-button";
+import { formatProjectDurationLabel } from "./duration";
+import {
+	PPT_STATUS_LABELS,
+	PPT_USER_FAILURE_MESSAGE,
+} from "@/lib/ppt-agent/status";
 import type { PptTemplateOption } from "@/lib/ppt-agent/templates";
 
 interface GenerationFormProps {
@@ -65,7 +70,9 @@ export function GenerationForm({
 	const [styleSource, setStyleSource] = useState<StyleSource>("preset");
 	const [customStyle, setCustomStyle] = useState("");
 	const [progress, setProgress] = useState(0);
-	const [logs, setLogs] = useState<string[]>([]);
+	const [phase, setPhase] = useState("任务正在排队");
+	const [startedAt, setStartedAt] = useState<number | null>(null);
+	const [now, setNow] = useState<number | null>(null);
 	const [activeProjectId, setActiveProjectId] = useState("");
 	const cancelledRef = useRef(false);
 
@@ -78,6 +85,18 @@ export function GenerationForm({
 	const selectedStylePreset = PPT_STYLE_PRESETS.find(
 		(preset) => preset.id === style,
 	);
+	const progressLabel = phase || progressMessage(progress);
+	const durationLabel = formatProjectDurationLabel({
+		startedAt,
+		running: loading,
+		now,
+	});
+
+	useEffect(() => {
+		if (!loading) return;
+		const interval = window.setInterval(() => setNow(Date.now()), 1000);
+		return () => window.clearInterval(interval);
+	}, [loading]);
 
 	function updateSlideCount(value: number) {
 		setSlideCount(Math.max(3, Math.min(30, Math.round(value))));
@@ -102,7 +121,10 @@ export function GenerationForm({
 
 		setLoading(true);
 		setProgress(0);
-		setLogs([]);
+		setPhase("任务正在排队");
+		const submitStartedAt = Date.now();
+		setStartedAt(submitStartedAt);
+		setNow(submitStartedAt);
 		setActiveProjectId("");
 		cancelledRef.current = false;
 
@@ -135,23 +157,40 @@ export function GenerationForm({
 
 			// 生成已入队，由后台 worker 异步处理；轮询项目状态直到完成或失败。
 			const POLL_INTERVAL_MS = 1500;
+			const MAX_EMPTY_POLLS = 20;
+			let emptyPolls = 0;
 			while (true) {
 				await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
 				let status: {
 					status?: string;
 					progress?: number;
+					currentPhase?: string | null;
 					error?: string;
-					recentLogs?: string[];
+					createdAt?: string;
 				} | null = null;
 				try {
 					const statusRes = await fetch(`/api/ppt/projects/${projectId}`);
-					if (statusRes.ok) status = await statusRes.json();
+					const data = await statusRes.json().catch(() => null);
+					if (!statusRes.ok) {
+						throw new Error(data?.error || "读取生成状态失败");
+					}
+					status = data;
 				} catch {
 					status = null;
 				}
 				if (status) {
-					if (typeof status.progress === "number") setProgress(status.progress);
-					if (Array.isArray(status.recentLogs)) setLogs(status.recentLogs);
+					emptyPolls = 0;
+					if (typeof status.progress === "number")
+						setProgress(clampProgress(status.progress));
+					if (status.createdAt) {
+						const createdTime = new Date(status.createdAt).getTime();
+						if (Number.isFinite(createdTime)) setStartedAt(createdTime);
+					}
+					if (status.currentPhase) {
+						setPhase(status.currentPhase);
+					} else if (status.status) {
+						setPhase(PPT_STATUS_LABELS[status.status] ?? "正在生成 PPT");
+					}
 					if (status.status === "COMPLETED") {
 						toast.success("PPT 生成完成。");
 						router.push(`/ppt/${projectId}`);
@@ -164,9 +203,14 @@ export function GenerationForm({
 							toast.info("已停止生成");
 							router.refresh();
 						} else {
-							throw new Error(status.error || "生成失败");
+							throw new Error(status.error || PPT_USER_FAILURE_MESSAGE);
 						}
 						return;
+					}
+				} else {
+					emptyPolls += 1;
+					if (emptyPolls >= MAX_EMPTY_POLLS) {
+						throw new Error("暂时无法读取生成状态，请稍后在最近项目中查看结果。");
 					}
 				}
 			}
@@ -383,7 +427,9 @@ export function GenerationForm({
 				{loading && (
 					<section className="rounded-lg border bg-card p-5 shadow-sm">
 						<div className="mb-3 flex items-center justify-between text-sm">
-							<span className="font-medium">生成进度</span>
+							<span className="min-w-0 truncate font-medium">
+								{progressLabel}
+							</span>
 							<span className="text-muted-foreground">{progress}%</span>
 						</div>
 						<div className="h-2 overflow-hidden rounded-full bg-muted">
@@ -392,14 +438,10 @@ export function GenerationForm({
 								style={{ width: `${progress}%` }}
 							/>
 						</div>
-						{logs.length > 0 && (
-							<div className="mt-3 space-y-1 text-xs text-muted-foreground">
-								{logs.map((item, index) => (
-									<p key={`${item}-${index}`} className="truncate">
-										{item}
-									</p>
-								))}
-							</div>
+						{durationLabel && (
+							<p className="mt-3 text-xs text-muted-foreground">
+								{durationLabel}
+							</p>
 						)}
 					</section>
 				)}
@@ -617,6 +659,16 @@ function formatBytes(bytes: number) {
 	if (!Number.isFinite(bytes) || bytes <= 0) return "0 KB";
 	if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
 	return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function clampProgress(value: number) {
+	if (!Number.isFinite(value)) return 0;
+	return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function progressMessage(progress: number) {
+	if (progress <= 0) return "任务正在排队";
+	return "正在生成 PPT";
 }
 
 function isPptTemplateUrl(value: string) {

@@ -14,28 +14,14 @@ import { Download, RefreshCw } from "lucide-react";
 import { getProjectSvgPreviews } from "@/lib/ppt-agent/paths";
 import { CancelProjectButton } from "../components/cancel-project-button";
 import { SlideEditorWorkbench } from "./slide-editor-workbench";
-import { LogPanel } from "../components/log-panel";
+import { ProjectStatusCard } from "./project-status-card";
+import {
+	isPptProcessingStatus,
+	PPT_STATUS_LABELS,
+	PPT_USER_FAILURE_MESSAGE,
+} from "@/lib/ppt-agent/status";
 
 export const metadata = { title: "PPT 项目" };
-
-const STATUS_LABELS: Record<string, string> = {
-	PENDING: "等待中",
-	QUEUED: "排队中",
-	STRATEGIZING: "规划中",
-	ACQUIRING_IMAGES: "采集素材",
-	EXECUTING: "生成中",
-	EXPORTING: "导出中",
-	COMPLETED: "已完成",
-	FAILED: "失败",
-};
-const PROCESSING_STATUSES = [
-	"PENDING",
-	"QUEUED",
-	"STRATEGIZING",
-	"ACQUIRING_IMAGES",
-	"EXECUTING",
-	"EXPORTING",
-];
 
 export default async function PptProjectPage({
 	params,
@@ -65,8 +51,7 @@ export default async function PptProjectPage({
 	if (!project) notFound();
 
 	const previews = await getProjectSvgPreviews(project.id);
-	const logs = project.logs?.split("\n").filter(Boolean) ?? [];
-	const isProcessing = PROCESSING_STATUSES.includes(project.status);
+	const isProcessing = isPptProcessingStatus(project.status);
 
 	return (
 		<div className="mx-auto w-full max-w-[1600px] space-y-6">
@@ -79,7 +64,7 @@ export default async function PptProjectPage({
 								project.status === "FAILED" ? "destructive" : "secondary"
 							}
 						>
-							{STATUS_LABELS[project.status] ?? project.status}
+							{PPT_STATUS_LABELS[project.status] ?? project.status}
 						</Badge>
 					</div>
 					<p className="text-muted-foreground">
@@ -112,27 +97,19 @@ export default async function PptProjectPage({
 				</div>
 			</div>
 
-			{project.status !== "COMPLETED" && (
-				<Card className="p-4">
-					<div className="flex items-center justify-between text-sm">
-						<span className="font-medium">
-							{project.currentPhase ||
-								STATUS_LABELS[project.status] ||
-								"处理中"}
-						</span>
-						<span className="text-muted-foreground">{project.progress}%</span>
-					</div>
-					<div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
-						<div
-							className="h-full rounded-full bg-primary"
-							style={{ width: `${project.progress}%` }}
-						/>
-					</div>
-					{project.error && (
-						<p className="mt-3 text-sm text-destructive">{project.error}</p>
-					)}
-				</Card>
-			)}
+			<ProjectStatusCard
+				initial={{
+					id: project.id,
+					status: project.status,
+					progress: project.progress,
+					currentPhase: project.currentPhase,
+					error:
+						project.status === "FAILED" ? PPT_USER_FAILURE_MESSAGE : null,
+					createdAt: project.createdAt.toISOString(),
+					completedAt: project.completedAt?.toISOString() ?? null,
+					updatedAt: project.updatedAt.toISOString(),
+				}}
+			/>
 
 			{previews.length > 0 && (
 				<div className="grid gap-4 md:grid-cols-2">
@@ -164,8 +141,6 @@ export default async function PptProjectPage({
 					</div>
 				</Card>
 			)}
-
-			{logs.length > 0 && <LogPanel lines={logs} />}
 		</div>
 	);
 }

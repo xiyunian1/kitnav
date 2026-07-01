@@ -1,12 +1,19 @@
 "use client";
 
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Download, Clock, CheckCircle2, XCircle, Loader2, ExternalLink } from "lucide-react";
 import { CancelProjectButton } from "./cancel-project-button";
+import {
+  isPptProcessingStatus,
+  PPT_USER_FAILURE_MESSAGE,
+} from "@/lib/ppt-agent/status";
+import { formatProjectDurationLabel } from "./duration";
 
 export interface ProjectListItem {
   id: string;
@@ -14,10 +21,13 @@ export interface ProjectListItem {
   sourceType: string;
   status: string;
   progress: number;
+  currentPhase?: string | null;
   slideCount: number | null;
   createdAt: Date | string;
   completedAt: Date | string | null;
+  updatedAt?: Date | string;
   pptxPath: string | null;
+  error?: string | null;
 }
 
 interface Props {
@@ -36,8 +46,6 @@ const STATUS_MAP = {
   FAILED: { label: "失败", icon: XCircle, className: "border-red-200 bg-red-50 text-red-700" },
 } as const;
 
-const PROCESSING_STATUSES = ["PENDING", "QUEUED", "STRATEGIZING", "ACQUIRING_IMAGES", "EXECUTING", "EXPORTING"];
-
 function formatTime(value: Date | string) {
   return new Intl.DateTimeFormat("zh-CN", {
     month: "2-digit",
@@ -45,6 +53,18 @@ function formatTime(value: Date | string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function formatRelativeTime(value?: Date | string) {
+  if (!value) return "";
+  const diffMs = Date.now() - new Date(value).getTime();
+  if (!Number.isFinite(diffMs) || diffMs < 0) return "刚刚更新";
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 1) return "刚刚更新";
+  if (minutes < 60) return `${minutes} 分钟前更新`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前更新`;
+  return formatTime(value);
 }
 
 function sourceTypeLabel(value: string) {
@@ -56,7 +76,60 @@ function sourceTypeLabel(value: string) {
 }
 
 export function ProjectList({ projects, compact = false }: Props) {
-  if (projects.length === 0) {
+  const router = useRouter();
+  const [polledItems, setPolledItems] = useState<ProjectListItem[] | null>(null);
+  const [now, setNow] = useState<number | null>(null);
+  const items = polledItems ?? projects;
+  const statusRef = useRef(new Map(projects.map((item) => [item.id, item.status])));
+  const hasProcessingProject = useMemo(
+    () => items.some((project) => isPptProcessingStatus(project.status)),
+    [items],
+  );
+
+  useEffect(() => {
+    if (!hasProcessingProject) return;
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [hasProcessingProject]);
+
+  useEffect(() => {
+    if (!hasProcessingProject) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const res = await fetch("/api/ppt/projects", { cache: "no-store" });
+        const data = (await res.json().catch(() => null)) as
+          | { projects?: ProjectListItem[] }
+          | null;
+        if (!res.ok || !data?.projects || cancelled) return;
+        setPolledItems(data.projects);
+        const changedToTerminal = data.projects.some((project) => {
+          const previous = statusRef.current.get(project.id);
+          return (
+            previous &&
+            previous !== project.status &&
+            !isPptProcessingStatus(project.status)
+          );
+        });
+        statusRef.current = new Map(
+          data.projects.map((item) => [item.id, item.status]),
+        );
+        if (changedToTerminal) router.refresh();
+      } catch {
+        // 保持当前列表，下一轮继续尝试。
+      }
+    };
+
+    const interval = window.setInterval(poll, 2500);
+    void poll();
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [hasProcessingProject, router]);
+
+  if (items.length === 0) {
     return (
       <Card className="rounded-lg p-8 text-center shadow-sm">
         <p className="text-sm text-muted-foreground">暂无项目，先创建一个 PPT。</p>
@@ -80,10 +153,18 @@ export function ProjectList({ projects, compact = false }: Props) {
           </div>
         </div>
       )}
-      {projects.map((project) => {
+      {items.map((project) => {
         const status = STATUS_MAP[project.status as keyof typeof STATUS_MAP] || STATUS_MAP.PENDING;
         const StatusIcon = status.icon;
-        const isProcessing = PROCESSING_STATUSES.includes(project.status);
+        const isProcessing = isPptProcessingStatus(project.status);
+        const progress = Math.max(0, Math.min(100, Math.round(project.progress || 0)));
+        const durationLabel = formatProjectDurationLabel({
+          startedAt: project.createdAt,
+          completedAt: project.completedAt,
+          updatedAt: project.updatedAt,
+          running: isProcessing,
+          now,
+        });
 
         return (
           <Card key={project.id} className={cn("rounded-lg shadow-sm", compact ? "p-4" : "p-6")}>
@@ -93,6 +174,7 @@ export function ProjectList({ projects, compact = false }: Props) {
                   <h3 className="truncate font-semibold">{project.title}</h3>
                   <p className="text-sm text-muted-foreground">
                     {formatTime(project.createdAt)}
+                    {durationLabel ? ` · ${durationLabel}` : ""}
                     {project.slideCount ? ` · ${project.slideCount} 页` : ""}
                   </p>
                 </div>
@@ -110,11 +192,24 @@ export function ProjectList({ projects, compact = false }: Props) {
                     <div className="h-2 overflow-hidden rounded-full bg-muted">
                       <div
                         className="h-full rounded-full bg-primary transition-all"
-                        style={{ width: `${Math.max(0, Math.min(100, project.progress))}%` }}
+                        style={{ width: `${progress}%` }}
                       />
                     </div>
-                    <p className="text-xs text-muted-foreground">{project.progress}%</p>
+                    <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <p className="truncate">{project.currentPhase || status.label}</p>
+                      <p className="shrink-0">{progress}%</p>
+                    </div>
                   </div>
+                )}
+                {!isProcessing && project.status === "FAILED" && (
+                  <p className="line-clamp-2 text-xs text-destructive">
+                    {project.error || PPT_USER_FAILURE_MESSAGE}
+                  </p>
+                )}
+                {project.updatedAt && (
+                  <p className="text-xs text-muted-foreground">
+                    {formatRelativeTime(project.updatedAt)}
+                  </p>
                 )}
               </div>
 

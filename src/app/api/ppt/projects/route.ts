@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
+import { PPT_USER_FAILURE_MESSAGE } from "@/lib/ppt-agent/status";
 
 export async function GET() {
   const session = await auth();
@@ -27,14 +28,20 @@ export async function GET() {
       sourceType: true,
       status: true,
       progress: true,
+      currentPhase: true,
       slideCount: true,
       aspectRatio: true,
       createdAt: true,
       completedAt: true,
+      updatedAt: true,
       pptxPath: true,
-      error: true,
     },
   });
 
-  return Response.json({ projects });
+  return Response.json({
+    projects: projects.map((project) => ({
+      ...project,
+      error: project.status === "FAILED" ? PPT_USER_FAILURE_MESSAGE : null,
+    })),
+  });
 }

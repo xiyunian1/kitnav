@@ -1,7 +1,7 @@
 import { cache } from "react";
 import { prisma } from "./db";
 import { SETTING_KEYS, DEFAULT_SETTINGS } from "./settings-config";
-import type { CreditTxType } from "@prisma/client";
+import type { CreditTxType, Prisma } from "@prisma/client";
 
 export class InsufficientCreditsError extends Error {
   constructor(public required: number, public balance: number) {
@@ -36,32 +36,49 @@ export async function consumeCredits(
   amount: number,
   description?: string
 ): Promise<number> {
+  return prisma.$transaction((tx) =>
+    consumeCreditsInTransaction(tx, userId, amount, description)
+  );
+}
+
+export async function consumeCreditsInTransaction(
+  tx: Prisma.TransactionClient | typeof prisma,
+  userId: string,
+  amount: number,
+  description?: string
+): Promise<number> {
   if (amount <= 0) throw new Error("扣减金额必须为正");
 
-  return prisma.$transaction(async (tx) => {
-    const user = await tx.user.findUnique({ where: { id: userId } });
-    if (!user) throw new Error("用户不存在");
-    if (user.credits < amount) {
-      throw new InsufficientCreditsError(amount, user.credits);
-    }
-
-    const updated = await tx.user.update({
-      where: { id: userId },
-      data: { credits: { decrement: amount } },
-    });
-
-    await tx.creditTransaction.create({
-      data: {
-        userId,
-        amount: -amount,
-        type: "CONSUME",
-        balanceAfter: updated.credits,
-        description,
-      },
-    });
-
-    return updated.credits;
+  const claimed = await tx.user.updateMany({
+    where: { id: userId, credits: { gte: amount } },
+    data: { credits: { decrement: amount } },
   });
+  if (claimed.count !== 1) {
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: { credits: true },
+    });
+    if (!user) throw new Error("用户不存在");
+    throw new InsufficientCreditsError(amount, user.credits);
+  }
+
+  const updated = await tx.user.findUnique({
+    where: { id: userId },
+    select: { credits: true },
+  });
+  if (!updated) throw new Error("用户不存在");
+
+  await tx.creditTransaction.create({
+    data: {
+      userId,
+      amount: -amount,
+      type: "CONSUME",
+      balanceAfter: updated.credits,
+      description,
+    },
+  });
+
+  return updated.credits;
 }
 
 // 增加积分：用于注册赠送、充值、管理员调整、退款。返回增加后余额。
