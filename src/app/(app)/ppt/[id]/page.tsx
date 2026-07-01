@@ -13,7 +13,6 @@ import { Card } from "@/components/ui/card";
 import { Download, RefreshCw } from "lucide-react";
 import { getProjectSvgPreviews } from "@/lib/ppt-agent/paths";
 import { CancelProjectButton } from "../components/cancel-project-button";
-import { SlideEditorWorkbench } from "./slide-editor-workbench";
 import { ProjectStatusCard } from "./project-status-card";
 import {
 	isPptProcessingStatus,
@@ -131,16 +130,6 @@ export default async function PptProjectPage({
 				</div>
 			)}
 
-			{previews.length > 0 && (
-				<Card className="p-0">
-					<div className="border-b px-4 py-3">
-						<h2 className="font-semibold">PPT Master 编辑与导出</h2>
-					</div>
-					<div className="p-4">
-						<SlideEditorWorkbench projectId={project.id} slides={previews} />
-					</div>
-				</Card>
-			)}
 		</div>
 	);
 }
