@@ -1,493 +1,642 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { LinkIcon, Loader2, Paperclip, Plus, Presentation, Trash2 } from "lucide-react";
+import {
+	FileType,
+	LinkIcon,
+	Loader2,
+	Minus,
+	Paperclip,
+	Plus,
+	Presentation,
+	Sparkles,
+	Trash2,
+	Upload,
+} from "lucide-react";
 import { toast } from "sonner";
-import { PPT_STYLE_PRESETS, type PptStyleMaterialOption } from "@/lib/ppt-agent/styles";
+import { PPT_STYLE_PRESETS } from "@/lib/ppt-agent/styles";
 import { CancelProjectButton } from "./cancel-project-button";
 import type { PptTemplateOption } from "@/lib/ppt-agent/templates";
 
-interface StreamEvent {
-  event: string;
-  data: unknown;
-}
-
 interface GenerationFormProps {
-  useOwnKey: boolean;
-  creditsPerSlide: number;
-  styleMaterials: PptStyleMaterialOption[];
-  initialStyleMaterialId?: string;
-  templateOptions: PptTemplateOption[];
+	useOwnKey: boolean;
+	creditsPerSlide: number;
+	templateOptions: PptTemplateOption[];
 }
 
 interface UploadedFile {
-  path: string;
-  name: string;
-  size: number;
+	id: string;
+	name: string;
+	size: number;
 }
 
-type StyleSource = "preset" | "material" | "custom";
-
-function parseSseChunk(chunk: string): StreamEvent[] {
-  return chunk
-    .split("\n\n")
-    .map((block) => {
-      const lines = block.split("\n");
-      const event = lines
-        .find((line) => line.startsWith("event:"))
-        ?.replace("event:", "")
-        .trim();
-      const data = lines
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.replace("data:", "").trim())
-        .join("\n");
-      if (!event || !data) return null;
-      try {
-        return { event, data: JSON.parse(data) };
-      } catch {
-        return null;
-      }
-    })
-    .filter((item): item is StreamEvent => Boolean(item));
-}
+type StyleSource = "preset" | "custom";
 
 export function GenerationForm({
-  useOwnKey,
-  creditsPerSlide,
-  styleMaterials,
-  initialStyleMaterialId,
-  templateOptions,
+	useOwnKey,
+	creditsPerSlide,
+	templateOptions,
 }: GenerationFormProps) {
-  const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  const [prompt, setPrompt] = useState("");
-  const [urlInput, setUrlInput] = useState("");
-  const [sourceUrls, setSourceUrls] = useState<string[]>([]);
-  const [sourceFiles, setSourceFiles] = useState<UploadedFile[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [slideCount, setSlideCount] = useState(10);
-  const [aspectRatio, setAspectRatio] = useState("16:9");
-  const [template, setTemplate] = useState("none");
-  const [style, setStyle] = useState("general");
-  const initialMaterialExists = Boolean(
-    initialStyleMaterialId && styleMaterials.some((item) => item.id === initialStyleMaterialId)
-  );
-  const [styleSource, setStyleSource] = useState<StyleSource>(initialMaterialExists ? "material" : "preset");
-  const [styleMaterialId, setStyleMaterialId] = useState(
-    initialMaterialExists ? initialStyleMaterialId! : styleMaterials[0]?.id || ""
-  );
-  const [customStyle, setCustomStyle] = useState("");
-  const [progress, setProgress] = useState(0);
-  const [logs, setLogs] = useState<string[]>([]);
-  const [activeProjectId, setActiveProjectId] = useState("");
+	const router = useRouter();
+	const [loading, setLoading] = useState(false);
+	const [prompt, setPrompt] = useState("");
+	const [urlInput, setUrlInput] = useState("");
+	const [sourceUrls, setSourceUrls] = useState<string[]>([]);
+	const [templateUrls, setTemplateUrls] = useState<string[]>([]);
+	const [sourceFiles, setSourceFiles] = useState<UploadedFile[]>([]);
+	const [uploading, setUploading] = useState(false);
+	const [slideCount, setSlideCount] = useState(10);
+	const [aspectRatio, setAspectRatio] = useState("16:9");
+	const [template, setTemplate] = useState("none");
+	const [style, setStyle] = useState("general");
+	const [styleSource, setStyleSource] = useState<StyleSource>("preset");
+	const [customStyle, setCustomStyle] = useState("");
+	const [progress, setProgress] = useState(0);
+	const [logs, setLogs] = useState<string[]>([]);
+	const [activeProjectId, setActiveProjectId] = useState("");
+	const cancelledRef = useRef(false);
 
-  const estimatedCost = useMemo(
-    () => (useOwnKey ? 0 : slideCount * creditsPerSlide),
-    [creditsPerSlide, slideCount, useOwnKey]
-  );
+	const estimatedCost = useMemo(
+		() => (useOwnKey ? 0 : slideCount * creditsPerSlide),
+		[creditsPerSlide, slideCount, useOwnKey],
+	);
+	const attachmentCount =
+		sourceUrls.length + templateUrls.length + sourceFiles.length;
+	const selectedStylePreset = PPT_STYLE_PRESETS.find(
+		(preset) => preset.id === style,
+	);
 
-  async function handleSubmit() {
-    const normalizedPrompt = prompt.trim();
-    if (!normalizedPrompt && sourceUrls.length === 0 && sourceFiles.length === 0) {
-      toast.error("请描述你想生成的 PPT，或添加网页/文件资料。");
-      return;
-    }
-    if (styleSource === "material" && !styleMaterialId) {
-      toast.error("请选择一个已收藏或自己创建的 PPT 风格。");
-      return;
-    }
-    if (styleSource === "custom" && !customStyle.trim()) {
-      toast.error("请填写自定义 PPT 风格描述。");
-      return;
-    }
+	function updateSlideCount(value: number) {
+		setSlideCount(Math.max(3, Math.min(30, Math.round(value))));
+	}
 
-    setLoading(true);
-    setProgress(0);
-    setLogs([]);
-    setActiveProjectId("");
+	async function handleSubmit() {
+		const normalizedPrompt = prompt.trim();
+		if (
+			!normalizedPrompt &&
+			sourceUrls.length === 0 &&
+			sourceFiles.length === 0
+		) {
+			toast.error(
+				"请描述你想生成的 PPT，或添加资料链接/文件。模板链接只能作为视觉参考。",
+			);
+			return;
+		}
+		if (styleSource === "custom" && !customStyle.trim()) {
+			toast.error("请填写自定义 PPT 风格描述。");
+			return;
+		}
 
-    let projectId = "";
-    let pending = "";
+		setLoading(true);
+		setProgress(0);
+		setLogs([]);
+		setActiveProjectId("");
+		cancelledRef.current = false;
 
-    try {
-      const res = await fetch("/api/ppt/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: normalizedPrompt,
-          sourceUrls,
-          sourceFileUrls: sourceFiles.map((file) => file.path),
-          slideCount,
-          aspectRatio,
-          template: template === "none" ? undefined : template,
-          style: styleSource === "preset" ? style : styleSource,
-          styleMaterialId: styleSource === "material" ? styleMaterialId : undefined,
-          customStyle: styleSource === "custom" ? customStyle.trim() : undefined,
-        }),
-      });
+		let projectId = "";
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        throw new Error(err?.error || "生成失败");
-      }
-      if (!res.body) throw new Error("生成接口没有返回进度流。");
+		try {
+			const res = await fetch("/api/ppt/generate", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					prompt: normalizedPrompt,
+					sourceUrls,
+					templateUrls,
+					sourceFileUrls: sourceFiles.map((file) => file.id),
+					slideCount,
+					aspectRatio,
+					template: template === "none" ? undefined : template,
+					style: styleSource === "preset" ? style : styleSource,
+					customStyle:
+						styleSource === "custom" ? customStyle.trim() : undefined,
+				}),
+			});
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
+			const data = await res.json().catch(() => null);
+			if (!res.ok || !data?.projectId) {
+				throw new Error(data?.error || "创建生成任务失败");
+			}
+			projectId = data.projectId;
+			setActiveProjectId(projectId);
 
-      while (true) {
-        const { done, value } = await reader.read();
-        pending += decoder.decode(value, { stream: !done });
+			// 生成已入队，由后台 worker 异步处理；轮询项目状态直到完成或失败。
+			const POLL_INTERVAL_MS = 1500;
+			while (true) {
+				await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+				let status: {
+					status?: string;
+					progress?: number;
+					error?: string;
+					recentLogs?: string[];
+				} | null = null;
+				try {
+					const statusRes = await fetch(`/api/ppt/projects/${projectId}`);
+					if (statusRes.ok) status = await statusRes.json();
+				} catch {
+					status = null;
+				}
+				if (status) {
+					if (typeof status.progress === "number") setProgress(status.progress);
+					if (Array.isArray(status.recentLogs)) setLogs(status.recentLogs);
+					if (status.status === "COMPLETED") {
+						toast.success("PPT 生成完成。");
+						router.push(`/ppt/${projectId}`);
+						router.refresh();
+						return;
+					}
+					if (status.status === "FAILED") {
+						// 用户主动停止也会落到 FAILED：用 cancelledRef 区分提示文案。
+						if (cancelledRef.current) {
+							toast.info("已停止生成");
+							router.refresh();
+						} else {
+							throw new Error(status.error || "生成失败");
+						}
+						return;
+					}
+				}
+			}
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : "生成失败");
+			if (projectId) router.refresh();
+		} finally {
+			setLoading(false);
+			setActiveProjectId("");
+		}
+	}
 
-        const boundary = pending.lastIndexOf("\n\n");
-        const ready = boundary >= 0 ? pending.slice(0, boundary + 2) : "";
-        pending = boundary >= 0 ? pending.slice(boundary + 2) : pending;
+	function addUrl() {
+		const value = urlInput.trim();
+		if (!value) return;
+		try {
+			const url = new URL(value);
+			if (url.protocol !== "http:" && url.protocol !== "https:")
+				throw new Error();
+			const normalized = url.toString();
+			const isTemplateUrl = isPptTemplateUrl(normalized);
+			const exists = isTemplateUrl
+				? templateUrls.includes(normalized)
+				: sourceUrls.includes(normalized);
+			if (exists) {
+				setUrlInput("");
+				return;
+			}
+			if (isTemplateUrl) {
+				setTemplateUrls([normalized]);
+			} else {
+				setSourceUrls((prev) => [...prev, normalized]);
+			}
+			setUrlInput("");
+			toast.success(
+				isTemplateUrl ? "已添加 PPT 模板链接。" : "已添加资料链接。",
+			);
+		} catch {
+			toast.error("请输入有效的链接。");
+		}
+	}
 
-        for (const item of parseSseChunk(ready)) {
-          const data = item.data as { projectId?: string; message?: string; progress?: number };
-          if (item.event === "project" && data.projectId) {
-            projectId = data.projectId;
-            setActiveProjectId(data.projectId);
-          }
-          if ((item.event === "phase" || item.event === "progress") && typeof data.progress === "number") {
-            setProgress(data.progress);
-          }
-          if (item.event === "log" && data.message) {
-            setLogs((prev) => [...prev.slice(-5), data.message!]);
-          }
-          if (item.event === "complete") {
-            toast.success("PPT 生成完成。");
-            router.push(`/ppt/${projectId || data.projectId}`);
-            router.refresh();
-            return;
-          }
-          if (item.event === "error") {
-            throw new Error(data.message || "生成失败");
-          }
-          if (item.event === "cancelled") {
-            toast.info(data.message || "已停止生成");
-            if (projectId) router.refresh();
-            return;
-          }
-        }
+	async function handleFileChange(files?: FileList | null) {
+		const list = Array.from(files || []);
+		if (list.length === 0) return;
+		setUploading(true);
+		try {
+			const uploaded: UploadedFile[] = [];
+			for (const file of list) {
+				const form = new FormData();
+				form.append("file", file);
+				const res = await fetch("/api/ppt/upload", {
+					method: "POST",
+					body: form,
+				});
+				const data = await res.json().catch(() => null);
+				if (!res.ok) throw new Error(data?.error || `${file.name} 上传失败`);
+				uploaded.push({
+					id: data.id,
+					name: data.name || file.name,
+					size: data.size || file.size,
+				});
+			}
+			setSourceFiles((prev) => [...prev, ...uploaded]);
+			toast.success(
+				uploaded.length === 1
+					? "文件已上传。"
+					: `已上传 ${uploaded.length} 个文件。`,
+			);
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : "文件上传失败");
+		} finally {
+			setUploading(false);
+		}
+	}
 
-        if (done) break;
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "生成失败");
-      if (projectId) router.refresh();
-    } finally {
-      setLoading(false);
-      setActiveProjectId("");
-    }
-  }
+	return (
+		<form
+			className="grid min-w-0 items-start gap-5 2xl:grid-cols-[minmax(0,1fr)_320px]"
+			onSubmit={(event) => {
+				event.preventDefault();
+				if (!loading && !uploading) void handleSubmit();
+			}}
+		>
+			<div className="space-y-5">
+				<section className="rounded-lg border bg-card p-5 shadow-sm">
+					<div className="mb-4 flex items-center justify-between gap-3">
+						<div>
+							<h2 className="text-lg font-semibold">内容 brief</h2>
+							<p className="text-sm text-muted-foreground">
+								主题、受众、结构、素材重点
+							</p>
+						</div>
+						<div className="rounded-md border bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
+							{prompt.length.toLocaleString("zh-CN")} / 80,000
+						</div>
+					</div>
+					<Textarea
+						id="pptPrompt"
+						value={prompt}
+						onChange={(event) => setPrompt(event.target.value)}
+						rows={10}
+						maxLength={80000}
+						placeholder="例如：12 页中文融资路演 PPT，面向投资人。重点突出市场规模、产品壁垒、商业模式、增长数据和融资用途。风格要像成熟 SaaS 公司路演稿。"
+						className="min-h-72 resize-y border-muted-foreground/20 bg-background text-[15px] leading-7 shadow-none"
+					/>
+				</section>
 
-  function addUrl() {
-    const value = urlInput.trim();
-    if (!value) return;
-    try {
-      const url = new URL(value);
-      if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error();
-      if (sourceUrls.includes(url.toString())) {
-        setUrlInput("");
-        return;
-      }
-      setSourceUrls((prev) => [...prev, url.toString()]);
-      setUrlInput("");
-    } catch {
-      toast.error("请输入有效的网页链接。");
-    }
-  }
+				<section className="rounded-lg border bg-card p-5 shadow-sm">
+					<div className="mb-4 flex items-center justify-between gap-3">
+						<div>
+							<h2 className="text-lg font-semibold">参考资料</h2>
+							<p className="text-sm text-muted-foreground">
+								{attachmentCount > 0
+									? `${attachmentCount} 个素材`
+									: "链接、文档或 PPT 模板"}
+							</p>
+						</div>
+						<Paperclip className="size-4 text-muted-foreground" />
+					</div>
 
-  async function handleFileChange(files?: FileList | null) {
-    const list = Array.from(files || []);
-    if (list.length === 0) return;
-    setUploading(true);
-    try {
-      const uploaded: UploadedFile[] = [];
-      for (const file of list) {
-        const form = new FormData();
-        form.append("file", file);
-        const res = await fetch("/api/ppt/upload", { method: "POST", body: form });
-        const data = await res.json().catch(() => null);
-        if (!res.ok) throw new Error(data?.error || `${file.name} 上传失败`);
-        uploaded.push({ path: data.path, name: data.name || file.name, size: data.size || file.size });
-      }
-      setSourceFiles((prev) => [...prev, ...uploaded]);
-      toast.success(uploaded.length === 1 ? "文件已上传。" : `已上传 ${uploaded.length} 个文件。`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "文件上传失败");
-    } finally {
-      setUploading(false);
-    }
-  }
+					<div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
+						<div className="space-y-2">
+							<Label htmlFor="sourceUrl">链接</Label>
+							<div className="flex gap-2">
+								<Input
+									id="sourceUrl"
+									type="url"
+									placeholder="https://..."
+									value={urlInput}
+									onChange={(event) => setUrlInput(event.target.value)}
+									onKeyDown={(event) => {
+										if (event.key === "Enter") {
+											event.preventDefault();
+											addUrl();
+										}
+									}}
+									className="h-10 bg-background"
+								/>
+								<Button
+									type="button"
+									variant="outline"
+									onClick={addUrl}
+									className="h-10"
+								>
+									<Plus className="size-4" />
+									添加
+								</Button>
+							</div>
+						</div>
 
-  return (
-    <div className="space-y-6">
-      <div className="space-y-2">
-        <h2 className="text-xl font-semibold">你想生成什么 PPT？</h2>
-        <p className="text-sm text-muted-foreground">
-          直接描述需求，也可以同时上传文件、添加网页链接，系统会合并理解后按 PPT Master 流程生成。
-        </p>
-      </div>
+						<div className="space-y-2">
+							<Label htmlFor="sourceFiles">文件</Label>
+							<label className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border bg-background px-3 text-sm font-medium transition-colors hover:bg-muted/60">
+								{uploading ? (
+									<Loader2 className="size-4 animate-spin" />
+								) : (
+									<Upload className="size-4" />
+								)}
+								{uploading ? "上传中" : "选择文件"}
+								<input
+									id="sourceFiles"
+									type="file"
+									multiple
+									accept=".pdf,.docx,.html,.htm,.epub,.ipynb,.pptx,.pptm,.ppsx,.ppsm,.potx,.potm,.xlsx,.xlsm"
+									disabled={uploading}
+									onChange={(event) => handleFileChange(event.target.files)}
+									className="sr-only"
+								/>
+							</label>
+						</div>
+					</div>
 
-      <div className="space-y-3">
-        <Label htmlFor="pptPrompt">PPT 需求</Label>
-        <Textarea
-          id="pptPrompt"
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
-          rows={9}
-          maxLength={80000}
-          placeholder="例如：帮我做一份 12 页中文融资路演 PPT，面向投资人，重点突出市场规模、产品壁垒和商业模式。可以参考我上传的文档和下面的网页链接。"
-          className="min-h-52"
-        />
-      </div>
+					{attachmentCount > 0 && (
+						<div className="mt-4 space-y-2">
+							{templateUrls.map((url) => (
+								<AttachmentRow
+									key={url}
+									icon={<FileType className="size-4" />}
+									label={`PPT 模板 · ${url}`}
+									onRemove={() =>
+										setTemplateUrls((prev) =>
+											prev.filter((item) => item !== url),
+										)
+									}
+								/>
+							))}
+							{sourceUrls.map((url) => (
+								<AttachmentRow
+									key={url}
+									icon={<LinkIcon className="size-4" />}
+									label={url}
+									onRemove={() =>
+										setSourceUrls((prev) => prev.filter((item) => item !== url))
+									}
+								/>
+							))}
+							{sourceFiles.map((file) => (
+								<AttachmentRow
+									key={file.id}
+									icon={<Paperclip className="size-4" />}
+									label={`${file.name} · ${formatBytes(file.size)}`}
+									onRemove={() =>
+										setSourceFiles((prev) =>
+											prev.filter((item) => item.id !== file.id),
+										)
+									}
+								/>
+							))}
+						</div>
+					)}
+				</section>
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
-        <div className="space-y-2">
-          <Label htmlFor="sourceUrl">网页链接</Label>
-          <div className="flex gap-2">
-            <Input
-              id="sourceUrl"
-              type="url"
-              placeholder="https://example.com/article"
-              value={urlInput}
-              onChange={(event) => setUrlInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  addUrl();
-                }
-              }}
-            />
-            <Button type="button" variant="outline" onClick={addUrl}>
-              <Plus className="size-4" />
-              添加
-            </Button>
-          </div>
-        </div>
+				{loading && (
+					<section className="rounded-lg border bg-card p-5 shadow-sm">
+						<div className="mb-3 flex items-center justify-between text-sm">
+							<span className="font-medium">生成进度</span>
+							<span className="text-muted-foreground">{progress}%</span>
+						</div>
+						<div className="h-2 overflow-hidden rounded-full bg-muted">
+							<div
+								className="h-full rounded-full bg-primary transition-all"
+								style={{ width: `${progress}%` }}
+							/>
+						</div>
+						{logs.length > 0 && (
+							<div className="mt-3 space-y-1 text-xs text-muted-foreground">
+								{logs.map((item, index) => (
+									<p key={`${item}-${index}`} className="truncate">
+										{item}
+									</p>
+								))}
+							</div>
+						)}
+					</section>
+				)}
+			</div>
 
-        <div className="space-y-2">
-          <Label htmlFor="sourceFiles">参考文件</Label>
-          <Input
-            id="sourceFiles"
-            type="file"
-            multiple
-            accept=".pdf,.docx,.html,.htm,.epub,.ipynb,.pptx,.pptm,.ppsx,.ppsm,.potx,.potm,.xlsx,.xlsm"
-            disabled={uploading}
-            onChange={(event) => handleFileChange(event.target.files)}
-          />
-        </div>
-      </div>
+			<aside className="space-y-4 2xl:sticky 2xl:top-20 2xl:max-h-[calc(100dvh-15rem)] 2xl:self-start 2xl:overflow-y-auto 2xl:pr-1">
+				<section className="rounded-lg border bg-card p-5 shadow-sm">
+					<div className="mb-4 flex items-center justify-between gap-3">
+						<div>
+							<h2 className="text-lg font-semibold">输出设置</h2>
+							<p className="text-sm text-muted-foreground">
+								{useOwnKey ? "使用自带 API" : `${creditsPerSlide} 积分 / 页`}
+							</p>
+						</div>
+						<Presentation className="size-4 text-muted-foreground" />
+					</div>
 
-      {(sourceUrls.length > 0 || sourceFiles.length > 0) && (
-        <div className="space-y-2 rounded-md border bg-muted/20 p-3">
-          {sourceUrls.map((url) => (
-            <AttachmentRow
-              key={url}
-              icon={<LinkIcon className="size-4" />}
-              label={url}
-              onRemove={() => setSourceUrls((prev) => prev.filter((item) => item !== url))}
-            />
-          ))}
-          {sourceFiles.map((file) => (
-            <AttachmentRow
-              key={file.path}
-              icon={<Paperclip className="size-4" />}
-              label={`${file.name} · ${formatBytes(file.size)}`}
-              onRemove={() => setSourceFiles((prev) => prev.filter((item) => item.path !== file.path))}
-            />
-          ))}
-        </div>
-      )}
+					<div className="space-y-4">
+						<div className="space-y-2">
+							<Label htmlFor="slideCount">页数</Label>
+							<div className="grid grid-cols-[40px_minmax(0,1fr)_40px] gap-2">
+								<Button
+									type="button"
+									variant="outline"
+									size="icon"
+									onClick={() => updateSlideCount(slideCount - 1)}
+								>
+									<Minus className="size-4" />
+								</Button>
+								<Input
+									id="slideCount"
+									type="number"
+									min={3}
+									max={30}
+									value={slideCount}
+									onChange={(event) =>
+										updateSlideCount(Number(event.target.value) || 10)
+									}
+									className="h-10 text-center"
+								/>
+								<Button
+									type="button"
+									variant="outline"
+									size="icon"
+									onClick={() => updateSlideCount(slideCount + 1)}
+								>
+									<Plus className="size-4" />
+								</Button>
+							</div>
+						</div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label htmlFor="slideCount">目标页数</Label>
-          <Input
-            id="slideCount"
-            type="number"
-            min={3}
-            max={30}
-            value={slideCount}
-            onChange={(event) => setSlideCount(Number(event.target.value) || 10)}
-          />
-        </div>
+						<div className="space-y-2">
+							<Label>画布</Label>
+							<div className="grid grid-cols-2 gap-2">
+								{["16:9", "4:3"].map((value) => (
+									<Button
+										key={value}
+										type="button"
+										variant={aspectRatio === value ? "default" : "outline"}
+										onClick={() => setAspectRatio(value)}
+										className="h-10"
+									>
+										{value}
+									</Button>
+								))}
+							</div>
+						</div>
 
-        <div className="space-y-2">
-          <Label htmlFor="aspectRatio">画布比例</Label>
-          <Select value={aspectRatio} onValueChange={setAspectRatio}>
-            <SelectTrigger id="aspectRatio">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="16:9">16:9 宽屏</SelectItem>
-              <SelectItem value="4:3">4:3 标准</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+						<div className="rounded-md border bg-muted/30 p-3 text-sm">
+							<div className="flex items-center justify-between">
+								<span className="text-muted-foreground">预估消耗</span>
+								<span className="font-medium">
+									{useOwnKey ? "0 积分" : `${estimatedCost} 积分`}
+								</span>
+							</div>
+						</div>
+					</div>
+				</section>
 
-      <div className="space-y-3">
-        <Label htmlFor="template">PPT Master 模板</Label>
-        <Select value={template} onValueChange={setTemplate}>
-          <SelectTrigger id="template">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">自由设计</SelectItem>
-            {templateOptions.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.title}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <p className="text-sm text-muted-foreground">
-          {template === "none"
-            ? "不套用固定模板，由 agent 按内容自由设计。"
-            : templateOptions.find((item) => item.value === template)?.summary || "使用选定模板的品牌、版式或整套视觉规范。"}
-        </p>
-      </div>
+				<section className="rounded-lg border bg-card p-5 shadow-sm">
+					<div className="mb-4 flex items-center justify-between gap-3">
+						<div>
+							<h2 className="text-lg font-semibold">视觉方向</h2>
+							<p className="text-sm text-muted-foreground">
+								{styleSource === "custom"
+									? "自定义风格"
+									: selectedStylePreset?.label}
+							</p>
+						</div>
+						<Sparkles className="size-4 text-muted-foreground" />
+					</div>
 
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <Label>生成风格</Label>
-          <Link href="/materials?type=PPT_STYLE" className="text-sm text-primary hover:underline">
-            去素材广场收藏风格
-          </Link>
-        </div>
-        <Tabs value={styleSource} onValueChange={(value) => setStyleSource(value as StyleSource)}>
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="preset">内置风格</TabsTrigger>
-            <TabsTrigger value="material">素材风格</TabsTrigger>
-            <TabsTrigger value="custom">自定义</TabsTrigger>
-          </TabsList>
+					<div className="space-y-4">
+						<div className="space-y-2">
+							<Label htmlFor="template">模板</Label>
+							<Select value={template} onValueChange={setTemplate}>
+								<SelectTrigger id="template" className="h-10 w-full">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="none">自由设计</SelectItem>
+									{templateOptions.map((item) => (
+										<SelectItem key={item.value} value={item.value}>
+											{item.title}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
 
-          <TabsContent value="preset" className="space-y-2">
-            <Select value={style} onValueChange={setStyle}>
-              <SelectTrigger id="style">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PPT_STYLE_PRESETS.map((preset) => (
-                  <SelectItem key={preset.id} value={preset.id}>
-                    {preset.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-sm text-muted-foreground">
-              {PPT_STYLE_PRESETS.find((preset) => preset.id === style)?.description}
-            </p>
-          </TabsContent>
+						<Tabs
+							value={styleSource}
+							onValueChange={(value) => setStyleSource(value as StyleSource)}
+						>
+							<TabsList className="grid w-full grid-cols-2">
+								<TabsTrigger value="preset">预设</TabsTrigger>
+								<TabsTrigger value="custom">自定义</TabsTrigger>
+							</TabsList>
 
-          <TabsContent value="material" className="space-y-2">
-            {styleMaterials.length > 0 ? (
-              <>
-                <Select value={styleMaterialId} onValueChange={setStyleMaterialId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="选择素材风格" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {styleMaterials.map((item) => (
-                      <SelectItem key={item.id} value={item.id}>
-                        {item.title} · {item.source === "mine" ? "我的" : item.source === "favorite" ? "收藏" : "公开"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="line-clamp-2 text-sm text-muted-foreground">
-                  {styleMaterials.find((item) => item.id === styleMaterialId)?.description ||
-                    styleMaterials.find((item) => item.id === styleMaterialId)?.promptText}
-                </p>
-              </>
-            ) : (
-              <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
-                还没有可用的 PPT 风格素材。可以在我的素材库新建“PPT 风格”，或到素材广场收藏公开风格。
-              </div>
-            )}
-          </TabsContent>
+							<TabsContent value="preset" className="mt-3 space-y-2">
+								<Select value={style} onValueChange={setStyle}>
+									<SelectTrigger id="style" className="h-10 w-full">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{PPT_STYLE_PRESETS.map((preset) => (
+											<SelectItem key={preset.id} value={preset.id}>
+												{preset.label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+								<p className="text-sm text-muted-foreground">
+									{selectedStylePreset?.description}
+								</p>
+							</TabsContent>
 
-          <TabsContent value="custom" className="space-y-2">
-            <Textarea
-              value={customStyle}
-              onChange={(event) => setCustomStyle(event.target.value)}
-              rows={4}
-              maxLength={2000}
-              placeholder="描述你想要的 PPT 风格，例如：深色科技风，强调系统架构、流程图和关键指标，整体像 AI 产品发布会。"
-            />
-          </TabsContent>
-        </Tabs>
-      </div>
+							<TabsContent value="custom" className="mt-3">
+								<Textarea
+									value={customStyle}
+									onChange={(event) => setCustomStyle(event.target.value)}
+									rows={5}
+									maxLength={2000}
+									placeholder="深色科技风，强调架构图、流程节点和产品发布感；避免模板化卡片堆叠。"
+									className="resize-y bg-background"
+								/>
+							</TabsContent>
+						</Tabs>
+					</div>
+				</section>
 
-      {loading && (
-        <div className="space-y-2 rounded-md border bg-muted/30 p-3">
-          <div className="flex items-center justify-between text-sm">
-            <span className="font-medium">生成进度</span>
-            <span className="text-muted-foreground">{progress}%</span>
-          </div>
-          <div className="h-2 overflow-hidden rounded-full bg-background">
-            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progress}%` }} />
-          </div>
-          {logs.length > 0 && (
-            <div className="space-y-1 pt-1 text-xs text-muted-foreground">
-              {logs.map((item, index) => (
-                <p key={`${item}-${index}`}>{item}</p>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      <Button onClick={handleSubmit} disabled={loading || uploading} className="w-full">
-        {loading || uploading ? <Loader2 className="size-4 animate-spin" /> : <Presentation className="size-4" />}
-        {uploading
-          ? "正在上传文件"
-          : loading
-            ? "正在生成"
-            : useOwnKey
-              ? "开始生成 · 使用我的 API"
-              : `开始生成 · 预计 ${estimatedCost} 积分`}
-      </Button>
-      {loading && activeProjectId && (
-        <CancelProjectButton
-          projectId={activeProjectId}
-          size="default"
-          variant="destructive"
-          onCancelled={() => {
-            setLoading(false);
-            setActiveProjectId("");
-          }}
-        />
-      )}
-    </div>
-  );
+				<section className="rounded-lg border bg-card p-4 shadow-sm">
+					<Button
+						type="submit"
+						disabled={loading || uploading}
+						className="h-11 w-full"
+					>
+						{loading || uploading ? (
+							<Loader2 className="size-4 animate-spin" />
+						) : (
+							<Presentation className="size-4" />
+						)}
+						{uploading
+							? "正在上传文件"
+							: loading
+								? "正在生成"
+								: useOwnKey
+									? "开始生成"
+									: `开始生成 · ${estimatedCost} 积分`}
+					</Button>
+					{loading && activeProjectId && (
+						<CancelProjectButton
+							projectId={activeProjectId}
+							size="default"
+							variant="destructive"
+							onCancelled={() => {
+								cancelledRef.current = true;
+							}}
+							className="mt-2 w-full"
+						/>
+					)}
+				</section>
+			</aside>
+		</form>
+	);
 }
 
-function AttachmentRow({ icon, label, onRemove }: { icon: React.ReactNode; label: string; onRemove: () => void }) {
-  return (
-    <div className="flex items-center gap-2 rounded-md bg-background px-3 py-2 text-sm">
-      <span className="text-muted-foreground">{icon}</span>
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      <Button type="button" variant="outline" size="icon" onClick={onRemove} aria-label="移除附件">
-        <Trash2 className="size-4" />
-      </Button>
-    </div>
-  );
+function AttachmentRow({
+	icon,
+	label,
+	onRemove,
+}: {
+	icon: React.ReactNode;
+	label: string;
+	onRemove: () => void;
+}) {
+	return (
+		<div className="flex items-center gap-2 rounded-md bg-background px-3 py-2 text-sm">
+			<span className="text-muted-foreground">{icon}</span>
+			<span className="min-w-0 flex-1 truncate">{label}</span>
+			<Button
+				type="button"
+				variant="outline"
+				size="icon"
+				onClick={onRemove}
+				aria-label="移除附件"
+			>
+				<Trash2 className="size-4" />
+			</Button>
+		</div>
+	);
 }
 
 function formatBytes(bytes: number) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 KB";
-  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+	if (!Number.isFinite(bytes) || bytes <= 0) return "0 KB";
+	if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+	return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function isPptTemplateUrl(value: string) {
+	try {
+		const url = new URL(value);
+		const host = url.hostname.toLowerCase();
+		const pathname = url.pathname.toLowerCase();
+		if (
+			host === "down.ypppt.com" &&
+			/\.(rar|zip|7z|pptx|potx|ppt)(?:$|\?)/i.test(pathname)
+		)
+			return true;
+		if (host === "www.ypppt.com" || host === "ypppt.com") {
+			return (
+				/^\/article\/(?:\d+\/)?\d+\.html$/i.test(url.pathname) ||
+				url.pathname === "/p/d.php"
+			);
+		}
+		return false;
+	} catch {
+		return false;
+	}
 }

@@ -24,7 +24,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <SiteHeader showMobileNav />
       <div className="mx-auto flex w-full max-w-screen-2xl flex-1">
         <AppSidebar />
-        <main id="main-content" className="flex-1 p-4 sm:p-6 lg:p-8">
+        <main id="main-content" className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8">
           {announcements.length > 0 && (
             <div className="mb-4 space-y-2">
               {announcements.map((item) => (

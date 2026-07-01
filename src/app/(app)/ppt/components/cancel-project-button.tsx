@@ -5,12 +5,14 @@ import { useState } from "react";
 import { Loader2, Square } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 interface Props {
   projectId: string;
   size?: "sm" | "default";
   variant?: "outline" | "destructive";
   onCancelled?: () => void;
+  className?: string;
 }
 
 export function CancelProjectButton({
@@ -18,6 +20,7 @@ export function CancelProjectButton({
   size = "sm",
   variant = "outline",
   onCancelled,
+  className,
 }: Props) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -39,7 +42,7 @@ export function CancelProjectButton({
   }
 
   return (
-    <Button type="button" size={size} variant={variant} disabled={pending} onClick={handleCancel}>
+    <Button type="button" size={size} variant={variant} disabled={pending} onClick={handleCancel} className={cn(className)}>
       {pending ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
       停止生成
     </Button>

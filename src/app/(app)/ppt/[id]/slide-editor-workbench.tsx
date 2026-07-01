@@ -211,7 +211,7 @@ export function SlideEditorWorkbench({ projectId, slides }: { projectId: string;
 
   return (
     <Tabs defaultValue="edit" className="space-y-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="sticky top-20 z-20 flex flex-col gap-3 border-b bg-card/95 pb-3 backdrop-blur lg:flex-row lg:items-center lg:justify-between">
         <TabsList className="grid h-auto w-full grid-cols-2 lg:w-auto lg:grid-cols-5">
           <TabsTrigger value="edit">
             <MousePointer2 className="size-4" />
@@ -260,7 +260,7 @@ export function SlideEditorWorkbench({ projectId, slides }: { projectId: string;
       </div>
 
       <TabsContent value="edit">
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
           <Card className="overflow-hidden p-0">
             <div className="border-b px-4 py-2 text-sm text-muted-foreground">
               点击页面中的文字、图形或分组进行编辑
@@ -273,7 +273,7 @@ export function SlideEditorWorkbench({ projectId, slides }: { projectId: string;
             />
           </Card>
 
-          <Card className="p-4">
+          <Card className="p-4 xl:sticky xl:top-36 xl:max-h-[calc(100dvh-22rem)] xl:overflow-y-auto">
             <div className="mb-3 space-y-1">
               <h3 className="font-semibold">元素属性</h3>
               <p className="text-sm text-muted-foreground">
@@ -428,7 +428,7 @@ function AnimationPanel({ projectId }: { projectId: string }) {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
-      <Card className="space-y-4 p-4">
+      <Card className="space-y-4 p-4 lg:sticky lg:top-36 lg:max-h-[calc(100dvh-22rem)] lg:overflow-y-auto">
         <div className="grid grid-cols-2 gap-3">
           <SelectField label="转场" value={settings.transition} options={TRANSITION_EFFECTS} onChange={(value) => setSettings((prev) => ({ ...prev, transition: value }))} />
           <NumberField label="转场时长" value={settings.transitionDuration} onChange={(value) => setSettings((prev) => ({ ...prev, transitionDuration: value }))} />
@@ -502,7 +502,7 @@ function AudioPanel({ projectId }: { projectId: string }) {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
-      <Card className="space-y-4 p-4">
+      <Card className="space-y-4 p-4 lg:sticky lg:top-36 lg:max-h-[calc(100dvh-22rem)] lg:overflow-y-auto">
         <SelectField label="服务商" value={settings.provider} options={AUDIO_PROVIDERS} onChange={(value) => setSettings((prev) => ({ ...prev, provider: value }))} />
         <div className="space-y-2">
           <Label>音色</Label>
@@ -528,7 +528,7 @@ function AudioPanel({ projectId }: { projectId: string }) {
         </Button>
       </Card>
 
-      <Card className="space-y-4 p-4">
+      <Card className="space-y-4 p-4 lg:sticky lg:top-36 lg:max-h-[calc(100dvh-22rem)] lg:overflow-y-auto">
         <div>
           <h3 className="font-semibold">已生成音频</h3>
           <div className="mt-3 space-y-3">
@@ -609,7 +609,7 @@ function ImagesPanel({ projectId }: { projectId: string }) {
         )}
       </Card>
 
-      <Card className="space-y-4 p-4">
+      <Card className="space-y-4 p-4 lg:sticky lg:top-36 lg:max-h-[calc(100dvh-22rem)] lg:overflow-y-auto">
         <div className="space-y-2">
           <Label htmlFor="ppt-image-upload">上传替换图片</Label>
           <Input id="ppt-image-upload" type="file" accept=".png,.jpg,.jpeg,.webp,.svg" disabled={loading} onChange={(event) => upload(event.target.files?.[0])} />

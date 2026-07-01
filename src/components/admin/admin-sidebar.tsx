@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   ShoppingCart,
   SlidersHorizontal,
+  Presentation,
   Users,
 } from "lucide-react";
 
@@ -25,6 +26,7 @@ const NAV = [
   { name: "数据看板", href: "/admin/analytics", icon: BarChart3 },
   { name: "用户管理", href: "/admin/users", icon: Users },
   { name: "生成记录", href: "/admin/generations", icon: ImageIcon },
+  { name: "PPT 记录", href: "/admin/ppt-projects", icon: Presentation },
   { name: "素材管理", href: "/admin/materials", icon: Images },
   { name: "用户反馈", href: "/admin/feedback", icon: MessageSquare },
   { name: "充值订单", href: "/admin/orders", icon: ShoppingCart },

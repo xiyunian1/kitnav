@@ -22,6 +22,7 @@ export interface ProjectListItem {
 
 interface Props {
   projects: ProjectListItem[];
+  compact?: boolean;
 }
 
 const STATUS_MAP = {
@@ -54,25 +55,39 @@ function sourceTypeLabel(value: string) {
   return value;
 }
 
-export function ProjectList({ projects }: Props) {
+export function ProjectList({ projects, compact = false }: Props) {
   if (projects.length === 0) {
     return (
-      <Card className="p-12 text-center">
-        <p className="text-muted-foreground">暂无项目，先创建一个 PPT。</p>
+      <Card className="rounded-lg p-8 text-center shadow-sm">
+        <p className="text-sm text-muted-foreground">暂无项目，先创建一个 PPT。</p>
       </Card>
     );
   }
 
   return (
-    <div className="grid gap-4">
+    <aside
+      className={cn(
+        "space-y-3",
+        compact &&
+          "2xl:sticky 2xl:top-20 2xl:max-h-[calc(100dvh-6rem)] 2xl:self-start 2xl:overflow-y-auto 2xl:pr-1",
+      )}
+    >
+      {compact && (
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">最近项目</h2>
+            <p className="text-sm text-muted-foreground">生成记录与下载入口</p>
+          </div>
+        </div>
+      )}
       {projects.map((project) => {
         const status = STATUS_MAP[project.status as keyof typeof STATUS_MAP] || STATUS_MAP.PENDING;
         const StatusIcon = status.icon;
         const isProcessing = PROCESSING_STATUSES.includes(project.status);
 
         return (
-          <Card key={project.id} className="p-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <Card key={project.id} className={cn("rounded-lg shadow-sm", compact ? "p-4" : "p-6")}>
+            <div className={cn("flex flex-col gap-4", compact ? "" : "md:flex-row md:items-start md:justify-between")}>
               <div className="min-w-0 flex-1 space-y-3">
                 <div>
                   <h3 className="truncate font-semibold">{project.title}</h3>
@@ -103,7 +118,7 @@ export function ProjectList({ projects }: Props) {
                 )}
               </div>
 
-              <div className="flex shrink-0 flex-wrap gap-2">
+              <div className={cn("flex shrink-0 flex-wrap gap-2", compact && "grid grid-cols-2")}>
                 <Button asChild variant="outline" size="sm">
                   <Link href={`/ppt/${project.id}`}>
                     <ExternalLink className="size-4" />
@@ -124,6 +139,6 @@ export function ProjectList({ projects }: Props) {
           </Card>
         );
       })}
-    </div>
+    </aside>
   );
 }

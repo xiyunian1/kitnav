@@ -29,18 +29,35 @@ RUN python3 -m venv /opt/ppt-venv \
   && /opt/ppt-venv/bin/pip install --no-cache-dir --upgrade pip \
   && /opt/ppt-venv/bin/pip install --no-cache-dir -r /tmp/ppt-master-requirements.txt
 
+FROM base AS unrar-builder
+ARG UNRAR_VERSION=7.2.4
+RUN apk add --no-cache build-base ca-certificates wget \
+  && wget -q -O /tmp/unrarsrc.tar.gz "https://www.rarlab.com/rar/unrarsrc-${UNRAR_VERSION}.tar.gz" \
+  && mkdir -p /tmp/unrar-src \
+  && tar -xzf /tmp/unrarsrc.tar.gz -C /tmp/unrar-src --strip-components=1 \
+  && make -C /tmp/unrar-src -f makefile \
+  && install -m 755 /tmp/unrar-src/unrar /usr/local/bin/unrar
+
 FROM base AS runner
+ARG PI_CODING_AGENT_VERSION=0.80.2
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3001
 ENV PATH="/opt/ppt-venv/bin:${PATH}"
-RUN apk add --no-cache cairo fontconfig gdk-pixbuf openssl pango python3 ttf-dejavu
+ENV PI_CODING_AGENT_DIR=/app/data/pi-agent
+RUN apk add --no-cache bash cairo fd fontconfig gdk-pixbuf libstdc++ openssl p7zip pango python3 ripgrep ttf-dejavu \
+  && npm install -g --no-audit --no-fund "@earendil-works/pi-coding-agent@${PI_CODING_AGENT_VERSION}" \
+  && npm cache clean --force \
+  && if ! command -v 7z >/dev/null 2>&1; then \
+    ln -s "$(command -v 7zz || command -v 7za)" /usr/local/bin/7z; \
+  fi
 
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=prisma-cli /app/node_modules ./node_modules
 COPY --from=ppt-python /opt/ppt-venv /opt/ppt-venv
+COPY --from=unrar-builder /usr/local/bin/unrar /usr/local/bin/unrar
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/scripts ./scripts

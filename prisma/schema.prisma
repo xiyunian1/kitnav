@@ -564,6 +564,11 @@ model PptProject {
   aspectRatio String  @default("16:9") // 16:9 或 4:3
   style       String? // 风格（general/consultant/consultant-top）
 
+  // 完整生成入参（JSON）：异步 worker 从此字段重建 GenerationParams。
+  // 包含 prompt、sourceUrls、sourceFileUrls、templateUrls、stylePrompt、styleLabel 等
+  // 未在单独列上冗余的字段。其他字段（sourceType/template/slideCount 等）从行字段取。
+  params       String?
+
   // 输出路径（相对 public/ 或绝对路径）
   projectPath   String? // projects/<cuid>/
   specPath      String? // design_spec.md 路径

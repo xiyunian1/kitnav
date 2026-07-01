@@ -2,12 +2,11 @@ import { resolveBillingMode } from "@/lib/providers";
 
 export async function resolvePptAgentBillingMode(userId: string) {
   const providerMode = await resolveBillingMode(userId, "PPT");
-  const useCliAgent = process.env.PPT_AGENT_MODE === "cli";
 
   return {
     ...providerMode,
-    // CLI mode uses the server-side coding agent credentials. API mode uses
-    // the saved PPT provider config, so BYOK can be honored there.
-    useOwnKey: useCliAgent ? false : providerMode.useOwnKey,
+    // Generation is always handled by pi, but pi should use the same BYOK
+    // decision as the user's PPT API configuration.
+    useOwnKey: providerMode.useOwnKey,
   };
 }

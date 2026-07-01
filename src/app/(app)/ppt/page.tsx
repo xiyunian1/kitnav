@@ -3,18 +3,14 @@ import { requireModulePageAccess, getStaticModuleMeta } from "@/lib/module-contr
 import { ModuleUnavailable } from "@/components/module-unavailable";
 import { prisma } from "@/lib/db";
 import { resolvePptAgentBillingMode } from "@/lib/ppt-agent/billing";
-import { isPptStylePrompt, type PptStyleMaterialOption } from "@/lib/ppt-agent/styles";
 import { listPptTemplateOptions } from "@/lib/ppt-agent/templates";
-import { parsePromptMeta, parseTags } from "@/lib/materials";
 import { PptWorkbench } from "./components/workbench";
+import { Badge } from "@/components/ui/badge";
+import { Clock3, Coins, KeyRound, LayoutDashboard } from "lucide-react";
 
 export const metadata = { title: "PPT 生成" };
 
-export default async function PptPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ styleMaterialId?: string }>;
-}) {
+export default async function PptPage() {
   const session = await auth();
   const access = await requireModulePageAccess("ppt");
 
@@ -30,11 +26,9 @@ export default async function PptPage({
     );
   }
 
-  const params = await searchParams;
-  const selectedStyleMaterialId = params.styleMaterialId?.trim() || "";
   const templateOptions = listPptTemplateOptions();
 
-  const [recentProjects, billingMode, rawStyleMaterials] = await Promise.all([
+  const [recentProjects, billingMode] = await Promise.all([
     prisma.pptProject.findMany({
       where: { userId: session!.user.id },
       orderBy: { createdAt: "desc" },
@@ -52,72 +46,60 @@ export default async function PptPage({
       },
     }),
     resolvePptAgentBillingMode(session!.user.id),
-    prisma.material.findMany({
-      where: {
-        type: "PROMPT",
-        OR: [
-          { ownerId: session!.user.id },
-          {
-            visibility: "PUBLIC",
-            status: "APPROVED",
-            favorites: { some: { userId: session!.user.id } },
-          },
-          ...(selectedStyleMaterialId
-            ? [
-                {
-                  id: selectedStyleMaterialId,
-                  visibility: "PUBLIC" as const,
-                  status: "APPROVED" as const,
-                },
-              ]
-            : []),
-        ],
-      },
-      orderBy: { updatedAt: "desc" },
-      take: 100,
-      include: {
-        owner: { select: { id: true, name: true, email: true } },
-        favorites: { where: { userId: session!.user.id } },
-      },
-    }),
   ]);
-  const styleMaterials: PptStyleMaterialOption[] = rawStyleMaterials
-    .filter((material) => isPptStylePrompt(parsePromptMeta(material.promptMeta), parseTags(material.tags)))
-    .filter((material) => Boolean(material.promptText))
-    .map((material) => ({
-      id: material.id,
-      title: material.title,
-      description: material.description,
-      promptText: material.promptText || "",
-      ownerName:
-        material.ownerType === "PLATFORM"
-          ? "平台官方"
-          : material.owner?.name || material.owner?.email || "用户",
-      source:
-        material.ownerId === session!.user.id
-          ? "mine"
-          : material.favorites.length > 0
-            ? "favorite"
-            : "public",
-    }));
 
   const creditsPerSlide = Number(process.env.PPT_CREDITS_PER_SLIDE || 10);
 
+  const stats = [
+    {
+      label: "最近项目",
+      value: recentProjects.length,
+      icon: Clock3,
+    },
+    {
+      label: "单页成本",
+      value: billingMode.useOwnKey ? "0" : creditsPerSlide,
+      icon: Coins,
+    },
+    {
+      label: "运行模式",
+      value: billingMode.useOwnKey ? "自带 API" : "积分",
+      icon: billingMode.useOwnKey ? KeyRound : LayoutDashboard,
+    },
+  ];
+
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold">PPT 生成</h1>
-        <p className="text-muted-foreground">
-          基于 PPT Master 的多阶段生成流程，从主题或结构化内容生成可下载的 PowerPoint。
-        </p>
+    <div className="mx-auto w-full max-w-[1600px] space-y-6">
+      <div className="flex flex-col gap-4 border-b pb-5 xl:flex-row xl:items-end xl:justify-between">
+        <div className="min-w-0 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-semibold tracking-tight">PPT 工作台</h1>
+            <Badge variant="secondary">{billingMode.useOwnKey ? "自带 API" : "积分计费"}</Badge>
+          </div>
+          <p className="max-w-3xl text-sm text-muted-foreground">
+            把 brief、资料、模板和视觉方向放在一个任务里，生成可编辑 PPTX。
+          </p>
+        </div>
+        <div className="grid gap-2 text-sm sm:grid-cols-3 xl:min-w-[420px]">
+          {stats.map((item) => {
+            const Icon = item.icon;
+            return (
+              <div key={item.label} className="rounded-lg border bg-card px-3 py-2.5 shadow-sm">
+                <div className="mb-1 flex items-center gap-2 text-muted-foreground">
+                  <Icon className="size-3.5" />
+                  <p>{item.label}</p>
+                </div>
+                <p className="truncate font-semibold">{item.value}</p>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       <PptWorkbench
         recentProjects={recentProjects}
         useOwnKey={billingMode.useOwnKey}
         creditsPerSlide={creditsPerSlide}
-        styleMaterials={styleMaterials}
-        initialStyleMaterialId={selectedStyleMaterialId}
         templateOptions={templateOptions}
       />
     </div>
