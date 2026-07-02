@@ -51,15 +51,28 @@ const requestSchema = z
 		customStyle: z.string().trim().max(2000).optional(),
 	})
 	.superRefine((data, ctx) => {
+		if (
+			data.sourceType === "url" ||
+			data.sourceUrl ||
+			data.sourceUrls?.length ||
+			data.templateUrls?.length
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["sourceUrl"],
+				message: "PPT 生成仅支持上传文件资料，不支持链接。",
+			});
+			return;
+		}
 		const hasCombinedInput = Boolean(
-			data.prompt || data.sourceUrls?.length || data.sourceFileUrls?.length,
+			data.prompt || data.sourceFileUrls?.length,
 		);
 		if (hasCombinedInput) return;
 		if (!data.sourceType) {
 			ctx.addIssue({
 				code: "custom",
 				path: ["prompt"],
-				message: "请描述你想生成的 PPT，或添加网页/文件资料",
+				message: "请描述你想生成的 PPT，或上传文件资料",
 			});
 			return;
 		}
@@ -82,13 +95,6 @@ const requestSchema = z
 				code: "custom",
 				path: ["sourceFileUrl"],
 				message: "请先上传文档",
-			});
-		}
-		if (data.sourceType === "url" && !data.sourceUrl) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["sourceUrl"],
-				message: "请输入网页 URL",
 			});
 		}
 	});
@@ -186,8 +192,7 @@ export async function POST(req: NextRequest) {
 	const resolvedFileUrls = (parsed.sourceFileUrls ?? []).map((token) =>
 		resolveUploadPath(userId, token),
 	);
-	const shouldTreatUploadedPptAsTemplate =
-		parsed.style === "match-template" || Boolean(parsed.templateUrls?.length);
+	const shouldTreatUploadedPptAsTemplate = parsed.style === "match-template";
 	const uploadedTemplateFileUrls = shouldTreatUploadedPptAsTemplate
 		? resolvedFileUrls.filter(isUploadedPptTemplateFile)
 		: [];
@@ -197,11 +202,9 @@ export async function POST(req: NextRequest) {
 	if (
 		uploadedTemplateFileUrls.length > 0 &&
 		!parsed.prompt &&
-		!parsed.sourceUrls?.length &&
 		contentFileUrls.length === 0 &&
 		!parsed.sourceMarkdown &&
-		!parsed.sourceTopic &&
-		!parsed.sourceUrl
+		!parsed.sourceTopic
 	) {
 		return Response.json(
 			{ error: "请描述你想生成的 PPT 内容，模板只用于控制版式和视觉风格。" },
@@ -216,12 +219,9 @@ export async function POST(req: NextRequest) {
 		sourceTopic: parsed.sourceTopic,
 		sourceMarkdown: parsed.sourceMarkdown,
 		sourceFileUrl: resolvedSingleFileUrl,
-		sourceUrl: parsed.sourceUrl,
 		prompt: parsed.prompt,
-		sourceUrls: parsed.sourceUrls,
 		sourceFileUrls: contentFileUrls,
 		templateFileUrls: uploadedTemplateFileUrls,
-		templateUrls: parsed.templateUrls,
 		template: resolvedTemplate || resolvedStyle.template,
 		slideCount: parsed.slideCount,
 		aspectRatio: parsed.aspectRatio,
@@ -264,7 +264,6 @@ export async function POST(req: NextRequest) {
 					sourceTopic: parsed.sourceTopic,
 					sourceMarkdown: parsed.sourceMarkdown,
 					sourceFileUrl: parsed.sourceFileUrl,
-					sourceUrl: parsed.sourceUrl,
 					template: resolvedTemplate || resolvedStyle.template,
 					slideCount: parsed.slideCount,
 					aspectRatio: parsed.aspectRatio,
@@ -329,8 +328,7 @@ function resolveTemplateInput(template?: string) {
 function resolveSourceType(
 	input: z.infer<typeof requestSchema>,
 ): "topic" | "markdown" | "document" | "url" {
-	if (input.prompt || input.sourceUrls?.length || input.sourceFileUrls?.length)
-		return "markdown";
+	if (input.prompt || input.sourceFileUrls?.length) return "markdown";
 	return input.sourceType || "topic";
 }
 
@@ -347,18 +345,14 @@ function buildTitle(input: z.infer<typeof requestSchema>) {
 			input.prompt.replace(/\s+/g, " ").trim().slice(0, 60) || "未命名 PPT"
 		);
 	}
-	if (input.sourceUrls?.[0]) return input.sourceUrls[0];
 	if (input.sourceFileUrls?.[0])
 		return input.sourceFileUrls[0].split(/[\\/]/).pop() || "未命名 PPT";
-	if (input.templateUrls?.[0]) return input.templateUrls[0];
 	const text =
 		input.sourceType === "topic"
 			? input.sourceTopic
-			: input.sourceType === "url"
-				? input.sourceUrl
-				: input.sourceType === "document"
-					? input.sourceFileUrl?.split(/[\\/]/).pop()
-					: input.sourceMarkdown;
+			: input.sourceType === "document"
+				? input.sourceFileUrl?.split(/[\\/]/).pop()
+				: input.sourceMarkdown;
 
 	return (text || "未命名 PPT").replace(/\s+/g, " ").trim().slice(0, 60);
 }

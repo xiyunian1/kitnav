@@ -15,8 +15,6 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-	FileType,
-	LinkIcon,
 	Loader2,
 	Minus,
 	Paperclip,
@@ -58,9 +56,6 @@ export function GenerationForm({
 	const router = useRouter();
 	const [loading, setLoading] = useState(false);
 	const [prompt, setPrompt] = useState("");
-	const [urlInput, setUrlInput] = useState("");
-	const [sourceUrls, setSourceUrls] = useState<string[]>([]);
-	const [templateUrls, setTemplateUrls] = useState<string[]>([]);
 	const [sourceFiles, setSourceFiles] = useState<UploadedFile[]>([]);
 	const [uploading, setUploading] = useState(false);
 	const [slideCount, setSlideCount] = useState(10);
@@ -80,8 +75,7 @@ export function GenerationForm({
 		() => (useOwnKey ? 0 : slideCount * creditsPerSlide),
 		[creditsPerSlide, slideCount, useOwnKey],
 	);
-	const attachmentCount =
-		sourceUrls.length + templateUrls.length + sourceFiles.length;
+	const attachmentCount = sourceFiles.length;
 	const selectedStylePreset = PPT_STYLE_PRESETS.find(
 		(preset) => preset.id === style,
 	);
@@ -104,14 +98,8 @@ export function GenerationForm({
 
 	async function handleSubmit() {
 		const normalizedPrompt = prompt.trim();
-		if (
-			!normalizedPrompt &&
-			sourceUrls.length === 0 &&
-			sourceFiles.length === 0
-		) {
-			toast.error(
-				"请描述你想生成的 PPT，或添加资料链接/文件。模板链接只能作为视觉参考。",
-			);
+		if (!normalizedPrompt && sourceFiles.length === 0) {
+			toast.error("请描述你想生成的 PPT，或上传文件资料。");
 			return;
 		}
 		if (styleSource === "custom" && !customStyle.trim()) {
@@ -136,8 +124,6 @@ export function GenerationForm({
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					prompt: normalizedPrompt,
-					sourceUrls,
-					templateUrls,
 					sourceFileUrls: sourceFiles.map((file) => file.id),
 					slideCount,
 					aspectRatio,
@@ -223,36 +209,6 @@ export function GenerationForm({
 		}
 	}
 
-	function addUrl() {
-		const value = urlInput.trim();
-		if (!value) return;
-		try {
-			const url = new URL(value);
-			if (url.protocol !== "http:" && url.protocol !== "https:")
-				throw new Error();
-			const normalized = url.toString();
-			const isTemplateUrl = isPptTemplateUrl(normalized);
-			const exists = isTemplateUrl
-				? templateUrls.includes(normalized)
-				: sourceUrls.includes(normalized);
-			if (exists) {
-				setUrlInput("");
-				return;
-			}
-			if (isTemplateUrl) {
-				setTemplateUrls([normalized]);
-			} else {
-				setSourceUrls((prev) => [...prev, normalized]);
-			}
-			setUrlInput("");
-			toast.success(
-				isTemplateUrl ? "已添加 PPT 模板链接。" : "已添加资料链接。",
-			);
-		} catch {
-			toast.error("请输入有效的链接。");
-		}
-	}
-
 	async function handleFileChange(files?: FileList | null) {
 		const list = Array.from(files || []);
 		if (list.length === 0) return;
@@ -326,88 +282,35 @@ export function GenerationForm({
 							<p className="text-sm text-muted-foreground">
 								{attachmentCount > 0
 									? `${attachmentCount} 个素材`
-									: "链接、文档或 PPT 模板"}
+									: "上传文档或 PPT 模板"}
 							</p>
 						</div>
 						<Paperclip className="size-4 text-muted-foreground" />
 					</div>
 
-					<div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
-						<div className="space-y-2">
-							<Label htmlFor="sourceUrl">链接</Label>
-							<div className="flex gap-2">
-								<Input
-									id="sourceUrl"
-									type="url"
-									placeholder="https://..."
-									value={urlInput}
-									onChange={(event) => setUrlInput(event.target.value)}
-									onKeyDown={(event) => {
-										if (event.key === "Enter") {
-											event.preventDefault();
-											addUrl();
-										}
-									}}
-									className="h-10 bg-background"
-								/>
-								<Button
-									type="button"
-									variant="outline"
-									onClick={addUrl}
-									className="h-10"
-								>
-									<Plus className="size-4" />
-									添加
-								</Button>
-							</div>
-						</div>
-
-						<div className="space-y-2">
-							<Label htmlFor="sourceFiles">文件</Label>
-							<label className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border bg-background px-3 text-sm font-medium transition-colors hover:bg-muted/60">
-								{uploading ? (
-									<Loader2 className="size-4 animate-spin" />
-								) : (
-									<Upload className="size-4" />
-								)}
-								{uploading ? "上传中" : "选择文件"}
-								<input
-									id="sourceFiles"
-									type="file"
-									multiple
-									accept=".pdf,.docx,.html,.htm,.epub,.ipynb,.pptx,.pptm,.ppsx,.ppsm,.potx,.potm,.xlsx,.xlsm"
-									disabled={uploading}
-									onChange={(event) => handleFileChange(event.target.files)}
-									className="sr-only"
-								/>
-							</label>
-						</div>
+					<div className="space-y-2">
+						<Label htmlFor="sourceFiles">文件</Label>
+						<label className="flex h-11 cursor-pointer items-center justify-center gap-2 rounded-md border bg-background px-3 text-sm font-medium transition-colors hover:bg-muted/60">
+							{uploading ? (
+								<Loader2 className="size-4 animate-spin" />
+							) : (
+								<Upload className="size-4" />
+							)}
+							{uploading ? "上传中" : "选择文件"}
+							<input
+								id="sourceFiles"
+								type="file"
+								multiple
+								accept=".pdf,.docx,.html,.htm,.epub,.ipynb,.pptx,.pptm,.ppsx,.ppsm,.potx,.potm,.xlsx,.xlsm"
+								disabled={uploading}
+								onChange={(event) => handleFileChange(event.target.files)}
+								className="sr-only"
+							/>
+						</label>
 					</div>
 
 					{attachmentCount > 0 && (
 						<div className="mt-4 space-y-2">
-							{templateUrls.map((url) => (
-								<AttachmentRow
-									key={url}
-									icon={<FileType className="size-4" />}
-									label={`PPT 模板 · ${url}`}
-									onRemove={() =>
-										setTemplateUrls((prev) =>
-											prev.filter((item) => item !== url),
-										)
-									}
-								/>
-							))}
-							{sourceUrls.map((url) => (
-								<AttachmentRow
-									key={url}
-									icon={<LinkIcon className="size-4" />}
-									label={url}
-									onRemove={() =>
-										setSourceUrls((prev) => prev.filter((item) => item !== url))
-									}
-								/>
-							))}
 							{sourceFiles.map((file) => (
 								<AttachmentRow
 									key={file.id}
@@ -669,26 +572,4 @@ function clampProgress(value: number) {
 function progressMessage(progress: number) {
 	if (progress <= 0) return "任务正在排队";
 	return "正在生成 PPT";
-}
-
-function isPptTemplateUrl(value: string) {
-	try {
-		const url = new URL(value);
-		const host = url.hostname.toLowerCase();
-		const pathname = url.pathname.toLowerCase();
-		if (
-			host === "down.ypppt.com" &&
-			/\.(rar|zip|7z|pptx|potx|ppt)(?:$|\?)/i.test(pathname)
-		)
-			return true;
-		if (host === "www.ypppt.com" || host === "ypppt.com") {
-			return (
-				/^\/article\/(?:\d+\/)?\d+\.html$/i.test(url.pathname) ||
-				url.pathname === "/p/d.php"
-			);
-		}
-		return false;
-	} catch {
-		return false;
-	}
 }
