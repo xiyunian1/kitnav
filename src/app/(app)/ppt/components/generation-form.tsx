@@ -282,7 +282,7 @@ export function GenerationForm({
 							<p className="text-sm text-muted-foreground">
 								{attachmentCount > 0
 									? `${attachmentCount} 个素材`
-									: "上传文档或 PPT 模板"}
+									: "上传资料文档或 PPT 模板"}
 							</p>
 						</div>
 						<Paperclip className="size-4 text-muted-foreground" />
@@ -307,6 +307,9 @@ export function GenerationForm({
 								className="sr-only"
 							/>
 						</label>
+						<p className="text-xs text-muted-foreground">
+							PPT/POT/PPS 文件会作为模板导入，PDF、Word、Excel 等文件会作为内容资料。
+						</p>
 					</div>
 
 					{attachmentCount > 0 && (

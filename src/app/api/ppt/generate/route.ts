@@ -192,10 +192,9 @@ export async function POST(req: NextRequest) {
 	const resolvedFileUrls = (parsed.sourceFileUrls ?? []).map((token) =>
 		resolveUploadPath(userId, token),
 	);
-	const shouldTreatUploadedPptAsTemplate = parsed.style === "match-template";
-	const uploadedTemplateFileUrls = shouldTreatUploadedPptAsTemplate
-		? resolvedFileUrls.filter(isUploadedPptTemplateFile)
-		: [];
+	const uploadedTemplateFileUrls = resolvedFileUrls.filter(
+		isUploadedPptTemplateFile,
+	);
 	const contentFileUrls = resolvedFileUrls.filter(
 		(filePath) => !uploadedTemplateFileUrls.includes(filePath),
 	);
