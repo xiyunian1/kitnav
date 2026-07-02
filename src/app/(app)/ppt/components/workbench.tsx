@@ -2,20 +2,17 @@
 
 import { GenerationForm } from "./generation-form";
 import { ProjectList, type ProjectListItem } from "./project-list";
-import type { PptTemplateOption } from "@/lib/ppt-agent/templates";
 
 interface Props {
   recentProjects: ProjectListItem[];
   useOwnKey: boolean;
   creditsPerSlide: number;
-  templateOptions: PptTemplateOption[];
 }
 
 export function PptWorkbench({
   recentProjects,
   useOwnKey,
   creditsPerSlide,
-  templateOptions,
 }: Props) {
   const projectListKey = recentProjects
     .map((project) => `${project.id}:${project.status}:${project.progress}`)
@@ -26,7 +23,6 @@ export function PptWorkbench({
       <GenerationForm
         useOwnKey={useOwnKey}
         creditsPerSlide={creditsPerSlide}
-        templateOptions={templateOptions}
       />
       <ProjectList key={projectListKey} projects={recentProjects} compact />
     </div>

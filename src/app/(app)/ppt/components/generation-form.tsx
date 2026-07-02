@@ -32,12 +32,10 @@ import {
 	PPT_STATUS_LABELS,
 	PPT_USER_FAILURE_MESSAGE,
 } from "@/lib/ppt-agent/status";
-import type { PptTemplateOption } from "@/lib/ppt-agent/templates";
 
 interface GenerationFormProps {
 	useOwnKey: boolean;
 	creditsPerSlide: number;
-	templateOptions: PptTemplateOption[];
 }
 
 interface UploadedFile {
@@ -51,7 +49,6 @@ type StyleSource = "preset" | "custom";
 export function GenerationForm({
 	useOwnKey,
 	creditsPerSlide,
-	templateOptions,
 }: GenerationFormProps) {
 	const router = useRouter();
 	const [loading, setLoading] = useState(false);
@@ -60,7 +57,6 @@ export function GenerationForm({
 	const [uploading, setUploading] = useState(false);
 	const [slideCount, setSlideCount] = useState(10);
 	const [aspectRatio, setAspectRatio] = useState("16:9");
-	const [template, setTemplate] = useState("none");
 	const [style, setStyle] = useState("general");
 	const [styleSource, setStyleSource] = useState<StyleSource>("preset");
 	const [customStyle, setCustomStyle] = useState("");
@@ -127,7 +123,6 @@ export function GenerationForm({
 					sourceFileUrls: sourceFiles.map((file) => file.id),
 					slideCount,
 					aspectRatio,
-					template: template === "none" ? undefined : template,
 					style: styleSource === "preset" ? style : styleSource,
 					customStyle:
 						styleSource === "custom" ? customStyle.trim() : undefined,
@@ -441,23 +436,6 @@ export function GenerationForm({
 					</div>
 
 					<div className="space-y-4">
-						<div className="space-y-2">
-							<Label htmlFor="template">模板</Label>
-							<Select value={template} onValueChange={setTemplate}>
-								<SelectTrigger id="template" className="h-10 w-full">
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="none">自由设计</SelectItem>
-									{templateOptions.map((item) => (
-										<SelectItem key={item.value} value={item.value}>
-											{item.title}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</div>
-
 						<Tabs
 							value={styleSource}
 							onValueChange={(value) => setStyleSource(value as StyleSource)}

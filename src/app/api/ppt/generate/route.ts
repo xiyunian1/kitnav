@@ -11,7 +11,6 @@ import { releaseStaleProject } from "@/lib/ppt-agent/queue";
 import { wakePptWorker } from "@/lib/ppt-agent/start-worker";
 import { getStaleActiveProjectMs } from "@/lib/ppt-agent/timings";
 import { resolveUploadPath } from "@/lib/ppt-agent/upload-paths";
-import { listPptTemplateOptions } from "@/lib/ppt-agent/templates";
 import { rateLimitCheck, rateLimitResponse } from "@/lib/rate-limit";
 import { PPT_PROCESSING_STATUSES } from "@/lib/ppt-agent/status";
 
@@ -44,7 +43,6 @@ const requestSchema = z
 		sourceMarkdown: z.string().trim().max(80000).optional(),
 		sourceFileUrl: z.string().trim().max(2000).optional(),
 		sourceUrl: z.string().trim().url().max(1000).optional(),
-		template: z.string().trim().max(120).optional(),
 		slideCount: z.coerce.number().int().min(3).max(30).default(10),
 		aspectRatio: z.enum(["16:9", "4:3"]).default("16:9"),
 		style: z.string().trim().min(1).max(80).default("general"),
@@ -169,18 +167,16 @@ export async function POST(req: NextRequest) {
 	const title = buildTitle(parsed);
 	const normalizedSourceType = resolveSourceType(parsed);
 	let resolvedStyle: Awaited<ReturnType<typeof resolveStyleInput>>;
-	let resolvedTemplate: string | undefined;
 	try {
 		resolvedStyle = await resolveStyleInput({
 			userId: session.user.id,
 			style: parsed.style,
 			customStyle: parsed.customStyle,
 		});
-		resolvedTemplate = resolveTemplateInput(parsed.template);
 	} catch (error) {
 		return Response.json(
 			{
-				error: error instanceof Error ? error.message : "PPT 风格或模板不可用",
+				error: error instanceof Error ? error.message : "PPT 风格不可用",
 			},
 			{ status: 400 },
 		);
@@ -221,7 +217,6 @@ export async function POST(req: NextRequest) {
 		prompt: parsed.prompt,
 		sourceFileUrls: contentFileUrls,
 		templateFileUrls: uploadedTemplateFileUrls,
-		template: resolvedTemplate || resolvedStyle.template,
 		slideCount: parsed.slideCount,
 		aspectRatio: parsed.aspectRatio,
 		style: resolvedStyle.style,
@@ -263,7 +258,6 @@ export async function POST(req: NextRequest) {
 					sourceTopic: parsed.sourceTopic,
 					sourceMarkdown: parsed.sourceMarkdown,
 					sourceFileUrl: parsed.sourceFileUrl,
-					template: resolvedTemplate || resolvedStyle.template,
 					slideCount: parsed.slideCount,
 					aspectRatio: parsed.aspectRatio,
 					style: resolvedStyle.style,
@@ -314,16 +308,6 @@ export async function POST(req: NextRequest) {
 	return Response.json({ projectId, status: "QUEUED" });
 }
 
-function resolveTemplateInput(template?: string) {
-	const value = template?.trim();
-	if (!value || value === "none") return undefined;
-	const allowed = new Set(listPptTemplateOptions().map((item) => item.value));
-	if (!allowed.has(value)) {
-		throw new Error("选择的 PPT 模板不可用。");
-	}
-	return value;
-}
-
 function resolveSourceType(
 	input: z.infer<typeof requestSchema>,
 ): "topic" | "markdown" | "document" | "url" {
@@ -365,7 +349,6 @@ async function resolveStyleInput(input: {
 	if (customStyle) {
 		return {
 			style: "custom",
-			template: "custom-style",
 			styleLabel: "自定义风格",
 			stylePrompt: customStyle,
 		};
@@ -374,7 +357,6 @@ async function resolveStyleInput(input: {
 	const preset = getPptStylePreset(input.style);
 	return {
 		style: preset.id,
-		template: undefined,
 		styleLabel: getPptStyleLabel(preset.id),
 		stylePrompt: preset.prompt,
 	};

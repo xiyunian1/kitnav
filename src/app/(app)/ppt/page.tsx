@@ -3,7 +3,6 @@ import { requireModulePageAccess, getStaticModuleMeta } from "@/lib/module-contr
 import { ModuleUnavailable } from "@/components/module-unavailable";
 import { prisma } from "@/lib/db";
 import { resolvePptAgentBillingMode } from "@/lib/ppt-agent/billing";
-import { listPptTemplateOptions } from "@/lib/ppt-agent/templates";
 import { PptWorkbench } from "./components/workbench";
 import { Badge } from "@/components/ui/badge";
 import { Clock3, Coins, KeyRound, LayoutDashboard } from "lucide-react";
@@ -25,8 +24,6 @@ export default async function PptPage() {
       />
     );
   }
-
-  const templateOptions = listPptTemplateOptions();
 
   const [recentProjects, billingMode] = await Promise.all([
     prisma.pptProject.findMany({
@@ -102,7 +99,6 @@ export default async function PptPage() {
         recentProjects={recentProjects}
         useOwnKey={billingMode.useOwnKey}
         creditsPerSlide={creditsPerSlide}
-        templateOptions={templateOptions}
       />
     </div>
   );
