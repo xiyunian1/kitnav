@@ -30,6 +30,7 @@ services:
       - .env.production
     volumes:
       - ./data/uploads:/app/public/uploads
+      - ./data/ppt-uploads:/app/data/ppt-uploads
       - ./data/ppt-projects:/app/data/ppt-projects
       - ./data/pi-agent:/app/data/pi-agent
 
