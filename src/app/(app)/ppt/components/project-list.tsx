@@ -48,6 +48,7 @@ const STATUS_MAP = {
 
 function formatTime(value: Date | string) {
   return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -55,9 +56,10 @@ function formatTime(value: Date | string) {
   }).format(new Date(value));
 }
 
-function formatRelativeTime(value?: Date | string) {
+function formatRelativeTime(value?: Date | string, now?: number | null) {
   if (!value) return "";
-  const diffMs = Date.now() - new Date(value).getTime();
+  if (!now) return formatTime(value);
+  const diffMs = now - new Date(value).getTime();
   if (!Number.isFinite(diffMs) || diffMs < 0) return "刚刚更新";
   const minutes = Math.floor(diffMs / 60_000);
   if (minutes < 1) return "刚刚更新";
@@ -87,9 +89,15 @@ export function ProjectList({ projects, compact = false }: Props) {
   );
 
   useEffect(() => {
-    if (!hasProcessingProject) return;
-    const interval = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(interval);
+    const timeout = window.setTimeout(() => setNow(Date.now()), 0);
+    const interval = window.setInterval(
+      () => setNow(Date.now()),
+      hasProcessingProject ? 1000 : 60_000,
+    );
+    return () => {
+      window.clearTimeout(timeout);
+      window.clearInterval(interval);
+    };
   }, [hasProcessingProject]);
 
   useEffect(() => {
@@ -208,7 +216,7 @@ export function ProjectList({ projects, compact = false }: Props) {
                 )}
                 {project.updatedAt && (
                   <p className="text-xs text-muted-foreground">
-                    {formatRelativeTime(project.updatedAt)}
+                    {formatRelativeTime(project.updatedAt, now)}
                   </p>
                 )}
               </div>

@@ -303,7 +303,7 @@ export function GenerationForm({
 							/>
 						</label>
 						<p className="text-xs text-muted-foreground">
-							PPT/POT/PPS 文件会作为模板导入，PDF、Word、Excel 等文件会作为内容资料。
+							PPTX/POTX/PPSX 等新版 PPT 文件会作为模板导入，PDF、Word、Excel 等文件会作为内容资料。
 						</p>
 					</div>
 
