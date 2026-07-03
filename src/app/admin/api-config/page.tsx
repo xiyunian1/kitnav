@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { maskKey } from "@/lib/crypto";
 import { parseModelList } from "@/lib/model-options";
 import { parseModelMeta } from "@/lib/model-meta";
+import { parsePptModelOptions } from "@/lib/ppt-agent/model-options";
 import { API_CONFIG_MODULES } from "@/lib/api-config-schema";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -36,6 +37,7 @@ export default async function AdminApiConfigPage() {
       model: c?.model ?? "",
       models: c ? parseModelList(c.models).join("\n") || c.model : "",
       modelMeta: c ? parseModelMeta(c.modelMeta) : {},
+      modelOptions: moduleType === "PPT" ? parsePptModelOptions(c?.modelOptions) : undefined,
       enabled: c?.enabled ?? false,
       hasKey: !!c,
       maskedKey: c ? maskKey(c.apiKey) : "",

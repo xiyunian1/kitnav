@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { encrypt, decrypt } from "@/lib/crypto";
 import { modelListToJson } from "@/lib/model-options";
 import { modelMetaToJson } from "@/lib/model-meta";
+import { pptModelOptionsToJson } from "@/lib/ppt-agent/model-options";
 import { testImageConnection, testTextConnection } from "@/lib/providers";
 import { writeAuditLog } from "@/lib/audit";
 import {
@@ -22,7 +23,7 @@ export async function saveProviderConfigAction(input: ApiConfigInput) {
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "参数错误" };
   }
-  const { module, baseUrl, apiKey, model, models, modelMeta, enabled } = parsed.data;
+  const { module, baseUrl, apiKey, model, models, modelMeta, modelOptions, enabled } = parsed.data;
 
   const existing = await prisma.providerConfig.findUnique({ where: { module } });
   if (!apiKey && !existing) {
@@ -38,7 +39,7 @@ export async function saveProviderConfigAction(input: ApiConfigInput) {
       model,
       models: modelListToJson(models ?? [], model),
       modelMeta: modelMeta ? modelMetaToJson(modelMeta) : undefined,
-      modelOptions: null,
+      modelOptions: module === "PPT" ? pptModelOptionsToJson(modelOptions) : null,
       enabled,
     },
     create: {
@@ -48,7 +49,7 @@ export async function saveProviderConfigAction(input: ApiConfigInput) {
       model,
       models: modelListToJson(models ?? [], model),
       modelMeta: modelMeta ? modelMetaToJson(modelMeta) : undefined,
-      modelOptions: null,
+      modelOptions: module === "PPT" ? pptModelOptionsToJson(modelOptions) : null,
       enabled,
     },
   });
@@ -56,7 +57,7 @@ export async function saveProviderConfigAction(input: ApiConfigInput) {
   await writeAuditLog({
     action: "provider.update",
     target: module,
-    detail: { baseUrl, model, models, modelMeta, enabled, changedKey: Boolean(apiKey) },
+    detail: { baseUrl, model, models, modelMeta, modelOptions, enabled, changedKey: Boolean(apiKey) },
   });
   revalidatePath("/admin/api-config");
   return { ok: true };

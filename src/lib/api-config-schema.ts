@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PPT_THINKING_LEVELS } from "@/lib/ppt-agent/model-options";
 
 // API 配置的共享校验 schema，用户接口和后台 Action 复用。
 // apiKey 可选：留空表示「不修改现有 key」（编辑场景，避免要求重填）。
@@ -67,6 +68,11 @@ export const apiConfigSchema = z.object({
         note: z.string().trim().max(100).optional(),
       })
     )
+    .optional(),
+  modelOptions: z
+    .object({
+      thinkingLevel: z.enum(PPT_THINKING_LEVELS).optional(),
+    })
     .optional(),
   enabled: z.boolean().default(false),
 });

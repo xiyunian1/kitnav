@@ -4,6 +4,7 @@ import { encrypt } from "@/lib/crypto";
 import { apiConfigSchema } from "@/lib/api-config-schema";
 import { modelListToJson } from "@/lib/model-options";
 import { getCurrentUserOrUnauthorized } from "@/lib/current-user";
+import { pptModelOptionsToJson } from "@/lib/ppt-agent/model-options";
 
 // 用户保存自己某模块的 API 配置（BYOK）。apiKey 留空表示沿用已存的 key。
 export async function POST(req: Request) {
@@ -27,7 +28,7 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
-  const { module, baseUrl, apiKey, model, models, enabled } = parsed.data;
+  const { module, baseUrl, apiKey, model, models, modelOptions, enabled } = parsed.data;
 
   const existing = await prisma.userApiConfig.findUnique({
     where: { userId_module: { userId, module } },
@@ -47,7 +48,7 @@ export async function POST(req: Request) {
       apiKey: encryptedKey,
       model,
       models: modelListToJson(models ?? [], model),
-      modelOptions: null,
+      modelOptions: module === "PPT" ? pptModelOptionsToJson(modelOptions) : null,
       enabled,
     },
     create: {
@@ -57,7 +58,7 @@ export async function POST(req: Request) {
       apiKey: encryptedKey,
       model,
       models: modelListToJson(models ?? [], model),
-      modelOptions: null,
+      modelOptions: module === "PPT" ? pptModelOptionsToJson(modelOptions) : null,
       enabled,
     },
   });

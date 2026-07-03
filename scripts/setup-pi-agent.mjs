@@ -19,6 +19,7 @@ const explicit = {
 };
 
 const config = await resolveConfig();
+const thinkingLevel = resolvePiThinkingLevel(config.modelOptions);
 
 mkdirSync(agentDir, { recursive: true });
 
@@ -28,7 +29,7 @@ writeFileSync(
     {
       defaultProvider: config.provider,
       defaultModel: config.model,
-      defaultThinkingLevel: resolvePiThinkingLevel(),
+      defaultThinkingLevel: thinkingLevel,
       packages: [],
     },
     null,
@@ -53,7 +54,7 @@ writeFileSync(
             {
               id: config.model,
               name: config.model,
-              reasoning: isTruthy(process.env.PPT_PI_REASONING ?? "false"),
+              reasoning: resolvePiReasoningEnabled(),
               input: ["text"],
               contextWindow: numberEnv("PPT_PI_CONTEXT_WINDOW", 128000),
               maxTokens: numberEnv("PPT_PI_MAX_TOKENS", 16384),
@@ -111,7 +112,7 @@ async function resolveConfig() {
   try {
     const platform = await prisma.providerConfig.findUnique({
       where: { module: "PPT" },
-      select: { baseUrl: true, apiKey: true, model: true },
+      select: { baseUrl: true, apiKey: true, model: true, modelOptions: true },
     });
 
     if (!platform?.baseUrl || !platform.apiKey || !platform.model) {
@@ -123,6 +124,7 @@ async function resolveConfig() {
       baseUrl: platform.baseUrl,
       apiKey: decrypt(platform.apiKey),
       model: process.env.PPT_PI_MODEL || process.env.PPT_AGENT_MODEL || platform.model,
+      modelOptions: platform.modelOptions,
     };
   } finally {
     await prisma.$disconnect();
@@ -161,8 +163,28 @@ function isTruthy(value) {
   return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
 }
 
-function resolvePiThinkingLevel() {
-  return process.env.PPT_PI_THINKING?.trim() || "off";
+function resolvePiThinkingLevel(modelOptions) {
+  return normalizeThinkingLevel(
+    process.env.PPT_PI_THINKING?.trim() || parsePptModelOptions(modelOptions).thinkingLevel,
+  );
+}
+
+function resolvePiReasoningEnabled() {
+  return isTruthy(process.env.PPT_PI_REASONING ?? "true");
+}
+
+function parsePptModelOptions(value) {
+  if (!value) return { thinkingLevel: "medium" };
+  try {
+    const parsed = JSON.parse(value);
+    return { thinkingLevel: normalizeThinkingLevel(parsed?.thinkingLevel) };
+  } catch {
+    return { thinkingLevel: "medium" };
+  }
+}
+
+function normalizeThinkingLevel(value) {
+  return ["low", "medium", "high", "xhigh"].includes(value) ? value : "medium";
 }
 
 function buildPiProviderHeaders() {
@@ -192,6 +214,9 @@ function buildOpenAiCompatibleCompat() {
 
 function buildThinkingLevelMap() {
   return {
+    low: "low",
+    medium: "medium",
+    high: "high",
     xhigh: process.env.PPT_PI_THINKING_VALUE || "max",
   };
 }

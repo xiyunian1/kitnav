@@ -10,11 +10,23 @@ import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ModelSelector } from "@/components/api-config/model-selector";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Loader2, Plug, Save, ListChecks } from "lucide-react";
 import {
   saveProviderConfigAction,
   testProviderConfigAction,
 } from "@/app/admin/api-config/actions";
+import {
+  PPT_THINKING_LEVELS,
+  normalizePptThinkingLevel,
+  type PptThinkingLevel,
+} from "@/lib/ppt-agent/model-options";
 
 export interface ProviderConfigInitial {
   module: string;
@@ -29,7 +41,17 @@ export interface ProviderConfigInitial {
   active: boolean; // 模块是否已上线
   description?: string;
   modelKind?: "image" | "text";
+  modelOptions?: {
+    thinkingLevel?: PptThinkingLevel;
+  };
 }
+
+const PPT_THINKING_LABELS: Record<PptThinkingLevel, string> = {
+  low: "低",
+  medium: "中",
+  high: "高",
+  xhigh: "极高",
+};
 
 export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial }) {
   const router = useRouter();
@@ -44,6 +66,9 @@ export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial
   const [modelMeta, setModelMeta] = useState(initial.modelMeta);
   const [apiKey, setApiKey] = useState("");
   const [enabled, setEnabled] = useState(initial.enabled);
+  const [thinkingLevel, setThinkingLevel] = useState<PptThinkingLevel>(
+    normalizePptThinkingLevel(initial.modelOptions?.thinkingLevel)
+  );
   const [saving, startSave] = useTransition();
   const [testing, setTesting] = useState(false);
   const [models, setModels] = useState<string[]>([]);
@@ -150,6 +175,12 @@ export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial
         model,
         models: selectedModels,
         modelMeta,
+        modelOptions:
+          initial.module === "PPT"
+            ? {
+                thinkingLevel,
+              }
+            : undefined,
         enabled,
       });
       if (res?.error) {
@@ -226,6 +257,29 @@ export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial
           onDefaultModelChange={setModel}
           onSelectedModelsChange={setSelectedModels}
         />
+        {initial.module === "PPT" && (
+          <div className="space-y-2 rounded-lg border p-3">
+            <Label>推理强度</Label>
+            <Select
+              value={thinkingLevel}
+              onValueChange={(value) => setThinkingLevel(normalizePptThinkingLevel(value))}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PPT_THINKING_LEVELS.map((level) => (
+                  <SelectItem key={level} value={level}>
+                    {PPT_THINKING_LABELS[level]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              用于平台 PPT 生成 agent 的思考强度。越高通常质量更稳，但耗时和上游消耗也会增加。
+            </p>
+          </div>
+        )}
         {modelKind === "image" && (
           <div className="space-y-2 rounded-lg border p-3">
             <div className="text-sm font-medium">模型运营</div>

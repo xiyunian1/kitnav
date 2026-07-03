@@ -3,11 +3,17 @@ import { join } from "path";
 import { decrypt } from "@/lib/crypto";
 import { prisma } from "@/lib/db";
 import { parseModelList } from "@/lib/model-options";
+import {
+	normalizePptThinkingLevel,
+	parsePptModelOptions,
+	type PptThinkingLevel,
+} from "@/lib/ppt-agent/model-options";
 
 export interface PreparedPiAgentConfig {
 	configDir: string;
 	provider: string;
 	model: string;
+	thinkingLevel: PptThinkingLevel;
 	source: "user" | "platform";
 }
 
@@ -16,6 +22,7 @@ interface StoredPptProviderConfig {
 	apiKey: string;
 	model: string;
 	models: string | null;
+	modelOptions: string | null;
 }
 
 export async function preparePptPiAgentConfig(input: {
@@ -34,6 +41,7 @@ export async function preparePptPiAgentConfig(input: {
 			apiKey: true,
 			model: true,
 			models: true,
+			modelOptions: true,
 			enabled: true,
 		},
 	});
@@ -44,6 +52,7 @@ export async function preparePptPiAgentConfig(input: {
 			apiKey: userCfg.apiKey,
 			model: userCfg.model,
 			models: userCfg.models,
+			modelOptions: userCfg.modelOptions,
 		});
 	}
 
@@ -60,6 +69,7 @@ export async function preparePptPiAgentConfig(input: {
 			apiKey: true,
 			model: true,
 			models: true,
+			modelOptions: true,
 			enabled: true,
 		},
 	});
@@ -72,6 +82,7 @@ export async function preparePptPiAgentConfig(input: {
 		apiKey: platformCfg.apiKey,
 		model: process.env.PPT_PI_MODEL?.trim() || platformCfg.model,
 		models: platformCfg.models,
+		modelOptions: platformCfg.modelOptions,
 	});
 }
 
@@ -87,6 +98,7 @@ function writePiConfig(
 	const apiKey = decrypt(stored.apiKey);
 	const models = parseModelList(stored.models);
 	const modelIds = models.length ? models : [model];
+	const thinkingLevel = resolvePiThinkingLevel(stored.modelOptions);
 
 	mkdirSync(configDir, { recursive: true });
 	writeFileSync(
@@ -95,7 +107,7 @@ function writePiConfig(
 			{
 				defaultProvider: provider,
 				defaultModel: model,
-				defaultThinkingLevel: resolvePiThinkingLevel(),
+				defaultThinkingLevel: thinkingLevel,
 				packages: [],
 			},
 			null,
@@ -119,7 +131,7 @@ function writePiConfig(
 						models: modelIds.map((id) => ({
 							id,
 							name: id,
-							reasoning: isTruthy(process.env.PPT_PI_REASONING ?? "false"),
+							reasoning: resolvePiReasoningEnabled(),
 							input: ["text"],
 							contextWindow: numberEnv("PPT_PI_CONTEXT_WINDOW", 128000),
 							maxTokens: numberEnv("PPT_PI_MAX_TOKENS", 16384),
@@ -153,7 +165,7 @@ function writePiConfig(
 		{ encoding: "utf8", mode: 0o600 },
 	);
 
-	return { configDir, provider, model, source };
+	return { configDir, provider, model, thinkingLevel, source };
 }
 
 function resolveDefaultModel(defaultModel: string, storedModels: string | null) {
@@ -171,8 +183,15 @@ function isTruthy(value: string) {
 	return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
-function resolvePiThinkingLevel() {
-	return process.env.PPT_PI_THINKING?.trim() || "off";
+function resolvePiThinkingLevel(modelOptions?: string | null): PptThinkingLevel {
+	return normalizePptThinkingLevel(
+		process.env.PPT_PI_THINKING?.trim() ||
+			parsePptModelOptions(modelOptions).thinkingLevel,
+	);
+}
+
+function resolvePiReasoningEnabled() {
+	return isTruthy(process.env.PPT_PI_REASONING ?? "true");
 }
 
 function buildPiProviderHeaders() {
@@ -202,6 +221,9 @@ function buildOpenAiCompatibleCompat() {
 
 function buildThinkingLevelMap() {
 	return {
+		low: "low",
+		medium: "medium",
+		high: "high",
 		xhigh: process.env.PPT_PI_THINKING_VALUE || "max",
 	};
 }

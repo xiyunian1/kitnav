@@ -8,8 +8,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ModelSelector } from "@/components/api-config/model-selector";
 import { Loader2, Plug, Save, ListChecks } from "lucide-react";
+import {
+  PPT_THINKING_LEVELS,
+  normalizePptThinkingLevel,
+  type PptThinkingLevel,
+} from "@/lib/ppt-agent/model-options";
 
 export interface UserConfigInitial {
   module: string;
@@ -22,7 +34,17 @@ export interface UserConfigInitial {
   enabled: boolean;
   hasKey: boolean;
   maskedKey: string;
+  modelOptions?: {
+    thinkingLevel?: PptThinkingLevel;
+  };
 }
+
+const PPT_THINKING_LABELS: Record<PptThinkingLevel, string> = {
+  low: "低",
+  medium: "中",
+  high: "高",
+  xhigh: "极高",
+};
 
 export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
   const router = useRouter();
@@ -36,6 +58,9 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
   );
   const [apiKey, setApiKey] = useState("");
   const [enabled, setEnabled] = useState(initial.enabled);
+  const [thinkingLevel, setThinkingLevel] = useState<PptThinkingLevel>(
+    normalizePptThinkingLevel(initial.modelOptions?.thinkingLevel)
+  );
   const [saving, startSave] = useTransition();
   const [testing, setTesting] = useState(false);
   const [switching, setSwitching] = useState(false);
@@ -178,6 +203,12 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
           apiKey: apiKey || undefined,
           model,
           models: selectedModels,
+          modelOptions:
+            initial.module === "PPT"
+              ? {
+                  thinkingLevel,
+                }
+              : undefined,
           enabled,
         }),
       });
@@ -248,6 +279,29 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
           onDefaultModelChange={setModel}
           onSelectedModelsChange={setSelectedModels}
         />
+        {initial.module === "PPT" && (
+          <div className="space-y-2 rounded-lg border p-3">
+            <Label>推理强度</Label>
+            <Select
+              value={thinkingLevel}
+              onValueChange={(value) => setThinkingLevel(normalizePptThinkingLevel(value))}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PPT_THINKING_LEVELS.map((level) => (
+                  <SelectItem key={level} value={level}>
+                    {PPT_THINKING_LABELS[level]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              用于 PPT 生成 agent 的思考强度。越高通常质量更稳，但耗时和上游消耗也会增加。
+            </p>
+          </div>
+        )}
         <div className="flex flex-col gap-2 sm:flex-row">
           <Button variant="outline" onClick={handleTest} disabled={testing || saving}>
             {testing ? <Loader2 className="size-4 animate-spin" /> : <Plug className="size-4" />}

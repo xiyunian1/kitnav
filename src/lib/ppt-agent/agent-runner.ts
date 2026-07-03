@@ -317,7 +317,7 @@ function resolveAgentCommand(
 		"--model",
 		piConfig.model,
 		"--thinking",
-		resolvePiThinkingLevel(),
+		piConfig.thinkingLevel,
 		"--skill",
 		skillDir,
 		"--tools",
@@ -447,10 +447,6 @@ function resolvePiTools() {
 		.map((tool) => aliases[tool.trim().toLowerCase()])
 		.filter((tool): tool is string => Boolean(tool));
 	return [...new Set(tools)].join(",") || "read,write,bash,grep,find,ls";
-}
-
-function resolvePiThinkingLevel() {
-	return process.env.PPT_PI_THINKING?.trim() || "off";
 }
 
 function buildAgentPathEnv() {
