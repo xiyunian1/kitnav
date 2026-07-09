@@ -3,8 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
 	Select,
@@ -13,16 +11,20 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+	ArrowRight,
+	Coins,
+	FileText,
+	KeyRound,
+	Languages,
+	LayoutTemplate,
 	Loader2,
 	Minus,
 	Paperclip,
 	Plus,
-	Presentation,
 	Sparkles,
-	Trash2,
 	Upload,
+	X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PPT_STYLE_PRESETS } from "@/lib/ppt-agent/styles";
@@ -45,6 +47,10 @@ interface UploadedFile {
 }
 
 type StyleSource = "preset" | "custom";
+
+const DOCUMENT_ACCEPT =
+	".pdf,.docx,.html,.htm,.epub,.ipynb,.pptx,.pptm,.ppsx,.ppsm,.potx,.potm,.xlsx,.xlsm";
+const TEMPLATE_ACCEPT = ".pptx,.pptm,.ppsx,.ppsm,.potx,.potm";
 
 export function GenerationForm({
 	useOwnKey,
@@ -72,9 +78,6 @@ export function GenerationForm({
 		[creditsPerSlide, slideCount, useOwnKey],
 	);
 	const attachmentCount = sourceFiles.length;
-	const selectedStylePreset = PPT_STYLE_PRESETS.find(
-		(preset) => preset.id === style,
-	);
 	const progressLabel = phase || progressMessage(progress);
 	const durationLabel = formatProjectDurationLabel({
 		startedAt,
@@ -240,275 +243,297 @@ export function GenerationForm({
 
 	return (
 		<form
-			className="grid min-w-0 items-start gap-5 2xl:grid-cols-[minmax(0,1fr)_320px]"
+			className="mx-auto w-full max-w-[980px]"
 			onSubmit={(event) => {
 				event.preventDefault();
 				if (!loading && !uploading) void handleSubmit();
 			}}
 		>
-			<div className="space-y-5">
-				<section className="rounded-lg border bg-card p-5 shadow-sm">
-					<div className="mb-4 flex items-center justify-between gap-3">
-						<div>
-							<h2 className="text-lg font-semibold">内容 brief</h2>
-							<p className="text-sm text-muted-foreground">
-								主题、受众、结构、素材重点
-							</p>
-						</div>
-						<div className="rounded-md border bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
-							{prompt.length.toLocaleString("zh-CN")} / 80,000
-						</div>
-					</div>
-					<Textarea
-						id="pptPrompt"
-						value={prompt}
-						onChange={(event) => setPrompt(event.target.value)}
-						rows={10}
-						maxLength={80000}
-						placeholder="例如：12 页中文融资路演 PPT，面向投资人。重点突出市场规模、产品壁垒、商业模式、增长数据和融资用途。风格要像成熟 SaaS 公司路演稿。"
-						className="min-h-72 resize-y border-muted-foreground/20 bg-background text-[15px] leading-7 shadow-none"
-					/>
-				</section>
-
-				<section className="rounded-lg border bg-card p-5 shadow-sm">
-					<div className="mb-4 flex items-center justify-between gap-3">
-						<div>
-							<h2 className="text-lg font-semibold">参考资料</h2>
-							<p className="text-sm text-muted-foreground">
-								{attachmentCount > 0
-									? `${attachmentCount} 个素材`
-									: "上传资料文档或 PPT 模板"}
-							</p>
-						</div>
-						<Paperclip className="size-4 text-muted-foreground" />
-					</div>
-
-					<div className="space-y-2">
-						<Label htmlFor="sourceFiles">文件</Label>
-						<label className="flex h-11 cursor-pointer items-center justify-center gap-2 rounded-md border bg-background px-3 text-sm font-medium transition-colors hover:bg-muted/60">
-							{uploading ? (
-								<Loader2 className="size-4 animate-spin" />
-							) : (
-								<Upload className="size-4" />
-							)}
-							{uploading ? "上传中" : "选择文件"}
-							<input
-								id="sourceFiles"
-								type="file"
-								multiple
-								accept=".pdf,.docx,.html,.htm,.epub,.ipynb,.pptx,.pptm,.ppsx,.ppsm,.potx,.potm,.xlsx,.xlsm"
-								disabled={uploading}
-								onChange={(event) => handleFileChange(event.target.files)}
-								className="sr-only"
-							/>
-						</label>
-						<p className="text-xs text-muted-foreground">
-							PPTX/POTX/PPSX 等新版 PPT 文件会作为模板导入，PDF、Word、Excel 等文件会作为内容资料。
-						</p>
-					</div>
-
-					{attachmentCount > 0 && (
-						<div className="mt-4 space-y-2">
-							{sourceFiles.map((file) => (
-								<AttachmentRow
-									key={file.id}
-									icon={<Paperclip className="size-4" />}
-									label={`${file.name} · ${formatBytes(file.size)}`}
-									onRemove={() =>
-										setSourceFiles((prev) =>
-											prev.filter((item) => item.id !== file.id),
-										)
-									}
-								/>
-							))}
-						</div>
-					)}
-				</section>
-
-				{loading && (
-					<section className="rounded-lg border bg-card p-5 shadow-sm">
-						<div className="mb-3 flex items-center justify-between text-sm">
-							<span className="min-w-0 truncate font-medium">
-								{progressLabel}
-							</span>
-							<span className="text-muted-foreground">{progress}%</span>
-						</div>
-						<div className="h-2 overflow-hidden rounded-full bg-muted">
-							<div
-								className="h-full rounded-full bg-primary transition-all"
-								style={{ width: `${progress}%` }}
-							/>
-						</div>
-						{durationLabel && (
-							<p className="mt-3 text-xs text-muted-foreground">
-								{durationLabel}
-							</p>
-						)}
-					</section>
-				)}
-			</div>
-
-			<aside className="space-y-4 2xl:sticky 2xl:top-20 2xl:max-h-[calc(100dvh-15rem)] 2xl:self-start 2xl:overflow-y-auto 2xl:pr-1">
-				<section className="rounded-lg border bg-card p-5 shadow-sm">
-					<div className="mb-4 flex items-center justify-between gap-3">
-						<div>
-							<h2 className="text-lg font-semibold">输出设置</h2>
-							<p className="text-sm text-muted-foreground">
-								{useOwnKey ? "使用自带 API" : `${creditsPerSlide} 积分 / 页`}
-							</p>
-						</div>
-						<Presentation className="size-4 text-muted-foreground" />
-					</div>
-
-					<div className="space-y-4">
-						<div className="space-y-2">
-							<Label htmlFor="slideCount">页数</Label>
-							<div className="grid grid-cols-[40px_minmax(0,1fr)_40px] gap-2">
-								<Button
-									type="button"
-									variant="outline"
-									size="icon"
-									onClick={() => updateSlideCount(slideCount - 1)}
-								>
-									<Minus className="size-4" />
-								</Button>
-								<Input
-									id="slideCount"
-									type="number"
-									min={3}
-									max={30}
-									value={slideCount}
-									onChange={(event) =>
-										updateSlideCount(Number(event.target.value) || 10)
-									}
-									className="h-10 text-center"
-								/>
-								<Button
-									type="button"
-									variant="outline"
-									size="icon"
-									onClick={() => updateSlideCount(slideCount + 1)}
-								>
-									<Plus className="size-4" />
-								</Button>
+			<div className="ppt-workspace-grid relative isolate px-0 py-3 sm:px-8 sm:py-7">
+				<section className="relative z-10 overflow-hidden rounded-lg border border-border/80 bg-card shadow-[0_18px_60px_rgba(24,24,27,0.10)]">
+					<div className="flex min-h-12 flex-wrap items-center justify-between gap-2 border-b bg-muted/20 px-3 py-2 sm:px-4">
+						<div className="flex flex-wrap items-center gap-1">
+							<div className="flex h-8 items-center gap-2 rounded-md bg-background px-3 text-sm font-medium shadow-sm ring-1 ring-border/70">
+								<Sparkles className="size-4 text-violet-500" />
+								智能生成
 							</div>
+							<label className="flex h-8 cursor-pointer items-center gap-2 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-background hover:text-foreground">
+								<FileText className="size-4" />
+								从文件生成
+								<input
+									type="file"
+									multiple
+									accept={DOCUMENT_ACCEPT}
+									disabled={uploading}
+									onChange={(event) => {
+										void handleFileChange(event.target.files);
+										event.target.value = "";
+									}}
+									className="sr-only"
+								/>
+							</label>
+							<label className="flex h-8 cursor-pointer items-center gap-2 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-background hover:text-foreground">
+								<LayoutTemplate className="size-4" />
+								上传模板
+								<input
+									type="file"
+									accept={TEMPLATE_ACCEPT}
+									disabled={uploading}
+									onChange={(event) => {
+										void handleFileChange(event.target.files);
+										event.target.value = "";
+									}}
+									className="sr-only"
+								/>
+							</label>
 						</div>
+						<span className="text-xs text-muted-foreground">
+							{prompt.length.toLocaleString("zh-CN")} / 80,000
+						</span>
+					</div>
 
-						<div className="space-y-2">
-							<Label>画布</Label>
-							<div className="grid grid-cols-2 gap-2">
-								{["16:9", "4:3"].map((value) => (
-									<Button
-										key={value}
-										type="button"
-										variant={aspectRatio === value ? "default" : "outline"}
-										onClick={() => setAspectRatio(value)}
-										className="h-10"
-									>
-										{value}
-									</Button>
+					<div className="px-4 pt-3 sm:px-5">
+						<Textarea
+							id="pptPrompt"
+							value={prompt}
+							onChange={(event) => setPrompt(event.target.value)}
+							rows={6}
+							maxLength={80000}
+							placeholder="描述你的主题、受众和想表达的重点，或直接上传资料文档……"
+							className="min-h-40 resize-none border-0 bg-transparent px-0 text-[15px] leading-7 shadow-none focus-visible:ring-0"
+						/>
+
+						{attachmentCount > 0 && (
+							<div className="flex flex-wrap gap-2 pb-3">
+								{sourceFiles.map((file) => (
+									<AttachmentRow
+										key={file.id}
+										icon={<Paperclip className="size-3.5" />}
+										label={`${file.name} · ${formatBytes(file.size)}`}
+										onRemove={() =>
+											setSourceFiles((prev) =>
+												prev.filter((item) => item.id !== file.id),
+											)
+										}
+									/>
 								))}
 							</div>
-						</div>
+						)}
 
-						<div className="rounded-md border bg-muted/30 p-3 text-sm">
-							<div className="flex items-center justify-between">
-								<span className="text-muted-foreground">预估消耗</span>
-								<span className="font-medium">
-									{useOwnKey ? "0 积分" : `${estimatedCost} 积分`}
+						<div className="flex items-center justify-between gap-3 border-t py-3">
+							<div className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-muted-foreground">
+								<label
+									title="上传资料或 PPT 模板"
+									className="flex size-8 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-muted hover:text-foreground"
+								>
+									{uploading ? (
+										<Loader2 className="size-4 animate-spin" />
+									) : (
+										<Paperclip className="size-4" />
+									)}
+									<input
+										type="file"
+										multiple
+										accept={DOCUMENT_ACCEPT}
+										disabled={uploading}
+										onChange={(event) => {
+											void handleFileChange(event.target.files);
+											event.target.value = "";
+										}}
+										className="sr-only"
+									/>
+								</label>
+								<span className="flex items-center gap-1.5 rounded-md bg-muted/70 px-2.5 py-1.5 text-xs text-foreground">
+									{useOwnKey ? (
+										<KeyRound className="size-3.5" />
+									) : (
+										<Coins className="size-3.5" />
+									)}
+									{useOwnKey ? "自带 API" : `${creditsPerSlide} 积分 / 页`}
 								</span>
 							</div>
+
+							<Button
+								type="submit"
+								size="icon"
+								disabled={loading || uploading}
+								className="size-10 shrink-0 rounded-full"
+								title={loading ? "正在生成" : "开始生成"}
+							>
+								{loading || uploading ? (
+									<Loader2 className="size-4 animate-spin" />
+								) : (
+									<ArrowRight className="size-5" />
+								)}
+								<span className="sr-only">开始生成</span>
+							</Button>
 						</div>
 					</div>
-				</section>
 
-				<section className="rounded-lg border bg-card p-5 shadow-sm">
-					<div className="mb-4 flex items-center justify-between gap-3">
-						<div>
-							<h2 className="text-lg font-semibold">视觉方向</h2>
-							<p className="text-sm text-muted-foreground">
-								{styleSource === "custom"
-									? "自定义风格"
-									: selectedStylePreset?.label}
-							</p>
+					{styleSource === "custom" && (
+						<div className="border-t bg-muted/15 px-4 py-3 sm:px-5">
+							<label htmlFor="pptCustomStyle" className="mb-2 block text-sm font-medium">
+								自定义视觉方向
+							</label>
+							<Textarea
+								id="pptCustomStyle"
+								value={customStyle}
+								onChange={(event) => setCustomStyle(event.target.value)}
+								rows={3}
+								maxLength={2000}
+								placeholder="例如：深色科技风，强调架构图和产品发布感。"
+								className="resize-y bg-background"
+							/>
 						</div>
-						<Sparkles className="size-4 text-muted-foreground" />
-					</div>
+					)}
 
-					<div className="space-y-4">
-						<Tabs
-							value={styleSource}
-							onValueChange={(value) => setStyleSource(value as StyleSource)}
-						>
-							<TabsList className="grid w-full grid-cols-2">
-								<TabsTrigger value="preset">预设</TabsTrigger>
-								<TabsTrigger value="custom">自定义</TabsTrigger>
-							</TabsList>
+					<div className="flex flex-wrap items-center gap-2 border-t bg-muted/15 px-3 py-2.5 sm:px-4">
+						<div className="flex h-9 items-center rounded-md border bg-background px-1">
+							<span className="px-2 text-xs text-muted-foreground">页数</span>
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon"
+								disabled={slideCount <= 3}
+								onClick={() => updateSlideCount(slideCount - 1)}
+								className="size-7"
+								title="减少页数"
+							>
+								<Minus className="size-3.5" />
+							</Button>
+							<span className="w-12 text-center text-sm font-medium">{slideCount} 页</span>
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon"
+								disabled={slideCount >= 30}
+								onClick={() => updateSlideCount(slideCount + 1)}
+								className="size-7"
+								title="增加页数"
+							>
+								<Plus className="size-3.5" />
+							</Button>
+						</div>
 
-							<TabsContent value="preset" className="mt-3 space-y-2">
-								<Select value={style} onValueChange={setStyle}>
-									<SelectTrigger id="style" className="h-10 w-full">
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										{PPT_STYLE_PRESETS.map((preset) => (
-											<SelectItem key={preset.id} value={preset.id}>
-												{preset.label}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-								<p className="text-sm text-muted-foreground">
-									{selectedStylePreset?.description}
-								</p>
-							</TabsContent>
+						<Select value={aspectRatio} onValueChange={setAspectRatio}>
+							<SelectTrigger className="h-9 w-[104px] bg-background">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="16:9">16:9</SelectItem>
+								<SelectItem value="4:3">4:3</SelectItem>
+							</SelectContent>
+						</Select>
 
-							<TabsContent value="custom" className="mt-3">
-								<Textarea
-									value={customStyle}
-									onChange={(event) => setCustomStyle(event.target.value)}
-									rows={5}
-									maxLength={2000}
-									placeholder="深色科技风，强调架构图、流程节点和产品发布感；避免模板化卡片堆叠。"
-									className="resize-y bg-background"
-								/>
-							</TabsContent>
-						</Tabs>
-					</div>
-				</section>
-
-				<section className="rounded-lg border bg-card p-4 shadow-sm">
-					<Button
-						type="submit"
-						disabled={loading || uploading}
-						className="h-11 w-full"
-					>
-						{loading || uploading ? (
-							<Loader2 className="size-4 animate-spin" />
-						) : (
-							<Presentation className="size-4" />
-						)}
-						{uploading
-							? "正在上传文件"
-							: loading
-								? "正在生成"
-								: useOwnKey
-									? "开始生成"
-									: `开始生成 · ${estimatedCost} 积分`}
-					</Button>
-					{loading && activeProjectId && (
-						<CancelProjectButton
-							projectId={activeProjectId}
-							size="default"
-							variant="destructive"
-							onCancelled={() => {
-								cancelledRef.current = true;
+						<Select
+							value={styleSource === "custom" ? "custom" : style}
+							onValueChange={(value) => {
+								if (value === "custom") {
+									setStyleSource("custom");
+									return;
+								}
+								setStyleSource("preset");
+								setStyle(value);
 							}}
-							className="mt-2 w-full"
-						/>
+						>
+							<SelectTrigger className="h-9 w-[148px] bg-background">
+								<Sparkles className="size-3.5 text-muted-foreground" />
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{PPT_STYLE_PRESETS.map((preset) => (
+									<SelectItem key={preset.id} value={preset.id}>
+										{preset.label}
+									</SelectItem>
+								))}
+								<SelectItem value="custom">自定义风格</SelectItem>
+							</SelectContent>
+						</Select>
+
+						<div className="flex h-9 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground">
+							<Languages className="size-4" />
+							简体中文
+						</div>
+
+						<div className="ml-auto flex h-9 items-center px-2 text-sm">
+							<span className="text-muted-foreground">预估</span>
+							<span className="ml-1.5 font-medium">
+								{useOwnKey ? "0 积分" : `${estimatedCost} 积分`}
+							</span>
+						</div>
+					</div>
+
+					{loading && (
+						<div className="border-t px-4 py-3 sm:px-5">
+							<div className="mb-2 flex items-center justify-between gap-3 text-sm">
+								<div className="min-w-0">
+									<p className="truncate font-medium">{progressLabel}</p>
+									{durationLabel && (
+										<p className="mt-0.5 text-xs text-muted-foreground">
+											{durationLabel}
+										</p>
+									)}
+								</div>
+								<div className="flex items-center gap-2">
+									<span className="text-muted-foreground">{progress}%</span>
+									{activeProjectId && (
+										<CancelProjectButton
+											projectId={activeProjectId}
+											size="sm"
+											variant="destructive"
+											onCancelled={() => {
+												cancelledRef.current = true;
+											}}
+										/>
+									)}
+								</div>
+							</div>
+							<div className="h-1.5 overflow-hidden rounded-full bg-muted">
+								<div
+									className="h-full rounded-full bg-primary transition-all"
+									style={{ width: `${progress}%` }}
+								/>
+							</div>
+						</div>
 					)}
 				</section>
-			</aside>
+
+				<div className="relative z-10 mt-4 flex flex-wrap justify-center gap-2">
+					<label className="flex h-10 cursor-pointer items-center gap-2 rounded-full border bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-muted">
+						<span className="flex size-6 items-center justify-center rounded-md bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300">
+							<Upload className="size-3.5" />
+						</span>
+						上传资料
+						<input
+							type="file"
+							multiple
+							accept={DOCUMENT_ACCEPT}
+							disabled={uploading}
+							onChange={(event) => {
+								void handleFileChange(event.target.files);
+								event.target.value = "";
+							}}
+							className="sr-only"
+						/>
+					</label>
+					<label className="flex h-10 cursor-pointer items-center gap-2 rounded-full border bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-muted">
+						<span className="flex size-6 items-center justify-center rounded-md bg-cyan-100 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300">
+							<LayoutTemplate className="size-3.5" />
+						</span>
+						上传模板
+						<input
+							type="file"
+							accept={TEMPLATE_ACCEPT}
+							disabled={uploading}
+							onChange={(event) => {
+								void handleFileChange(event.target.files);
+								event.target.value = "";
+							}}
+							className="sr-only"
+						/>
+					</label>
+				</div>
+			</div>
 		</form>
 	);
 }
@@ -523,17 +548,18 @@ function AttachmentRow({
 	onRemove: () => void;
 }) {
 	return (
-		<div className="flex items-center gap-2 rounded-md bg-background px-3 py-2 text-sm">
+		<div className="flex max-w-full items-center gap-2 rounded-md border bg-muted/35 py-1.5 pr-1.5 pl-2.5 text-xs">
 			<span className="text-muted-foreground">{icon}</span>
 			<span className="min-w-0 flex-1 truncate">{label}</span>
 			<Button
 				type="button"
-				variant="outline"
+				variant="ghost"
 				size="icon"
 				onClick={onRemove}
 				aria-label="移除附件"
+				className="size-6 shrink-0"
 			>
-				<Trash2 className="size-4" />
+				<X className="size-3.5" />
 			</Button>
 		</div>
 	);

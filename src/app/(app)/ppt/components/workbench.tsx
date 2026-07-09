@@ -19,12 +19,12 @@ export function PptWorkbench({
     .join("|");
 
   return (
-    <div className="grid items-start gap-6 2xl:grid-cols-[minmax(0,1fr)_320px]">
+    <div className="space-y-14">
       <GenerationForm
         useOwnKey={useOwnKey}
         creditsPerSlide={creditsPerSlide}
       />
-      <ProjectList key={projectListKey} projects={recentProjects} compact />
+      <ProjectList key={projectListKey} projects={recentProjects} />
     </div>
   );
 }
