@@ -1,5 +1,13 @@
 # Repository Guidelines
 
+## Git and Deployment Approval (Mandatory)
+
+- A request to modify, fix, test, or review the project authorizes local file changes and local verification only.
+- Do not run `git commit` unless the user explicitly approves the commit in the current conversation after reviewing the pending changes.
+- Do not run `git push`, create a pull request, sync files to a remote server, rebuild or restart production services, or otherwise deploy changes unless the user explicitly approves that remote action in the current conversation.
+- Approval from an earlier task or earlier change does not carry forward. Never infer approval from prior pushes or deployments.
+- After completing local changes and verification, report the modified files and test results, then wait for approval before committing or performing any remote action.
+
 ## Project Structure & Module Organization
 
 This is a Next.js 16 App Router application with Prisma and PostgreSQL. Routes live in `src/app`, grouped as `(app)` for authenticated pages, `(auth)` for login/register, `(marketing)` for public pages, `admin` for back office pages, and `api` for route handlers. Shared UI components are in `src/components`; business logic is in `src/lib`; type augmentations are in `src/types`. Prisma files are in `prisma/`, scripts in `scripts/`, and static/uploaded assets in `public/`, especially `public/uploads/materials`.
