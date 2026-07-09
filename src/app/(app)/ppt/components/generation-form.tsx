@@ -63,7 +63,7 @@ export function GenerationForm({
 	const [uploading, setUploading] = useState(false);
 	const [slideCount, setSlideCount] = useState(10);
 	const [aspectRatio, setAspectRatio] = useState("16:9");
-	const [style, setStyle] = useState("general");
+	const [style, setStyle] = useState("auto");
 	const [styleSource, setStyleSource] = useState<StyleSource>("preset");
 	const [customStyle, setCustomStyle] = useState("");
 	const [progress, setProgress] = useState(0);

@@ -45,7 +45,7 @@ const requestSchema = z
 		sourceUrl: z.string().trim().url().max(1000).optional(),
 		slideCount: z.coerce.number().int().min(3).max(30).default(10),
 		aspectRatio: z.enum(["16:9", "4:3"]).default("16:9"),
-		style: z.string().trim().min(1).max(80).default("general"),
+		style: z.string().trim().min(1).max(80).default("auto"),
 		customStyle: z.string().trim().max(2000).optional(),
 	})
 	.superRefine((data, ctx) => {

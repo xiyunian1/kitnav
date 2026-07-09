@@ -120,7 +120,7 @@ export async function generatePPT(
 			slideCount: requestedSlideCount,
 			aspectRatio,
 			canvasFormat,
-			style: params.style || "general",
+			style: params.style || "auto",
 			stylePrompt: [
 				templateInstruction,
 				uploadedTemplateInstruction,
@@ -129,6 +129,13 @@ export async function generatePPT(
 					style: params.style,
 					stylePrompt: params.stylePrompt,
 					styleLabel: params.styleLabel,
+					projectId: params.projectId,
+					sourceText: sourceMd,
+					hasTemplate: Boolean(
+						templateInstruction ||
+							uploadedTemplateInstruction ||
+							externalTemplateInstruction,
+					),
 				}),
 			]
 				.filter(Boolean)

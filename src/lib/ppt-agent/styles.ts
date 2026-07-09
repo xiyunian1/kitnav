@@ -5,7 +5,107 @@ export interface PptStylePreset {
   prompt: string;
 }
 
+interface AutoCreativeDirection {
+  id: string;
+  label: string;
+  temperament: string;
+  palette: string;
+  typography: string;
+  shapeLanguage: string;
+  coverComposition: string;
+}
+
+const AUTO_CREATIVE_DIRECTIONS: AutoCreativeDirection[] = [
+  {
+    id: "editorial-cinnabar",
+    label: "朱砂编辑部",
+    temperament: "克制、知识感、具有中文杂志气质",
+    palette: "米纸白 #F6F1E7、墨黑 #1F2937、朱砂红 #C53A2A、松石绿 #2F6B5F",
+    typography: "标题使用 Noto Serif CJK SC / Songti SC / SimSun，正文使用 Microsoft YaHei / PingFang SC",
+    shapeLanguage: "细分隔线、跨栏大标题、页码索引和不对称编辑网格；少用圆角卡片",
+    coverComposition: "左侧纵向大标题与小号出版信息，右侧使用一块占画面高度的抽象几何主视觉",
+  },
+  {
+    id: "swiss-signal",
+    label: "瑞士信号",
+    temperament: "理性、直接、强秩序",
+    palette: "纯白 #FFFFFF、炭黑 #171717、信号红 #E63946、钴蓝 #2563EB",
+    typography: "标题使用 SimHei / Arial Black，正文使用 Microsoft YaHei / Arial",
+    shapeLanguage: "严格基线网格、实心矩形、粗细线对比和醒目编号；直角优先",
+    coverComposition: "超大编号占据一侧，标题沿网格对齐，另一侧用高对比色块切分画面",
+  },
+  {
+    id: "midnight-lime",
+    label: "午夜荧光",
+    temperament: "前沿、锐利、数字产品感",
+    palette: "夜黑 #111315、石墨 #1C2024、荧光黄绿 #D7FF4F、冷白 #F5F7FA、钢蓝灰 #8AA4B8",
+    typography: "标题使用 Arial Black / SimHei，正文使用 Microsoft YaHei / Arial",
+    shapeLanguage: "高对比暗色画布、角标、细线框、模块切片和局部荧光标记",
+    coverComposition: "标题贴近左下安全区，右上使用单个大型线框符号或斜切结构形成张力",
+  },
+  {
+    id: "plum-paper",
+    label: "梅紫纸艺",
+    temperament: "温润、文化感、精致但不古板",
+    palette: "暖白 #FAF7F2、梅紫 #4A1942、芥末金 #D4A72C、深青 #1F4E5F",
+    typography: "标题使用 Noto Serif CJK SC / Songti SC，正文使用 PingFang SC / Microsoft YaHei",
+    shapeLanguage: "层叠纸带、窄边框、局部印章式标签和大面积呼吸留白",
+    coverComposition: "标题居于偏上区域，底部用两到三层错位纸带建立景深，不使用路线曲线",
+  },
+  {
+    id: "cobalt-coral",
+    label: "钴蓝珊瑚",
+    temperament: "清爽、积极、现代品牌感",
+    palette: "雾白 #F7F8FC、钴蓝 #243B6B、珊瑚 #F26B5B、暖黄 #E3B341",
+    typography: "标题使用 SimHei / Arial，正文使用 Microsoft YaHei / PingFang SC",
+    shapeLanguage: "几何切片、色带、图文错位和少量实心圆点；避免浅蓝绿色科技模板感",
+    coverComposition: "标题跨越左侧两列，右侧用三块不同尺度的几何切片组合成主视觉",
+  },
+  {
+    id: "forest-amber",
+    label: "森林琥珀",
+    temperament: "沉稳、自然、适合长期主义叙事",
+    palette: "亚麻白 #F5F2E8、森林绿 #24493D、琥珀 #D98E32、酒红 #8C3B45",
+    typography: "标题使用 Noto Serif CJK SC / SimSun，正文使用 Microsoft YaHei / Arial",
+    shapeLanguage: "拱形边界、层级色带、细线标注和有机但克制的轮廓",
+    coverComposition: "中央偏左放置短标题，右侧以一组高低错落的拱形或层叠地形承载主题",
+  },
+  {
+    id: "mono-violet",
+    label: "黑白紫电",
+    temperament: "大胆、实验、具有展览海报感",
+    palette: "骨白 #F4F4F0、纯黑 #161616、电紫 #7C3AED、酸橙 #C7F000",
+    typography: "标题使用 Arial Black / SimHei，正文使用 Microsoft YaHei / Arial",
+    shapeLanguage: "超大文字、裁切字块、粗描边和少量高饱和标记；避免常规卡片阵列",
+    coverComposition: "标题放大到接近画布边缘，以裁切文字作为主视觉，右下保留短副标题",
+  },
+  {
+    id: "atlas-clay",
+    label: "图谱陶土",
+    temperament: "研究感、可靠、略带手工温度",
+    palette: "灰白 #FBFBF8、深靛 #25324B、陶土 #E05A47、橄榄 #7A8B5A",
+    typography: "标题使用 Noto Serif CJK SC / Songti SC，正文使用 Microsoft YaHei / PingFang SC",
+    shapeLanguage: "地图式索引、坐标注释、细线连接和不规则信息块；边角保持简洁",
+    coverComposition: "左上使用小型主题索引，中央放大标题，背景以稀疏坐标与单个色块建立图谱感",
+  },
+  {
+    id: "neo-ink",
+    label: "新中式墨印",
+    temperament: "东方、留白、适合观点与文化叙事",
+    palette: "宣纸 #F7F1E3、浓墨 #1D1D1B、印泥红 #A8322D、竹青 #55705A",
+    typography: "标题使用 Noto Serif CJK SC / STSong / SimSun，正文使用 Microsoft YaHei / PingFang SC",
+    shapeLanguage: "大留白、竖向索引、墨块般实心几何和印章式强调；不仿古纹样堆叠",
+    coverComposition: "标题按横竖文字节奏错落排列，右下以单个墨块和小型红色印记收束画面",
+  },
+];
+
 export const PPT_STYLE_PRESETS: PptStylePreset[] = [
+  {
+    id: "auto",
+    label: "自动创意",
+    description: "按内容与任务随机种子生成不同视觉方向。",
+    prompt: "优先遵循上传模板；无模板时根据内容选择具有辨识度的配色、字体、图形语言与封面构图，不套用固定行业默认视觉。",
+  },
   {
     id: "general",
     label: "通用演示",
@@ -86,7 +186,7 @@ export const PPT_STYLE_PRESETS: PptStylePreset[] = [
   },
 ];
 
-const DEFAULT_STYLE = PPT_STYLE_PRESETS.find((item) => item.id === "general") || PPT_STYLE_PRESETS[0];
+const DEFAULT_STYLE = PPT_STYLE_PRESETS.find((item) => item.id === "auto") || PPT_STYLE_PRESETS[0];
 
 export function getPptStylePreset(id?: string | null) {
   return PPT_STYLE_PRESETS.find((item) => item.id === id) || DEFAULT_STYLE;
@@ -101,11 +201,67 @@ export function buildPptStyleInstruction(input: {
   style?: string | null;
   stylePrompt?: string | null;
   styleLabel?: string | null;
+  projectId?: string | null;
+  sourceText?: string | null;
+  hasTemplate?: boolean;
 }) {
-  const label = getPptStyleLabel(input.style, input.styleLabel);
-  const prompt = input.stylePrompt?.trim() || getPptStylePreset(input.style).prompt;
+  const style = input.style || DEFAULT_STYLE.id;
+  const label = getPptStyleLabel(style, input.styleLabel);
+  if (style === "auto" && !input.hasTemplate) {
+    return buildAutoCreativeInstruction({
+      projectId: input.projectId || "ppt-auto",
+      sourceText: input.sourceText || "",
+    });
+  }
+  const prompt = input.stylePrompt?.trim() || getPptStylePreset(style).prompt;
   if (/^风格名称：/m.test(prompt) || /^风格要求：/m.test(prompt)) return prompt;
   return [`风格名称：${label}`, `风格要求：${prompt}`].join("\n");
+}
+
+export function buildAutoCreativeInstruction(input: {
+  projectId: string;
+  sourceText?: string | null;
+}) {
+  const seed = stableHash(input.projectId);
+  const start = seed % AUTO_CREATIVE_DIRECTIONS.length;
+  const candidates = [0, 1, 2].map(
+    (offset) => AUTO_CREATIVE_DIRECTIONS[(start + offset) % AUTO_CREATIVE_DIRECTIONS.length],
+  );
+  const selected = candidates[(seed >>> 8) % candidates.length];
+  const normalizedSource = (input.sourceText || "").replace(/\s+/g, "").trim();
+  const shortInput = normalizedSource.length < 120;
+
+  return [
+    "风格名称：自动创意",
+    "风格模式：无模板自由设计。以下项目专属方向来自任务 ID 的稳定选择；同一项目可复现，不同项目会获得不同候选组合。",
+    "",
+    "候选视觉方向：",
+    ...candidates.map(
+      (candidate, index) =>
+        `${index + 1}. ${candidate.label}：${candidate.temperament}；封面采用${candidate.coverComposition}`,
+    ),
+    "",
+    `最终选择：${selected.label}（${selected.id}）`,
+    `- 视觉气质：${selected.temperament}`,
+    `- 配色锁定：${selected.palette}`,
+    `- 字体策略：${selected.typography}`,
+    `- 图形语言：${selected.shapeLanguage}`,
+    `- 封面构图：${selected.coverComposition}`,
+    "- 将以上精确方向写入 Eight Confirmations、design_spec.md 和 spec_lock.md；这些颜色属于明确风格输入，不得再改用行业默认配色表。",
+    "- 页面结构仍应根据内容选择合适图表和节奏，不能为了套视觉方向而牺牲信息表达。",
+    shortInput
+      ? "- 当前输入较短：先补全合理的受众、场景和叙事结构，再按已选方向设计；不得杜撰具体数据、机构或来源。"
+      : "- 当前资料较完整：从资料中提取受众、场景和叙事结构，并严格保持事实边界。",
+  ].join("\n");
+}
+
+function stableHash(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
 }
 
 export function isPptStylePrompt(
