@@ -5,12 +5,16 @@ import {
 } from "node:child_process";
 import {
 	appendFileSync,
+	closeSync,
 	cpSync,
 	existsSync,
 	mkdirSync,
+	openSync,
+	readSync,
 	readFileSync,
 	readdirSync,
 	rmSync,
+	statSync,
 	unlinkSync,
 	writeFileSync,
 } from "fs";
@@ -21,7 +25,9 @@ import { emitProjectLog, updateProject } from "./project-log";
 import {
 	checkSvgQuality,
 	convertSvgToPptx,
+	executePptPython,
 	finalizeSvg,
+	getPptScriptPath,
 	splitNotes,
 } from "./python-tools";
 import { getPptMasterSkillDir } from "./runtime-paths";
@@ -38,6 +44,7 @@ import {
 	getPptTextVolumeOption,
 	getPptToneOption,
 } from "./content-options";
+import type { PptGenerationWorkflow } from "./workflow";
 
 export interface AgentRunResult {
 	pptxPath: string;
@@ -53,6 +60,8 @@ interface RunnerOptions {
 	style: string;
 	stylePrompt: string;
 	styleLabel: string;
+	workflow: PptGenerationWorkflow;
+	nativeTemplatePath?: string;
 	signal?: AbortSignal;
 	emit: EventEmitter;
 }
@@ -185,6 +194,11 @@ async function runPptMasterAgentInner(
 		!hasPptx(options.projectDir) &&
 		shouldContinueAgent(options.projectDir, result, options)
 	) {
+		if (options.workflow === "template-fill") {
+			throw new Error(
+				`PPT Master 原生模板填充达到最大续跑轮次 ${maxTurns} 后仍未导出 PPTX。最后一轮 stop_reason=${result.stopReason || "unknown"}。`,
+			);
+		}
 		const svgCount = countSvgSlides(options.projectDir);
 		await emitProjectLog(
 			params.projectId,
@@ -211,7 +225,11 @@ async function runPptMasterAgentInner(
 	await verifyAgentOutputWithSkill(params.projectId, options, skillDir);
 
 	let pptxPath = findLatestPptx(options.projectDir);
-	if (!pptxPath && countSvgSlides(options.projectDir) > 0) {
+	if (
+		options.workflow === "svg" &&
+		!pptxPath &&
+		countSvgSlides(options.projectDir) > 0
+	) {
 		await emitProjectLog(
 			params.projectId,
 			options.emit,
@@ -228,7 +246,10 @@ async function runPptMasterAgentInner(
 
 	return {
 		pptxPath,
-		slideCount: countSvgSlides(options.projectDir) || options.slideCount,
+		slideCount:
+			options.workflow === "template-fill"
+				? readTemplateFillSlideCount(options.projectDir) || options.slideCount
+				: countSvgSlides(options.projectDir) || options.slideCount,
 	};
 }
 
@@ -237,12 +258,27 @@ function writeAgentPrompt(
 	options: RunnerOptions,
 	skillDir: string,
 ) {
+	const promptPath = join(options.projectDir, "agent-task.md");
+	const sourcePath = join(options.projectDir, "sources", "source.md");
+	const output =
+		options.workflow === "template-fill"
+			? buildNativeTemplateFillPrompt(params, options, skillDir, sourcePath)
+			: buildSvgGenerationPrompt(params, options, skillDir, sourcePath);
+
+	writeFileSync(promptPath, output, "utf-8");
+	return promptPath;
+}
+
+function buildSvgGenerationPrompt(
+	params: GenerationParams,
+	options: RunnerOptions,
+	skillDir: string,
+	sourcePath: string,
+) {
 	const textVolume = getPptTextVolumeOption(params.textVolume);
 	const audience = getPptAudienceOption(params.audience);
 	const tone = getPptToneOption(params.tone);
-	const promptPath = join(options.projectDir, "agent-task.md");
-	const sourcePath = join(options.projectDir, "sources", "source.md");
-	const output = [
+	return [
 		"# PPT Master Server Task",
 		"",
 		"你是服务器内置的 PPT Master 执行 agent。必须按项目内 PPT Master skill 私有副本的完整流程执行，不能退回为普通一次性 prompt 生成。",
@@ -307,9 +343,82 @@ function writeAgentPrompt(
 		"When finished, print a concise final line containing the generated PPTX path.",
 		"",
 	].join("\n");
+}
 
-	writeFileSync(promptPath, output, "utf-8");
-	return promptPath;
+function buildNativeTemplateFillPrompt(
+	params: GenerationParams,
+	options: RunnerOptions,
+	skillDir: string,
+	sourcePath: string,
+) {
+	if (!options.nativeTemplatePath) {
+		throw new Error("原生模板填充缺少项目内模板路径。");
+	}
+
+	const textVolume = getPptTextVolumeOption(params.textVolume);
+	const audience = getPptAudienceOption(params.audience);
+	const tone = getPptToneOption(params.tone);
+	return [
+		"# PPT Master Native Template Fill Task",
+		"",
+		"你是服务器内置的 PPT Master 执行 agent。本任务必须执行 `workflows/template-fill-pptx.md` 原生模板填充工作流，不得进入主 SVG 生成流程。",
+		"",
+		"## Hard Requirements",
+		"",
+		"- 先阅读 PPT Master SKILL.md 和 `workflows/template-fill-pptx.md`，再执行命令。",
+		"- 用户已经在站内明确上传模板并点击生成，这等价于批准页面选择、复用和填充方案。生成 `fill_plan.json` 后直接检查并应用，不要停下来请求第二次确认。",
+		"- 禁止运行 `pptx_to_svg.py`、`pptx_template_import.py`、`finalize_svg.py` 或 `svg_to_pptx.py`。",
+		"- 必须直接克隆原生幻灯片并修改 OOXML，保留模板母版、布局、图片、形状、图表、表格、字体、动画和空间关系。",
+		"- 模板视觉是唯一视觉依据，不得用站内风格预设覆盖或重新设计模板。",
+		`- 最终输出严格为 ${options.slideCount} 页；模板页面不足时选择合适的内容页重复使用，但每次填入不同内容。`,
+		"- 所有需要替换的模板示例文案必须替换完整，不得残留无关标题、正文、年份、广告、下载站署名或英文口号。",
+		"- 所有可见幻灯片文字使用简体中文，必要的产品名和技术缩写除外。",
+		"- 文案必须适配原占位区域容量。标题过长先改写，正文过长先压缩或拆到其他模板页，不得通过极小字号硬塞。",
+		"- 每个事实只能来自 `sources/source.md`；资料不足时保持概括，不得编造数据、机构、案例或来源。",
+		"- 只允许写入当前项目目录。缺少依赖或模板不可解析时明确失败，不得生成假文件。",
+		"",
+		"## Required Execution",
+		"",
+		`1. 使用 ${skillDir}/scripts/template_fill_pptx.py analyze 分析 ${options.nativeTemplatePath}，输出 analysis/slide_library.json。`,
+		"2. 阅读完整 slide library 和 `sources/source.md`，按目标叙事与版式容量手工编写 `analysis/fill_plan.json`。",
+		"3. 运行 `check-plan` 并把报告写到 `analysis/check_report.json`；修复全部 error，并尽量消除容量 warning。",
+		"4. 运行 `apply`，输出到 `exports/generated.pptx`，使用 `--transition keep` 保留模板原有转场。",
+		"5. 使用 `source_to_md/ppt_to_md.py` 回读最终 PPTX，输出 `validation/readback.md`，核对页数、标题、正文、表格和备注。",
+		"6. 确认 `exports/` 中存在最终可编辑 PPTX 后再结束。",
+		"",
+		"## Paths",
+		"",
+		`- PPT Master skill private copy: ${skillDir}`,
+		`- Project path: ${options.projectDir}`,
+		`- Native template: ${options.nativeTemplatePath}`,
+		`- Source markdown: ${sourcePath}`,
+		"",
+		"## Confirmed Parameters",
+		"",
+		`- Target slide count: ${options.slideCount}`,
+		`- Text volume: ${textVolume.label}`,
+		`- Target audience: ${audience.label}`,
+		`- Tone: ${tone.label}`,
+		"- Visual style: inherit the uploaded native PPTX exactly",
+		"- Output language: Simplified Chinese",
+		"",
+		"## Content Requirements",
+		"",
+		buildPptContentInstruction({
+			textVolume: params.textVolume,
+			audience: params.audience,
+			tone: params.tone,
+		}),
+		"",
+		"## Source Content",
+		"",
+		"```markdown",
+		options.sourceMd,
+		"```",
+		"",
+		"完成后只需简要报告最终 PPTX 路径和实际页数。",
+		"",
+	].join("\n");
 }
 
 function resolveAgentCommand(
@@ -366,6 +475,10 @@ function buildContinuePrompt(
 	options: RunnerOptions,
 	previous: CommandResult,
 ) {
+	if (options.workflow === "template-fill") {
+		return buildTemplateFillContinuePrompt(projectDir, turn, previous);
+	}
+
 	const svgCount = countSvgSlides(projectDir);
 	const nextSlide = Math.min(svgCount + 1, options.slideCount);
 	const interruptedByToolUse = previous.stopReason === "tool_use";
@@ -413,6 +526,31 @@ function buildContinuePrompt(
 		"请立刻继续执行完整 PPT Master 流程：写入 design_spec.md 和 spec_lock.md，按需跳过无可用环境的可选图片生成，顺序逐页生成 svg_output/*.svg，生成 notes/total.md，运行质量检查并修复，然后执行 total_md_split.py、finalize_svg.py、svg_to_pptx.py。",
 		"不要再输出确认问题。不要只输出计划。完成前不要停止。",
 	].join("\n");
+}
+
+function buildTemplateFillContinuePrompt(
+	projectDir: string,
+	turn: number,
+	previous: CommandResult,
+) {
+	const hasLibrary = existsSync(
+		join(projectDir, "analysis", "slide_library.json"),
+	);
+	const hasPlan = existsSync(join(projectDir, "analysis", "fill_plan.json"));
+	const hasReport = existsSync(
+		join(projectDir, "analysis", "check_report.json"),
+	);
+	return [
+		`这是原生模板填充的服务器自动续跑第 ${turn} 轮。不要重新开始，也不要切换到 SVG 流程。`,
+		`当前状态：slide_library=${hasLibrary ? "已有" : "缺少"}，fill_plan=${hasPlan ? "已有" : "缺少"}，check_report=${hasReport ? "已有" : "缺少"}。`,
+		"继续执行 `workflows/template-fill-pptx.md`：完成 analyze、fill_plan、check-plan、apply 和最终 PPTX 回读验证。",
+		"用户已批准站内生成流程，不要请求第二次确认。必须在 exports/ 下生成原生可编辑 PPTX 后才能结束。",
+		previous.stopReason === "tool_use"
+			? "上一轮停在工具调用边界；检查文件是否落盘，必要时重新执行未完成的命令。"
+			: "",
+	]
+		.filter(Boolean)
+		.join("\n");
 }
 
 function prepareProjectSkillDir(projectDir: string, sourceSkillDir: string) {
@@ -650,7 +788,7 @@ async function runCommand(
 				resolvePromise({ output, ...metadata });
 				return;
 			}
-			if (canRecoverFromAgentExit(output, options.projectDir)) {
+			if (canRecoverFromAgentExit(output, options.projectDir, options.workflow)) {
 				await emitProjectLog(
 					projectId,
 					options.emit,
@@ -874,6 +1012,20 @@ function shouldContinueAgent(
 ) {
 	if (hasPptx(projectDir)) return false;
 	const text = (result.resultText || result.output).slice(-30_000);
+	if (options.workflow === "template-fill") {
+		const hasProgress = [
+			join(projectDir, "analysis", "slide_library.json"),
+			join(projectDir, "analysis", "fill_plan.json"),
+			join(projectDir, "analysis", "check_report.json"),
+		].some(existsSync);
+		return (
+			result.stopReason === "tool_use" ||
+			hasProgress ||
+			/请确认|确认后|continue|继续|template.fill|fill_plan|check-plan|apply/i.test(
+				text,
+			)
+		);
+	}
 	const svgCount = countSvgSlides(projectDir);
 	const needsMoreSlides = svgCount < options.slideCount;
 	return (
@@ -896,6 +1048,15 @@ function resolveMaxTurns(options: RunnerOptions) {
 }
 
 function describeContinueState(projectDir: string, options: RunnerOptions) {
+	if (options.workflow === "template-fill") {
+		if (existsSync(join(projectDir, "analysis", "check_report.json")))
+			return "模板填充方案已检查，继续应用并回读 PPTX";
+		if (existsSync(join(projectDir, "analysis", "fill_plan.json")))
+			return "模板填充方案已生成，继续容量检查和应用";
+		if (existsSync(join(projectDir, "analysis", "slide_library.json")))
+			return "模板结构已分析，继续编写原生填充方案";
+		return "开始分析原生 PPTX 模板";
+	}
 	const svgCount = countSvgSlides(projectDir);
 	if (svgCount >= options.slideCount)
 		return "SVG 已齐，推进质量检查和 PPTX 导出";
@@ -910,9 +1071,17 @@ function hasPptx(projectDir: string) {
 	return Boolean(findLatestPptx(projectDir));
 }
 
-function canRecoverFromAgentExit(output: string, projectDir: string) {
+function canRecoverFromAgentExit(
+	output: string,
+	projectDir: string,
+	workflow: PptGenerationWorkflow,
+) {
+	const hasRecoverableArtifacts =
+		workflow === "template-fill"
+			? existsSync(join(projectDir, "analysis", "slide_library.json"))
+			: countSvgSlides(projectDir) > 0;
 	return (
-		countSvgSlides(projectDir) > 0 &&
+		hasRecoverableArtifacts &&
 		/error_max_budget_usd|Reached maximum budget|"stop_reason"\s*:\s*"tool_use"/i.test(
 			output,
 		)
@@ -1024,7 +1193,94 @@ async function verifyAgentOutputWithSkill(
 	options: RunnerOptions,
 	skillDir: string,
 ) {
+	if (options.workflow === "template-fill") {
+		await verifyNativeTemplateFillOutput(projectId, options, skillDir);
+		return;
+	}
 	await verifyAgentOutput(projectId, options, skillDir);
+}
+
+async function verifyNativeTemplateFillOutput(
+	projectId: string,
+	options: RunnerOptions,
+	skillDir: string,
+) {
+	const analysisDir = join(options.projectDir, "analysis");
+	const requiredArtifacts = [
+		join(analysisDir, "slide_library.json"),
+		join(analysisDir, "fill_plan.json"),
+		join(analysisDir, "check_report.json"),
+	];
+	const missing = requiredArtifacts.filter((path) => !existsSync(path));
+	if (missing.length > 0) {
+		throw new Error(
+			`原生模板填充缺少验收文件：${missing.map((path) => path.slice(options.projectDir.length + 1)).join("、")}`,
+		);
+	}
+
+	const slideCount = readTemplateFillSlideCount(options.projectDir);
+	if (slideCount !== options.slideCount) {
+		throw new Error(
+			`原生模板填充页数不正确：方案为 ${slideCount} 页，目标为 ${options.slideCount} 页。`,
+		);
+	}
+
+	const checkReport = readJsonFile(join(analysisDir, "check_report.json"));
+	const errorCount = Number(
+		(checkReport.summary as Record<string, unknown> | undefined)?.error || 0,
+	);
+	if (errorCount > 0) {
+		throw new Error(`原生模板填充容量检查仍有 ${errorCount} 个错误。`);
+	}
+
+	const pptxPath = findLatestPptx(options.projectDir);
+	if (!pptxPath || statSync(pptxPath).size < 4 || !hasZipSignature(pptxPath)) {
+		throw new Error("原生模板填充没有生成有效 PPTX 文件。");
+	}
+
+	const validationDir = join(options.projectDir, "validation");
+	mkdirSync(validationDir, { recursive: true });
+	const readbackPath = join(validationDir, "readback.md");
+	await executePptPython(
+		getPptScriptPath(join("source_to_md", "ppt_to_md.py"), skillDir),
+		[pptxPath, "-o", readbackPath],
+		300_000,
+		skillDir,
+	);
+	if (!existsSync(readbackPath) || statSync(readbackPath).size === 0) {
+		throw new Error("原生模板填充 PPTX 回读验证没有产生有效内容。");
+	}
+
+	await updateProject(projectId, { slideCount, pptxPath });
+}
+
+function readTemplateFillSlideCount(projectDir: string) {
+	const planPath = join(projectDir, "analysis", "fill_plan.json");
+	if (!existsSync(planPath)) return 0;
+	const plan = readJsonFile(planPath);
+	return Array.isArray(plan.slides) ? plan.slides.length : 0;
+}
+
+function readJsonFile(path: string): Record<string, unknown> {
+	try {
+		const parsed = JSON.parse(readFileSync(path, "utf-8"));
+		if (parsed && typeof parsed === "object") {
+			return parsed as Record<string, unknown>;
+		}
+	} catch {
+		// Report a stable validation error below.
+	}
+	throw new Error(`无法读取 PPT 验收文件：${path}`);
+}
+
+function hasZipSignature(path: string) {
+	const descriptor = openSync(path, "r");
+	try {
+		const signature = Buffer.alloc(2);
+		return readSync(descriptor, signature, 0, 2, 0) === 2 && signature.toString() === "PK";
+	} finally {
+		closeSync(descriptor);
+	}
 }
 
 function countSvgSlides(projectDir: string) {

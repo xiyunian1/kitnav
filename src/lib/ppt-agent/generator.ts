@@ -12,11 +12,13 @@ import { buildPptStyleInstruction, getPptStyleLabel } from "./styles";
 import { isPptGenerationCancelled, throwIfPptCancelled } from "./cancellation";
 import { collectPptArtifactPaths } from "./artifacts";
 import { preparePptTemplateSelection } from "./templates";
-import {
-	importExternalPptTemplateUrls,
-	importUploadedPptTemplateFiles,
-} from "./external-templates";
+import { importExternalPptTemplateUrls } from "./external-templates";
 import { emitProjectLog, updateProject } from "./project-log";
+import {
+	resolvePptGenerationWorkflow,
+	stageNativePptTemplate,
+	type PptGenerationWorkflow,
+} from "./workflow";
 import type { ModelSource } from "@/lib/module-model-options";
 import type {
 	PptAudience,
@@ -84,21 +86,24 @@ export async function generatePPT(
 
 		const sourceMd = await resolveSourceMarkdown(params, projectDir);
 		writeFileSync(join(projectDir, "sources", "source.md"), sourceMd, "utf-8");
+		const workflow = resolvePptGenerationWorkflow(params);
 		const templateInstruction = preparePptTemplateSelection(
 			params.template,
 			projectDir,
 		);
-		let uploadedTemplateInstruction = "";
-		if (params.templateFileUrls?.length) {
-			await emitProjectLog(params.projectId, emit, "正在导入上传的 PPT 模板");
-			uploadedTemplateInstruction = await importUploadedPptTemplateFiles(
+		let nativeTemplatePath = "";
+		if (workflow === "template-fill") {
+			await emitProjectLog(params.projectId, emit, "正在准备原生 PPTX 模板");
+			const stagedTemplate = stageNativePptTemplate(
 				projectDir,
-				params.templateFileUrls,
-				requestedSlideCount,
+				params.templateFileUrls || [],
 			);
-			if (uploadedTemplateInstruction) {
-				await emitProjectLog(params.projectId, emit, "上传的 PPT 模板已导入");
-			}
+			nativeTemplatePath = stagedTemplate.relativePath;
+			await emitProjectLog(
+				params.projectId,
+				emit,
+				"模板将通过原生 PPTX 填充流程处理，不转换为 SVG",
+			);
 		}
 		let externalTemplateInstruction = "";
 		if (params.templateUrls?.length) {
@@ -123,6 +128,8 @@ export async function generatePPT(
 			style: string;
 			stylePrompt: string;
 			styleLabel: string;
+			workflow: PptGenerationWorkflow;
+			nativeTemplatePath?: string;
 			signal?: AbortSignal;
 			emit: EventEmitter;
 		} = {
@@ -132,26 +139,31 @@ export async function generatePPT(
 			aspectRatio,
 			canvasFormat,
 			style: params.style || "auto",
-			stylePrompt: [
-				templateInstruction,
-				uploadedTemplateInstruction,
-				externalTemplateInstruction,
-				buildPptStyleInstruction({
-					style: params.style,
-					stylePrompt: params.stylePrompt,
-					styleLabel: params.styleLabel,
-					projectId: params.projectId,
-					sourceText: sourceMd,
-					hasTemplate: Boolean(
-						templateInstruction ||
-							uploadedTemplateInstruction ||
+			stylePrompt:
+				workflow === "template-fill"
+					? "视觉样式完全继承上传的原生 PPTX 模板，不应用站内风格预设覆盖模板。"
+					: [
+							templateInstruction,
 							externalTemplateInstruction,
-					),
-				}),
-			]
-				.filter(Boolean)
-				.join("\n\n"),
-			styleLabel: getPptStyleLabel(params.style, params.styleLabel),
+							buildPptStyleInstruction({
+								style: params.style,
+								stylePrompt: params.stylePrompt,
+								styleLabel: params.styleLabel,
+								projectId: params.projectId,
+								sourceText: sourceMd,
+								hasTemplate: Boolean(
+									templateInstruction || externalTemplateInstruction,
+								),
+							}),
+						]
+							.filter(Boolean)
+							.join("\n\n"),
+			styleLabel:
+				workflow === "template-fill"
+					? "上传模板原生样式"
+					: getPptStyleLabel(params.style, params.styleLabel),
+			workflow,
+			nativeTemplatePath: nativeTemplatePath || undefined,
 			signal: params.signal,
 			emit,
 		};
@@ -159,7 +171,9 @@ export async function generatePPT(
 		await emitProjectLog(
 			params.projectId,
 			emit,
-			"交给 PPT Master pi agent 执行完整工作流",
+			workflow === "template-fill"
+				? "交给 PPT Master pi agent 执行原生模板填充工作流"
+				: "交给 PPT Master pi agent 执行完整工作流",
 		);
 		const result = await runPptMasterAgent(params, runnerOptions);
 		const pptxUrl = publicProjectUrl(params.projectId, result.pptxPath);

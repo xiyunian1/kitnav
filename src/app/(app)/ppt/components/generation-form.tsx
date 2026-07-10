@@ -58,6 +58,7 @@ interface UploadedFile {
 	id: string;
 	name: string;
 	size: number;
+	kind: "source" | "template";
 }
 
 type StyleSource = "preset" | "custom";
@@ -93,6 +94,9 @@ export function GenerationForm({
 
 	const selectedModel =
 		modelOptions.find((option) => option.value === modelValue) ?? modelOptions[0];
+	const contentFiles = sourceFiles.filter((file) => file.kind === "source");
+	const templateFiles = sourceFiles.filter((file) => file.kind === "template");
+	const hasUploadedTemplate = templateFiles.length > 0;
 	const useOwnKey = selectedModel?.source === "user";
 	const estimatedCost = useMemo(
 		() => (useOwnKey ? 0 : slideCount * creditsPerSlide),
@@ -118,11 +122,15 @@ export function GenerationForm({
 
 	async function handleSubmit() {
 		const normalizedPrompt = prompt.trim();
-		if (!normalizedPrompt && sourceFiles.length === 0) {
+		if (!normalizedPrompt && contentFiles.length === 0) {
 			toast.error("请描述你想生成的 PPT，或上传文件资料。");
 			return;
 		}
-		if (styleSource === "custom" && !customStyle.trim()) {
+		if (
+			!hasUploadedTemplate &&
+			styleSource === "custom" &&
+			!customStyle.trim()
+		) {
 			toast.error("请填写自定义 PPT 风格描述。");
 			return;
 		}
@@ -148,7 +156,8 @@ export function GenerationForm({
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					prompt: normalizedPrompt,
-					sourceFileUrls: sourceFiles.map((file) => file.id),
+					sourceFileUrls: contentFiles.map((file) => file.id),
+					templateFileUrls: templateFiles.map((file) => file.id),
 					slideCount,
 					aspectRatio,
 					style: styleSource === "preset" ? style : styleSource,
@@ -237,7 +246,10 @@ export function GenerationForm({
 		}
 	}
 
-	async function handleFileChange(files?: FileList | null) {
+	async function handleFileChange(
+		kind: UploadedFile["kind"],
+		files?: FileList | null,
+	) {
 		const list = Array.from(files || []);
 		if (list.length === 0) return;
 		setUploading(true);
@@ -256,9 +268,14 @@ export function GenerationForm({
 					id: data.id,
 					name: data.name || file.name,
 					size: data.size || file.size,
+					kind,
 				});
 			}
-			setSourceFiles((prev) => [...prev, ...uploaded]);
+			setSourceFiles((prev) =>
+				kind === "template"
+					? [...prev.filter((file) => file.kind !== "template"), ...uploaded]
+					: [...prev, ...uploaded],
+			);
 			toast.success(
 				uploaded.length === 1
 					? "文件已上传。"
@@ -296,7 +313,7 @@ export function GenerationForm({
 									accept={DOCUMENT_ACCEPT}
 									disabled={uploading}
 									onChange={(event) => {
-										void handleFileChange(event.target.files);
+										void handleFileChange("source", event.target.files);
 										event.target.value = "";
 									}}
 									className="sr-only"
@@ -310,7 +327,7 @@ export function GenerationForm({
 									accept={TEMPLATE_ACCEPT}
 									disabled={uploading}
 									onChange={(event) => {
-										void handleFileChange(event.target.files);
+										void handleFileChange("template", event.target.files);
 										event.target.value = "";
 									}}
 									className="sr-only"
@@ -338,8 +355,14 @@ export function GenerationForm({
 								{sourceFiles.map((file) => (
 									<AttachmentRow
 										key={file.id}
-										icon={<Paperclip className="size-3.5" />}
-										label={`${file.name} · ${formatBytes(file.size)}`}
+										icon={
+											file.kind === "template" ? (
+												<LayoutTemplate className="size-3.5" />
+											) : (
+												<Paperclip className="size-3.5" />
+											)
+										}
+										label={`${file.kind === "template" ? "模板 · " : ""}${file.name} · ${formatBytes(file.size)}`}
 										onRemove={() =>
 											setSourceFiles((prev) =>
 												prev.filter((item) => item.id !== file.id),
@@ -367,7 +390,7 @@ export function GenerationForm({
 										accept={DOCUMENT_ACCEPT}
 										disabled={uploading}
 										onChange={(event) => {
-											void handleFileChange(event.target.files);
+											void handleFileChange("source", event.target.files);
 											event.target.value = "";
 										}}
 										className="sr-only"
@@ -404,7 +427,7 @@ export function GenerationForm({
 						</div>
 					</div>
 
-					{styleSource === "custom" && (
+					{styleSource === "custom" && !hasUploadedTemplate && (
 						<div className="border-t bg-muted/15 px-4 py-3 sm:px-5">
 							<label htmlFor="pptCustomStyle" className="mb-2 block text-sm font-medium">
 								自定义视觉方向
@@ -490,7 +513,14 @@ export function GenerationForm({
 						</Select>
 
 						<Select
-							value={styleSource === "custom" ? "custom" : style}
+							value={
+								hasUploadedTemplate
+									? "uploaded-template"
+									: styleSource === "custom"
+										? "custom"
+										: style
+							}
+							disabled={hasUploadedTemplate}
 							onValueChange={(value) => {
 								if (value === "custom") {
 									setStyleSource("custom");
@@ -505,6 +535,9 @@ export function GenerationForm({
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
+								{hasUploadedTemplate && (
+									<SelectItem value="uploaded-template">模板原样</SelectItem>
+								)}
 								{PPT_STYLE_PRESETS.map((preset) => (
 									<SelectItem key={preset.id} value={preset.id}>
 										{preset.label}
@@ -631,7 +664,7 @@ export function GenerationForm({
 							accept={DOCUMENT_ACCEPT}
 							disabled={uploading}
 							onChange={(event) => {
-								void handleFileChange(event.target.files);
+								void handleFileChange("source", event.target.files);
 								event.target.value = "";
 							}}
 							className="sr-only"
@@ -647,7 +680,7 @@ export function GenerationForm({
 							accept={TEMPLATE_ACCEPT}
 							disabled={uploading}
 							onChange={(event) => {
-								void handleFileChange(event.target.files);
+								void handleFileChange("template", event.target.files);
 								event.target.value = "";
 							}}
 							className="sr-only"

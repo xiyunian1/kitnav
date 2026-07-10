@@ -45,6 +45,7 @@ const requestSchema = z
 		prompt: z.string().trim().max(80000).optional(),
 		sourceUrls: z.array(z.string().trim().url().max(1000)).max(10).optional(),
 		sourceFileUrls: z.array(z.string().trim().max(2000)).max(10).optional(),
+		templateFileUrls: z.array(z.string().trim().max(2000)).max(1).optional(),
 		templateUrls: z.array(z.string().trim().url().max(1000)).max(1).optional(),
 		sourceTopic: z.string().trim().max(4000).optional(),
 		sourceMarkdown: z.string().trim().max(80000).optional(),
@@ -222,16 +223,19 @@ export async function POST(req: NextRequest) {
 	const resolvedFileUrls = (parsed.sourceFileUrls ?? []).map((token) =>
 		resolveUploadPath(userId, token),
 	);
-	const uploadedTemplateFileUrls = resolvedFileUrls.filter(
-		isUploadedPptTemplateFile,
+	const uploadedTemplateFileUrls = (parsed.templateFileUrls ?? []).map((token) =>
+		resolveUploadPath(userId, token),
 	);
-	const contentFileUrls = resolvedFileUrls.filter(
-		(filePath) => !uploadedTemplateFileUrls.includes(filePath),
-	);
+	if (uploadedTemplateFileUrls.some((file) => !isUploadedPptTemplateFile(file))) {
+		return Response.json(
+			{ error: "模板文件必须是 PPTX、PPTM、PPSX、PPSM、POTX 或 POTM 格式。" },
+			{ status: 400 },
+		);
+	}
 	if (
 		uploadedTemplateFileUrls.length > 0 &&
 		!parsed.prompt &&
-		contentFileUrls.length === 0 &&
+		resolvedFileUrls.length === 0 &&
 		!parsed.sourceMarkdown &&
 		!parsed.sourceTopic
 	) {
@@ -249,7 +253,7 @@ export async function POST(req: NextRequest) {
 		sourceMarkdown: parsed.sourceMarkdown,
 		sourceFileUrl: resolvedSingleFileUrl,
 		prompt: parsed.prompt,
-		sourceFileUrls: contentFileUrls,
+		sourceFileUrls: resolvedFileUrls,
 		templateFileUrls: uploadedTemplateFileUrls,
 		slideCount: parsed.slideCount,
 		aspectRatio: parsed.aspectRatio,
