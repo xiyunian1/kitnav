@@ -14,19 +14,23 @@ import { fileToThumbnail } from "../thumbnail";
 import type { ImagePreset } from "@/lib/image-presets";
 import type { MaterialView } from "@/components/materials/material-types";
 import type { PromptOptimizationResult, PromptOptimizeRequest, ReuseTurnInput } from "../types";
+import {
+  findModuleModelOption,
+  type ModelSource,
+  type ModuleModelOption,
+} from "@/lib/module-model-options";
 
 interface Props {
   unitCost: number;
   credits: number;
-  useOwnKey: boolean;
-  defaultModel: string;
-  models: string[];
+  modelOptions: ModuleModelOption[];
   initialPrompt?: string;
   initialMode?: "generate" | "edit";
   initialRatio?: string;
   initialQuality?: string;
   initialCount?: number;
   initialModel?: string;
+  initialModelSource?: ModelSource;
   initialImageMaterial?: MaterialView | null;
   initialPromptMaterial?: MaterialView | null;
 }
@@ -59,15 +63,14 @@ function getNumberMeta(meta: Record<string, unknown> | null | undefined, key: st
 export function ImageWorkbench({
   unitCost,
   credits,
-  useOwnKey,
-  defaultModel,
-  models,
+  modelOptions,
   initialPrompt = "",
   initialMode = "generate",
   initialRatio,
   initialQuality,
   initialCount,
   initialModel,
+  initialModelSource,
   initialImageMaterial,
   initialPromptMaterial,
 }: Props) {
@@ -100,7 +103,14 @@ export function ImageWorkbench({
   const [ratio, setRatio] = useState(initialRatio || "1:1");
   const [quality, setQuality] = useState(qualityValue(initialQuality));
   const [count, setCount] = useState(Math.min(10, Math.max(1, Math.floor(initialCount ?? 1))));
-  const [model, setModel] = useState(initialModel && models.includes(initialModel) ? initialModel : defaultModel);
+  const initialModelOption =
+    findModuleModelOption(modelOptions, initialModel, initialModelSource) ??
+    findModuleModelOption(modelOptions, initialModel) ??
+    modelOptions[0];
+  const [modelValue, setModelValue] = useState(initialModelOption?.value ?? "");
+  const selectedModel =
+    modelOptions.find((option) => option.value === modelValue) ?? modelOptions[0];
+  const useOwnKey = selectedModel?.source === "user";
   const [files, setFiles] = useState<File[]>([]);
   const [references, setReferences] = useState<ReferencePreview[]>([]);
   const [conversationOpen, setConversationOpen] = useState(false);
@@ -149,7 +159,13 @@ export function ImageWorkbench({
       const metaCount = getNumberMeta(meta, "count");
       if (metaCount) setCount(Math.min(10, Math.max(1, Math.floor(metaCount))));
       const metaModel = getStringMeta(meta, "model");
-      if (metaModel && models.includes(metaModel)) setModel(metaModel);
+      const rawMetaSource = getStringMeta(meta, "modelSource");
+      const metaSource =
+        rawMetaSource === "user" || rawMetaSource === "platform"
+          ? rawMetaSource
+          : undefined;
+      const metaOption = findModuleModelOption(modelOptions, metaModel, metaSource);
+      if (metaOption) setModelValue(metaOption.value);
       if (material.type === "PROMPT") {
         setMode(meta?.mode === "edit" ? "edit" : "generate");
         if (material.thumbnailUrl) {
@@ -163,7 +179,7 @@ export function ImageWorkbench({
       await addReferenceFromUrl(material.url, material.title);
       toast.success(promptText.trim() || meta ? "已应用素材参数并加入参考图" : "已加入参考图");
     },
-    [addReferenceFromUrl, models]
+    [addReferenceFromUrl, modelOptions]
   );
 
   const initialLoadedRef = useRef(false);
@@ -227,9 +243,14 @@ export function ImageWorkbench({
       setRatio(input.ratio || "1:1");
       setQuality(qualityValue(input.quality));
       setCount(Math.min(10, Math.max(1, Math.floor(input.count ?? 1))));
-      if (input.model && models.includes(input.model)) setModel(input.model);
+      const inputOption = findModuleModelOption(
+        modelOptions,
+        input.model,
+        input.modelSource,
+      );
+      if (inputOption) setModelValue(inputOption.value);
     },
-    [models]
+    [modelOptions]
   );
 
   const handleRegenerate = useCallback(
@@ -239,17 +260,21 @@ export function ImageWorkbench({
         toast.info("已回填图生图参数，请确认参考图后生成");
         return;
       }
+      const regenerateModel =
+        findModuleModelOption(modelOptions, input.model, input.modelSource) ??
+        selectedModel;
       const ok = await submit({
         prompt: input.prompt.trim(),
         ratio: input.ratio || "1:1",
         quality: qualityValue(input.quality),
         count: Math.min(10, Math.max(1, Math.floor(input.count ?? 1))),
-        model: input.model || undefined,
+        model: regenerateModel?.model,
+        modelSource: regenerateModel?.source,
         mode: "generate",
       });
       if (ok) toast.success("已按原参数重新生成");
     },
-    [applyTurnInput, submit]
+    [applyTurnInput, modelOptions, selectedModel, submit]
   );
 
   const handleGenerateSimilar = useCallback(
@@ -320,14 +345,15 @@ export function ImageWorkbench({
       ratio,
       quality,
       count,
-      model: model || undefined,
+      model: selectedModel?.model,
+      modelSource: selectedModel?.source,
       mode,
       image: mode === "edit" ? files[0] : undefined,
       referenceThumb,
     });
 
     if (ok) clearComposer();
-  }, [prompt, mode, files, ratio, quality, count, model, submit, clearComposer]);
+  }, [prompt, mode, files, ratio, quality, count, selectedModel, submit, clearComposer]);
 
   const selectConversation = useCallback(
     (id: string) => {
@@ -400,19 +426,18 @@ export function ImageWorkbench({
           ratio={ratio}
           quality={quality}
           count={count}
-          model={model}
-          models={models}
+          modelValue={selectedModel?.value ?? ""}
+          modelOptions={modelOptions}
           references={references}
           submitting={wb.submitting}
           stopping={wb.stopping}
-          useOwnKey={useOwnKey}
           unitCost={unitCost}
           onModeChange={setMode}
           onPromptChange={setPrompt}
           onRatioChange={setRatio}
           onQualityChange={setQuality}
           onCountChange={setCount}
-          onModelChange={setModel}
+          onModelChange={setModelValue}
           onPickFiles={addFiles}
           onPickMaterial={addMaterial}
           onRemoveReference={removeReference}

@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import {
 	ArrowRight,
+	Bot,
 	Coins,
 	FileText,
 	KeyRound,
@@ -34,9 +35,11 @@ import {
 	PPT_STATUS_LABELS,
 	PPT_USER_FAILURE_MESSAGE,
 } from "@/lib/ppt-agent/status";
+import type { ModuleModelOption } from "@/lib/module-model-options";
+import { cn } from "@/lib/utils";
 
 interface GenerationFormProps {
-	useOwnKey: boolean;
+	modelOptions: ModuleModelOption[];
 	creditsPerSlide: number;
 }
 
@@ -53,7 +56,7 @@ const DOCUMENT_ACCEPT =
 const TEMPLATE_ACCEPT = ".pptx,.pptm,.ppsx,.ppsm,.potx,.potm";
 
 export function GenerationForm({
-	useOwnKey,
+	modelOptions,
 	creditsPerSlide,
 }: GenerationFormProps) {
 	const router = useRouter();
@@ -66,6 +69,7 @@ export function GenerationForm({
 	const [style, setStyle] = useState("auto");
 	const [styleSource, setStyleSource] = useState<StyleSource>("preset");
 	const [customStyle, setCustomStyle] = useState("");
+	const [modelValue, setModelValue] = useState(modelOptions[0]?.value ?? "");
 	const [progress, setProgress] = useState(0);
 	const [phase, setPhase] = useState("任务正在排队");
 	const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -73,6 +77,9 @@ export function GenerationForm({
 	const [activeProjectId, setActiveProjectId] = useState("");
 	const cancelledRef = useRef(false);
 
+	const selectedModel =
+		modelOptions.find((option) => option.value === modelValue) ?? modelOptions[0];
+	const useOwnKey = selectedModel?.source === "user";
 	const estimatedCost = useMemo(
 		() => (useOwnKey ? 0 : slideCount * creditsPerSlide),
 		[creditsPerSlide, slideCount, useOwnKey],
@@ -105,6 +112,10 @@ export function GenerationForm({
 			toast.error("请填写自定义 PPT 风格描述。");
 			return;
 		}
+		if (!selectedModel) {
+			toast.error("暂无可用模型，请先在 API 设置中保存模型或联系管理员。");
+			return;
+		}
 
 		setLoading(true);
 		setProgress(0);
@@ -129,6 +140,8 @@ export function GenerationForm({
 					style: styleSource === "preset" ? style : styleSource,
 					customStyle:
 						styleSource === "custom" ? customStyle.trim() : undefined,
+					model: selectedModel.model,
+					modelSource: selectedModel.source,
 				}),
 			});
 
@@ -349,14 +362,18 @@ export function GenerationForm({
 									) : (
 										<Coins className="size-3.5" />
 									)}
-									{useOwnKey ? "自带 API" : `${creditsPerSlide} 积分 / 页`}
+									{!selectedModel
+										? "暂无可用模型"
+										: useOwnKey
+											? "自带 API"
+											: `${creditsPerSlide} 积分 / 页`}
 								</span>
 							</div>
 
 							<Button
 								type="submit"
 								size="icon"
-								disabled={loading || uploading}
+								disabled={loading || uploading || !selectedModel}
 								className="size-10 shrink-0 rounded-full"
 								title={loading ? "正在生成" : "开始生成"}
 							>
@@ -426,6 +443,36 @@ export function GenerationForm({
 						</Select>
 
 						<Select
+							value={selectedModel?.value}
+							onValueChange={setModelValue}
+							disabled={modelOptions.length === 0}
+						>
+							<SelectTrigger className="h-9 w-[220px] max-w-full bg-background">
+								<Bot className="size-3.5 text-muted-foreground" />
+								<SelectValue placeholder="暂无可用模型" />
+							</SelectTrigger>
+							<SelectContent>
+								{modelOptions.map((option) => (
+									<SelectItem key={option.value} value={option.value}>
+										<span className="flex min-w-0 items-center gap-2">
+											<span className="truncate">{option.model}</span>
+											<span
+												className={cn(
+													"shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
+													option.source === "user"
+														? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+														: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+												)}
+											>
+												{option.sourceLabel}
+											</span>
+										</span>
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+
+						<Select
 							value={styleSource === "custom" ? "custom" : style}
 							onValueChange={(value) => {
 								if (value === "custom") {
@@ -458,7 +505,11 @@ export function GenerationForm({
 						<div className="ml-auto flex h-9 items-center px-2 text-sm">
 							<span className="text-muted-foreground">预估</span>
 							<span className="ml-1.5 font-medium">
-								{useOwnKey ? "0 积分" : `${estimatedCost} 积分`}
+								{!selectedModel
+									? "--"
+									: useOwnKey
+										? "0 积分"
+										: `${estimatedCost} 积分`}
 							</span>
 						</div>
 					</div>

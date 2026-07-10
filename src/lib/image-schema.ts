@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ASPECT_RATIOS, MAX_IMAGE_COUNT } from "@/lib/providers/types";
 import { IMAGE_QUALITIES } from "@/lib/image-quality";
+import { MODEL_SOURCES } from "@/lib/module-model-options";
 
 // 图片工作台相关请求的共享校验。
 
@@ -12,6 +13,7 @@ export const generateTurnSchema = z.object({
   quality: z.enum(IMAGE_QUALITIES).default("standard"),
   count: z.number().int().min(1).max(MAX_IMAGE_COUNT).default(1),
   model: z.string().trim().min(1).max(100).optional(),
+  modelSource: z.enum(MODEL_SOURCES).optional(),
 });
 export type GenerateTurnInput = z.infer<typeof generateTurnSchema>;
 
@@ -23,6 +25,7 @@ export const editTurnFieldsSchema = z.object({
   quality: z.enum(IMAGE_QUALITIES).default("standard"),
   count: z.coerce.number().int().min(1).max(MAX_IMAGE_COUNT).default(1),
   model: z.string().trim().min(1).max(100).optional(),
+  modelSource: z.enum(MODEL_SOURCES).optional(),
 });
 
 // 会话重命名

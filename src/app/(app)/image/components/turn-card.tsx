@@ -105,6 +105,7 @@ export const TurnCard = memo(function TurnCard({ turn, index, onContinueEdit, on
               quality: qualityValue(turnQuality),
               count: turn.count,
               model: turn.model,
+              modelSource: turn.providerSource ?? undefined,
               durationMs: turn.durationMs,
             },
           }),
@@ -129,7 +130,14 @@ export const TurnCard = memo(function TurnCard({ turn, index, onContinueEdit, on
             promptText: turn.prompt,
             description: `来自第 ${index + 1} 轮图片生成`,
             visibility: "PRIVATE",
-            meta: { mode: turn.mode, ratio: turn.ratio, count: turn.count, model: turn.model, quality: qualityValue(turnQuality) },
+            meta: {
+              mode: turn.mode,
+              ratio: turn.ratio,
+              count: turn.count,
+              model: turn.model,
+              modelSource: turn.providerSource ?? undefined,
+              quality: qualityValue(turnQuality),
+            },
           }),
         });
         const data = await res.json().catch(() => ({}));
@@ -175,6 +183,7 @@ export const TurnCard = memo(function TurnCard({ turn, index, onContinueEdit, on
                 quality: qualityValue(turnQuality),
                 count: turn.count,
                 model: turn.model,
+                modelSource: turn.providerSource ?? undefined,
               })
             }
           >
@@ -273,6 +282,7 @@ export const TurnCard = memo(function TurnCard({ turn, index, onContinueEdit, on
                             quality: qualityValue(img.quality || turnQuality),
                             count: 1,
                             model: turn.model,
+                            modelSource: turn.providerSource ?? undefined,
                           })
                         }
                         title="生成相似图"

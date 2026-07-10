@@ -100,6 +100,8 @@ async function runPptMasterAgentInner(
 		projectId: params.projectId,
 		userId: params.userId,
 		projectDir: options.projectDir,
+		model: params.model,
+		modelSource: params.modelSource,
 	});
 	await emitProjectLog(
 		params.projectId,

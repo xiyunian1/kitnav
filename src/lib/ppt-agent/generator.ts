@@ -17,6 +17,7 @@ import {
 	importUploadedPptTemplateFiles,
 } from "./external-templates";
 import { emitProjectLog, updateProject } from "./project-log";
+import type { ModelSource } from "@/lib/module-model-options";
 
 export interface GenerationParams {
 	projectId: string;
@@ -37,6 +38,8 @@ export interface GenerationParams {
 	style?: string;
 	stylePrompt?: string;
 	styleLabel?: string;
+	model?: string;
+	modelSource?: ModelSource;
 	signal?: AbortSignal;
 }
 

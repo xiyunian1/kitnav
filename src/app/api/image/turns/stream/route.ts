@@ -48,6 +48,7 @@ export async function POST(req: Request) {
           quality: parsed.data.quality,
           count: parsed.data.count,
           model: parsed.data.model,
+          modelSource: parsed.data.modelSource,
           mode: "generate",
           signal: req.signal,
           onProgress: (event) => {

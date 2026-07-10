@@ -56,7 +56,6 @@ const PPT_THINKING_LABELS: Record<PptThinkingLevel, string> = {
 export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial }) {
   const router = useRouter();
   const [baseUrl, setBaseUrl] = useState(initial.baseUrl);
-  const [model, setModel] = useState(initial.model);
   const [selectedModels, setSelectedModels] = useState(
     (initial.models || initial.model)
       .split(/[,\n，、]+/)
@@ -122,7 +121,6 @@ export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial
         setModels(data.models);
         const next = preferredModels(data.models);
         setSelectedModels((prev) => (prev.length ? prev : next));
-        if (!model && next[0]) setModel(next[0]);
         toast.success(`获取到 ${data.models.length} 个模型`);
       } else {
         toast.error(`获取失败：${data.error || "未知错误"}`);
@@ -135,8 +133,9 @@ export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial
   }
 
   async function handleTest() {
-    if (!baseUrl || !model) {
-      toast.error("请填写 Base URL 并选择默认模型");
+    const testModel = selectedModels[0]?.trim();
+    if (!baseUrl || !testModel) {
+      toast.error("请填写 Base URL 并至少保存一个模型");
       return;
     }
     if (!apiKey && !initial.hasKey) {
@@ -149,7 +148,7 @@ export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial
         module: initial.module,
         baseUrl,
         apiKey: apiKey || undefined,
-        model,
+        model: testModel,
       });
       if (res.ok) toast.success("连接成功，上游可用");
       else toast.error(`连接失败：${res.error || "未知错误"}`);
@@ -159,8 +158,9 @@ export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial
   }
 
   function handleSave() {
-    if (!baseUrl || !model) {
-      toast.error("请填写 Base URL 和模型名");
+    const fallbackModel = selectedModels[0]?.trim();
+    if (!baseUrl || !fallbackModel) {
+      toast.error("请填写 Base URL 并至少保存一个模型");
       return;
     }
     if (!apiKey && !initial.hasKey) {
@@ -172,7 +172,7 @@ export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial
         module: initial.module as never,
         baseUrl,
         apiKey: apiKey || undefined,
-        model,
+        model: fallbackModel,
         models: selectedModels,
         modelMeta,
         modelOptions:
@@ -212,7 +212,7 @@ export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial
         </CardTitle>
         <p className="text-sm text-muted-foreground">
           {initial.description ||
-            "平台上游配置。用户未启用自己的 API 时，该模块走这套配置（按积分计费）。"}
+            "平台上游配置。保存并启用后，用户可在对应生成模块中选择这些平台模型。"}
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -251,10 +251,8 @@ export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial
           </Button>
         </div>
         <ModelSelector
-          defaultModel={model}
           selectedModels={selectedModels}
           candidateModels={models}
-          onDefaultModelChange={setModel}
           onSelectedModelsChange={setSelectedModels}
         />
         {initial.module === "PPT" && (

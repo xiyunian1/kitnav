@@ -22,6 +22,7 @@ import { MaterialPicker } from "@/components/materials/material-picker-trigger";
 import type { MaterialView } from "@/components/materials/material-types";
 import { cn } from "@/lib/utils";
 import type { PromptOptimizationResult, PromptOptimizeRequest } from "../types";
+import type { ModuleModelOption } from "@/lib/module-model-options";
 
 const PromptOptimizerDialog = dynamic(
   () => import("./prompt-optimizer-dialog").then((mod) => mod.PromptOptimizerDialog),
@@ -47,12 +48,11 @@ interface Props {
   ratio: string;
   quality: string;
   count: number;
-  model: string;
-  models: string[];
+  modelValue: string;
+  modelOptions: ModuleModelOption[];
   references: ReferencePreview[];
   submitting: boolean;
   stopping: boolean;
-  useOwnKey: boolean;
   unitCost: number;
   onModeChange: (mode: "generate" | "edit") => void;
   onPromptChange: (value: string) => void;
@@ -75,12 +75,11 @@ export function PromptComposer({
   ratio,
   quality,
   count,
-  model,
-  models,
+  modelValue,
+  modelOptions,
   references,
   submitting,
   stopping,
-  useOwnKey,
   unitCost,
   onModeChange,
   onPromptChange,
@@ -102,12 +101,24 @@ export function PromptComposer({
   const [optimizerOpen, setOptimizerOpen] = useState(false);
   // 首次打开后才挂载优化弹窗，配合 dynamic 按需加载
   const [optimizerMounted, setOptimizerMounted] = useState(false);
-  const canSubmit = prompt.trim().length > 0 && (mode === "generate" || references.length > 0) && !submitting;
+  const activeModel =
+    modelOptions.find((option) => option.value === modelValue) ?? modelOptions[0];
+  const canSubmit =
+    prompt.trim().length > 0 &&
+    (mode === "generate" || references.length > 0) &&
+    Boolean(activeModel) &&
+    !submitting;
   const qualityMeta =
     IMAGE_QUALITY_META[quality as keyof typeof IMAGE_QUALITY_META] ?? IMAGE_QUALITY_META.standard;
-  const totalCost = useOwnKey ? 0 : unitCost * qualityMeta.costMultiplier * count;
-  const activeModel = model || models[0] || "";
-  const settingsSummary = [ratio, `${count}张`, qualityMeta.label, activeModel].filter(Boolean).join(" · ");
+  const useOwnKey = activeModel?.source === "user";
+  const selectedUnitCost = activeModel?.creditCost ?? unitCost;
+  const totalCost = useOwnKey ? 0 : selectedUnitCost * qualityMeta.costMultiplier * count;
+  const settingsSummary = [
+    ratio,
+    `${count}张`,
+    qualityMeta.label,
+    activeModel ? `${activeModel.model} · ${activeModel.sourceLabel}` : "暂无模型",
+  ].join(" · ");
 
   function handlePaste(e: ClipboardEvent<HTMLTextAreaElement>) {
     const files = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/"));
@@ -287,25 +298,46 @@ export function PromptComposer({
                   </Select>
                 </div>
 
-                {models.length > 0 && (
+                {modelOptions.length > 0 ? (
                   <div className="space-y-2">
                     <Label>模型</Label>
-                    {models.length > 1 ? (
-                      <Select value={activeModel} onValueChange={onModelChange}>
+                    {modelOptions.length > 1 ? (
+                      <Select value={activeModel?.value} onValueChange={onModelChange}>
                         <SelectTrigger className="w-full">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {models.map((m) => (
-                            <SelectItem key={m} value={m}>
-                              {m}
+                          {modelOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              <span className="flex min-w-0 items-center gap-2">
+                                <span className="truncate">{option.model}</span>
+                                <span
+                                  className={cn(
+                                    "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
+                                    option.source === "user"
+                                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                                      : "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+                                  )}
+                                >
+                                  {option.sourceLabel}
+                                </span>
+                              </span>
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     ) : (
-                      <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">{models[0]}</div>
+                      <div className="flex items-center justify-between gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+                        <span className="min-w-0 truncate">{activeModel?.model}</span>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {activeModel?.sourceLabel}
+                        </span>
+                      </div>
                     )}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
+                    暂无可用模型，请先在 API 设置中保存模型或联系管理员。
                   </div>
                 )}
               </div>
@@ -315,7 +347,9 @@ export function PromptComposer({
 
         <div className="mt-3 shrink-0 space-y-3 border-t bg-card pt-3">
           <div className="rounded-lg bg-muted px-3 py-2 text-sm">
-            {useOwnKey ? (
+            {!activeModel ? (
+              <span className="text-muted-foreground">暂无可用模型</span>
+            ) : useOwnKey ? (
               <span className="text-green-600 dark:text-green-400">使用我的 API · 不消耗积分</span>
             ) : (
               <div className="flex items-center justify-between">
@@ -374,7 +408,7 @@ export function PromptComposer({
           ratio={ratio}
           quality={quality}
           count={count}
-          model={activeModel}
+          model={activeModel?.model ?? ""}
           submitting={submitting}
           onOpenChange={setOptimizerOpen}
           onOptimize={onOptimizePrompt}

@@ -25,7 +25,7 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
-  const { conversationId, prompt, ratio, quality, count, model } = parsed.data;
+  const { conversationId, prompt, ratio, quality, count, model, modelSource } = parsed.data;
 
   try {
     const turn = await runImageTurn({
@@ -36,6 +36,7 @@ export async function POST(req: Request) {
       quality,
       count,
       model,
+      modelSource,
       mode: "generate",
     });
     return NextResponse.json({ turn, conversationId: turn.conversationId });

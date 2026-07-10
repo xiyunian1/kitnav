@@ -14,6 +14,7 @@ import {
   type TurnStreamEvent,
 } from "../api";
 import type { ConversationSummary, ConversationDetail, Turn } from "../types";
+import type { ModelSource } from "@/lib/module-model-options";
 
 function getTurnErrorMessage(turn: Turn, fallback = "生成失败") {
   return turn.images.find((img) => img.status === "error" && img.error)?.error || turn.error || fallback;
@@ -61,6 +62,7 @@ export interface SubmitInput {
   quality: string;
   count: number;
   model?: string;
+  modelSource?: ModelSource;
   mode: "generate" | "edit";
   image?: File;
   referenceThumb?: string;
@@ -309,6 +311,7 @@ export function useImageWorkbench(initialBalance: number) {
                 quality: input.quality,
                 count: input.count,
                 model: input.model,
+                modelSource: input.modelSource,
                 image: input.image,
                 referenceThumb: input.referenceThumb,
             },
@@ -324,6 +327,7 @@ export function useImageWorkbench(initialBalance: number) {
                 quality: input.quality,
                 count: input.count,
                 model: input.model,
+                modelSource: input.modelSource,
             },
             handleEvent,
             { signal: controller.signal }

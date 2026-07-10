@@ -2,6 +2,7 @@ export {
   resolveImageProvider,
   resolveTextProvider,
   resolveBillingMode,
+  getModuleModelOptions,
   ProviderConfigInvalidError,
   ProviderNotConfiguredError,
 } from "./resolve";

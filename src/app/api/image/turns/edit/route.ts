@@ -33,6 +33,7 @@ export async function POST(req: Request) {
     quality: form.get("quality") || "standard",
     count: form.get("count") || "1",
     model: form.get("model") || undefined,
+    modelSource: form.get("modelSource") || undefined,
   });
   if (!parsed.success) {
     return NextResponse.json(
@@ -40,7 +41,7 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
-  const { conversationId, prompt, ratio, quality, count, model } = parsed.data;
+  const { conversationId, prompt, ratio, quality, count, model, modelSource } = parsed.data;
 
   const filename = image instanceof File && image.name ? image.name : "reference.png";
   const thumb = form.get("referenceThumb");
@@ -56,6 +57,7 @@ export async function POST(req: Request) {
       quality,
       count,
       model,
+      modelSource,
       mode: "edit",
       editImage: { blob: image, filename },
       referenceThumbs,

@@ -13,6 +13,8 @@ import { getStaleActiveProjectMs } from "@/lib/ppt-agent/timings";
 import { resolveUploadPath } from "@/lib/ppt-agent/upload-paths";
 import { rateLimitCheck, rateLimitResponse } from "@/lib/rate-limit";
 import { PPT_PROCESSING_STATUSES } from "@/lib/ppt-agent/status";
+import { MODEL_SOURCES } from "@/lib/module-model-options";
+import { ProviderConfigInvalidError } from "@/lib/providers";
 
 export const runtime = "nodejs";
 
@@ -47,6 +49,8 @@ const requestSchema = z
 		aspectRatio: z.enum(["16:9", "4:3"]).default("16:9"),
 		style: z.string().trim().min(1).max(80).default("auto"),
 		customStyle: z.string().trim().max(2000).optional(),
+		model: z.string().trim().min(1).max(100),
+		modelSource: z.enum(MODEL_SOURCES),
 	})
 	.superRefine((data, ctx) => {
 		if (
@@ -159,7 +163,29 @@ export async function POST(req: NextRequest) {
 		);
 	}
 
-	const billingMode = await resolvePptAgentBillingMode(session.user.id);
+	let billingMode: Awaited<ReturnType<typeof resolvePptAgentBillingMode>>;
+	try {
+		billingMode = await resolvePptAgentBillingMode(session.user.id, {
+			model: parsed.model,
+			source: parsed.modelSource,
+		});
+	} catch (error) {
+		return Response.json(
+			{
+				error:
+					error instanceof ProviderConfigInvalidError
+						? error.message
+						: "所选 PPT 模型不可用，请重新选择。",
+			},
+			{ status: 400 },
+		);
+	}
+	if (billingMode.source === "none") {
+		return Response.json(
+			{ error: "暂无可用 PPT 模型，请先在 API 设置中保存模型或联系管理员。" },
+			{ status: 503 },
+		);
+	}
 	const useOwnKey = billingMode.useOwnKey;
 	const creditsCost = useOwnKey
 		? 0
@@ -222,6 +248,8 @@ export async function POST(req: NextRequest) {
 		style: resolvedStyle.style,
 		stylePrompt: resolvedStyle.stylePrompt,
 		styleLabel: resolvedStyle.styleLabel,
+		model: billingMode.defaultModel,
+		modelSource: billingMode.source,
 	});
 
 	let projectId = "";
@@ -261,6 +289,7 @@ export async function POST(req: NextRequest) {
 					slideCount: parsed.slideCount,
 					aspectRatio: parsed.aspectRatio,
 					style: resolvedStyle.style,
+					model: billingMode.defaultModel,
 					params: storedParams,
 					projectPath: `projects/${id}`,
 					status: "QUEUED",

@@ -3,6 +3,8 @@ import { join } from "path";
 import { decrypt } from "@/lib/crypto";
 import { prisma } from "@/lib/db";
 import { parseModelList } from "@/lib/model-options";
+import { isModelEnabled, parseModelMeta } from "@/lib/model-meta";
+import type { ModelSource } from "@/lib/module-model-options";
 import {
 	normalizePptThinkingLevel,
 	parsePptModelOptions,
@@ -22,6 +24,7 @@ interface StoredPptProviderConfig {
 	apiKey: string;
 	model: string;
 	models: string | null;
+	modelMeta?: string | null;
 	modelOptions: string | null;
 }
 
@@ -29,6 +32,8 @@ export async function preparePptPiAgentConfig(input: {
 	projectId: string;
 	userId: string;
 	projectDir: string;
+	model?: string;
+	modelSource?: ModelSource;
 }): Promise<PreparedPiAgentConfig> {
 	const project = await prisma.pptProject.findUnique({
 		where: { id: input.projectId },
@@ -46,14 +51,23 @@ export async function preparePptPiAgentConfig(input: {
 		},
 	});
 
-	if (userCfg?.enabled) {
+	const requestedSource =
+		input.modelSource ?? (project?.usedOwnKey ? "user" : undefined);
+
+	if (requestedSource === "user" && !userCfg?.enabled) {
+		throw new Error(
+			"你的 PPT API 配置已关闭或不可用，请在「API 设置」里重新启用后再生成。",
+		);
+	}
+
+	if (requestedSource !== "platform" && userCfg?.enabled) {
 		return writePiConfig(input.projectDir, "user", {
 			baseUrl: userCfg.baseUrl,
 			apiKey: userCfg.apiKey,
 			model: userCfg.model,
 			models: userCfg.models,
 			modelOptions: userCfg.modelOptions,
-		});
+		}, input.model);
 	}
 
 	if (project?.usedOwnKey) {
@@ -69,6 +83,7 @@ export async function preparePptPiAgentConfig(input: {
 			apiKey: true,
 			model: true,
 			models: true,
+			modelMeta: true,
 			modelOptions: true,
 			enabled: true,
 		},
@@ -80,24 +95,34 @@ export async function preparePptPiAgentConfig(input: {
 	return writePiConfig(input.projectDir, "platform", {
 		baseUrl: platformCfg.baseUrl,
 		apiKey: platformCfg.apiKey,
-		model: process.env.PPT_PI_MODEL?.trim() || platformCfg.model,
+		model: platformCfg.model,
 		models: platformCfg.models,
+		modelMeta: platformCfg.modelMeta,
 		modelOptions: platformCfg.modelOptions,
-	});
+	}, input.model);
 }
 
 function writePiConfig(
 	projectDir: string,
 	source: "user" | "platform",
 	stored: StoredPptProviderConfig,
+	requestedModel?: string,
 ): PreparedPiAgentConfig {
 	const configDir = join(projectDir, ".pi-agent");
 	const provider =
 		source === "user" ? "ppt-user" : process.env.PPT_PI_PROVIDER || "ppt-platform";
-	const model = resolveDefaultModel(stored.model, stored.models);
+	const modelIds = resolveConfiguredModels(source, stored);
+	const model = requestedModel
+		? modelIds.includes(requestedModel)
+			? requestedModel
+			: ""
+		: modelIds.includes(stored.model)
+			? stored.model
+			: modelIds[0];
+	if (!model) {
+		throw new Error("所选 PPT 模型未保存、已停用或对应 API 配置不可用。");
+	}
 	const apiKey = decrypt(stored.apiKey);
-	const models = parseModelList(stored.models);
-	const modelIds = models.length ? models : [model];
 	const thinkingLevel = resolvePiThinkingLevel(stored.modelOptions);
 
 	mkdirSync(configDir, { recursive: true });
@@ -168,10 +193,15 @@ function writePiConfig(
 	return { configDir, provider, model, thinkingLevel, source };
 }
 
-function resolveDefaultModel(defaultModel: string, storedModels: string | null) {
-	const models = parseModelList(storedModels);
-	if (models.length === 0 || models.includes(defaultModel)) return defaultModel;
-	return models[0];
+function resolveConfiguredModels(
+	source: "user" | "platform",
+	stored: StoredPptProviderConfig,
+) {
+	const configured = parseModelList(stored.models);
+	const models = configured.length > 0 ? configured : [stored.model];
+	if (source === "user") return models;
+	const meta = parseModelMeta(stored.modelMeta);
+	return models.filter((model) => isModelEnabled(meta, model));
 }
 
 function numberEnv(name: string, fallback: number) {

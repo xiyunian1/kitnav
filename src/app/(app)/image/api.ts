@@ -1,4 +1,5 @@
 import type { ConversationSummary, ConversationDetail, Turn } from "./types";
+import type { ModelSource } from "@/lib/module-model-options";
 
 export type TurnStreamEvent =
   | { type: "created"; turn: Turn; conversationId: string }
@@ -77,6 +78,7 @@ export async function generateTurn(input: {
   quality?: string;
   count: number;
   model?: string;
+  modelSource?: ModelSource;
 }): Promise<{ turn: Turn; conversationId: string }> {
   const res = await fetch("/api/image/turns", {
     method: "POST",
@@ -120,6 +122,7 @@ export async function generateTurnStream(
     quality?: string;
     count: number;
     model?: string;
+    modelSource?: ModelSource;
   },
   onEvent: (event: TurnStreamEvent) => void,
   options?: { signal?: AbortSignal }
@@ -141,6 +144,7 @@ export async function editTurn(input: {
   quality?: string;
   count: number;
   model?: string;
+  modelSource?: ModelSource;
   image: File;
   referenceThumb?: string;
 }): Promise<{ turn: Turn; conversationId: string }> {
@@ -151,6 +155,7 @@ export async function editTurn(input: {
   form.append("quality", input.quality || "standard");
   form.append("count", String(input.count));
   if (input.model) form.append("model", input.model);
+  if (input.modelSource) form.append("modelSource", input.modelSource);
   form.append("image", input.image);
   if (input.referenceThumb) form.append("referenceThumb", input.referenceThumb);
 
@@ -167,6 +172,7 @@ export async function editTurnStream(
     quality?: string;
     count: number;
     model?: string;
+    modelSource?: ModelSource;
     image: File;
     referenceThumb?: string;
   },
@@ -180,6 +186,7 @@ export async function editTurnStream(
   form.append("quality", input.quality || "standard");
   form.append("count", String(input.count));
   if (input.model) form.append("model", input.model);
+  if (input.modelSource) form.append("modelSource", input.modelSource);
   form.append("image", input.image);
   if (input.referenceThumb) form.append("referenceThumb", input.referenceThumb);
 

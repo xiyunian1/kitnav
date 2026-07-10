@@ -2,6 +2,11 @@ import { prisma } from "@/lib/db";
 import { decrypt } from "@/lib/crypto";
 import { parseModelList } from "@/lib/model-options";
 import { getModelCreditCost, isModelEnabled, parseModelMeta } from "@/lib/model-meta";
+import {
+  buildModuleModelOptions,
+  type ModelSource,
+  type ModuleModelOption,
+} from "@/lib/module-model-options";
 import type { ModuleType } from "@prisma/client";
 import type { ProviderCredentials } from "./types";
 import { OpenAIImageProvider } from "./image-openai";
@@ -43,10 +48,12 @@ function resolveSelectedModel(defaultModel: string, storedModels: string | null,
   const meta = parseModelMeta(modelMeta);
   const models = parseModelList(storedModels);
   const allowed = (models.length > 0 ? models : [defaultModel]).filter((model) => isModelEnabled(meta, model));
-  if (allowed.length === 0) throw new Error("当前 API 配置没有启用的模型");
+  if (allowed.length === 0) {
+    throw new ProviderConfigInvalidError("当前 API 配置没有启用的模型");
+  }
   if (requestedModel) {
     if (!allowed.includes(requestedModel)) {
-      throw new Error("所选模型不在当前 API 配置中");
+      throw new ProviderConfigInvalidError("所选模型未保存或已停用");
     }
     return { model: requestedModel, models: allowed, creditCostOverride: getModelCreditCost(meta, requestedModel) };
   }
@@ -54,18 +61,49 @@ function resolveSelectedModel(defaultModel: string, storedModels: string | null,
   return { model, models: allowed, creditCostOverride: getModelCreditCost(meta, model) };
 }
 
-// 计费分流核心：决定本次图片生成走用户自带 key 还是平台上游。
-// 优先级：用户已启用的配置 > 平台已启用的配置 > 抛错（不再 mock 兜底）。
+export async function getModuleModelOptions(
+  userId: string,
+  module: ModuleType,
+): Promise<ModuleModelOption[]> {
+  const [userCfg, platformCfg] = await Promise.all([
+    prisma.userApiConfig.findUnique({
+      where: { userId_module: { userId, module } },
+      select: { enabled: true, model: true, models: true },
+    }),
+    prisma.providerConfig.findUnique({
+      where: { module },
+      select: { enabled: true, model: true, models: true, modelMeta: true },
+    }),
+  ]);
+
+  return buildModuleModelOptions([
+    ...(userCfg
+      ? [{ source: "user" as const, ...userCfg }]
+      : []),
+    ...(platformCfg
+      ? [{
+          source: "platform" as const,
+          enabled: platformCfg.enabled,
+          model: platformCfg.model,
+          models: platformCfg.models,
+          modelMeta: parseModelMeta(platformCfg.modelMeta),
+        }]
+      : []),
+  ]);
+}
+
+// 计费分流核心：显式来源优先；旧请求未传来源时继续兼容用户配置优先级。
 export async function resolveImageProvider(
   userId: string,
   module: ModuleType = "IMAGE",
-  requestedModel?: string
+  requestedModel?: string,
+  requestedSource?: ModelSource,
 ): Promise<ResolvedProvider> {
   // 1. 用户自带配置（已启用）→ 用用户 key，不扣分
   const userCfg = await prisma.userApiConfig.findUnique({
     where: { userId_module: { userId, module } },
   });
-  if (userCfg?.enabled) {
+  if (requestedSource !== "platform" && userCfg?.enabled) {
     const selected = resolveSelectedModel(userCfg.model, userCfg.models, requestedModel);
     let apiKey: string;
     try {
@@ -86,6 +124,9 @@ export async function resolveImageProvider(
       creditCostOverride: null,
       source: "user",
     };
+  }
+  if (requestedSource === "user") {
+    throw new ProviderConfigInvalidError("你的图片 API 配置未启用或不可用");
   }
 
   // 2. 平台上游配置（已启用）→ 用平台 key，扣积分
@@ -114,6 +155,9 @@ export async function resolveImageProvider(
       source: "platform",
     };
   }
+  if (requestedSource === "platform") {
+    throw new ProviderConfigInvalidError("平台图片 API 配置未启用或不可用");
+  }
 
   // 3. 都没配 → 抛错引导去配置
   throw new ProviderNotConfiguredError();
@@ -122,12 +166,13 @@ export async function resolveImageProvider(
 export async function resolveTextProvider(
   userId: string,
   module: ModuleType,
-  requestedModel?: string
+  requestedModel?: string,
+  requestedSource?: ModelSource,
 ): Promise<ResolvedTextProvider> {
   const userCfg = await prisma.userApiConfig.findUnique({
     where: { userId_module: { userId, module } },
   });
-  if (userCfg?.enabled) {
+  if (requestedSource !== "platform" && userCfg?.enabled) {
     const selected = resolveSelectedModel(userCfg.model, userCfg.models, requestedModel);
     let apiKey: string;
     try {
@@ -146,6 +191,9 @@ export async function resolveTextProvider(
       models: selected.models,
       source: "user",
     };
+  }
+  if (requestedSource === "user") {
+    throw new ProviderConfigInvalidError("你的 API 配置未启用或不可用");
   }
 
   const platformCfg = await prisma.providerConfig.findUnique({
@@ -176,47 +224,42 @@ export async function resolveTextProvider(
       source: "platform",
     };
   }
+  if (requestedSource === "platform") {
+    throw new ProviderConfigInvalidError("平台 API 配置未启用或不可用");
+  }
 
   throw new ProviderNotConfiguredError();
 }
 
-// 仅判定本次生成是否走用户自带 key（供页面预先显示计费提示，不构造 provider）。
+// 校验模块所选模型并判定是否走用户自带 key，不构造 provider。
 export async function resolveBillingMode(
   userId: string,
-  module: ModuleType = "IMAGE"
+  module: ModuleType = "IMAGE",
+  requestedModel?: string,
+  requestedSource?: ModelSource,
 ): Promise<{ useOwnKey: boolean; source: "user" | "platform" | "none"; models: string[]; defaultModel: string }> {
-  const userCfg = await prisma.userApiConfig.findUnique({
-    where: { userId_module: { userId, module } },
-    select: { enabled: true, model: true, models: true },
-  });
-  if (userCfg?.enabled) {
-    return {
-      useOwnKey: true,
-      source: "user",
-      defaultModel: userCfg.model,
-      models: parseModelList(userCfg.models).length ? parseModelList(userCfg.models) : [userCfg.model],
-    };
+  const options = await getModuleModelOptions(userId, module);
+  if (options.length === 0) {
+    return { useOwnKey: false, source: "none", models: [], defaultModel: "" };
   }
 
-  const platformCfg = await prisma.providerConfig.findUnique({
-    where: { module },
-    select: { enabled: true, model: true, models: true, modelMeta: true },
-  });
-  if (platformCfg?.enabled) {
-    const meta = parseModelMeta(platformCfg.modelMeta);
-    const configuredModels = parseModelList(platformCfg.models).length
-      ? parseModelList(platformCfg.models)
-      : [platformCfg.model];
-    const models = configuredModels.filter((model) => isModelEnabled(meta, model));
-    const defaultModel = models.includes(platformCfg.model) ? platformCfg.model : models[0] ?? "";
-
-    return {
-      useOwnKey: false,
-      source: "platform",
-      defaultModel,
-      models,
-    };
+  const selected = requestedModel || requestedSource
+    ? options.find(
+        (option) =>
+          (!requestedModel || option.model === requestedModel) &&
+          (!requestedSource || option.source === requestedSource),
+      )
+    : options[0];
+  if (!selected) {
+    throw new ProviderConfigInvalidError("所选模型未保存、已停用或对应 API 配置不可用");
   }
 
-  return { useOwnKey: false, source: "none", models: [], defaultModel: "" };
+  return {
+    useOwnKey: selected.source === "user",
+    source: selected.source,
+    defaultModel: selected.model,
+    models: options
+      .filter((option) => option.source === selected.source)
+      .map((option) => option.model),
+  };
 }

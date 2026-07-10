@@ -59,7 +59,7 @@ export default async function AdminApiConfigPage() {
       <Alert>
         <Info className="size-4" />
         <AlertDescription>
-          支持任何 OpenAI 兼容接口。用户走平台模型时使用这套配置（按积分计费）。Key 加密存储、不回显明文。可在同一个 API 下配置多个模型，创作台支持切换。
+          支持任何 OpenAI 兼容接口。已启用的平台模型会出现在对应生成模块中，并标记为“平台”（按积分计费）。Key 加密存储、不回显明文。
         </AlertDescription>
       </Alert>
 

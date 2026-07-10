@@ -59,7 +59,7 @@ export default async function ApiSettingsPage() {
       <Alert>
         <Info className="size-4" />
         <AlertDescription>
-          支持任何 OpenAI 兼容接口（官方、new-api/one-api 等聚合站）。开启某模块后，该模块将走你的 API、不扣积分；关闭则回到平台模型并按积分计费。你的 Key 加密存储，不会回显明文。
+          支持任何 OpenAI 兼容接口（官方、new-api/one-api 等聚合站）。开启后，已保存模型会出现在对应生成模块中；生成时可在“我的 API”和平台模型之间直接选择。使用自己的 API 不扣积分。你的 Key 加密存储，不会回显明文。
         </AlertDescription>
       </Alert>
 

@@ -1,4 +1,5 @@
 // 前端工作台类型（与后端 SerializedTurn 对齐，但不 import 服务端模块）
+import type { ModelSource } from "@/lib/module-model-options";
 
 export type TurnImageStatus = "queued" | "loading" | "success" | "error";
 export type TurnStatus = "PENDING" | "SUCCESS" | "FAILED";
@@ -19,6 +20,7 @@ export interface Turn {
   prompt: string;
   mode: "generate" | "edit";
   model: string;
+  providerSource: ModelSource | null;
   ratio: string;
   count: number;
   status: TurnStatus;
@@ -39,6 +41,7 @@ export interface ReuseTurnInput {
   quality?: string;
   count?: number;
   model?: string;
+  modelSource?: ModelSource;
 }
 
 export type PromptOptimizeMode =

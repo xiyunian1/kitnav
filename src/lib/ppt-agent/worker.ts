@@ -160,5 +160,7 @@ function rebuildGenerationParams(
 		style: stored.style,
 		stylePrompt: stored.stylePrompt,
 		styleLabel: stored.styleLabel,
+		model: stored.model,
+		modelSource: stored.modelSource,
 	};
 }

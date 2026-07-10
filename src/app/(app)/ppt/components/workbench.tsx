@@ -2,16 +2,17 @@
 
 import { GenerationForm } from "./generation-form";
 import { ProjectList, type ProjectListItem } from "./project-list";
+import type { ModuleModelOption } from "@/lib/module-model-options";
 
 interface Props {
   recentProjects: ProjectListItem[];
-  useOwnKey: boolean;
+  modelOptions: ModuleModelOption[];
   creditsPerSlide: number;
 }
 
 export function PptWorkbench({
   recentProjects,
-  useOwnKey,
+  modelOptions,
   creditsPerSlide,
 }: Props) {
   const projectListKey = recentProjects
@@ -21,7 +22,7 @@ export function PptWorkbench({
   return (
     <div className="space-y-14">
       <GenerationForm
-        useOwnKey={useOwnKey}
+        modelOptions={modelOptions}
         creditsPerSlide={creditsPerSlide}
       />
       <ProjectList key={projectListKey} projects={recentProjects} />

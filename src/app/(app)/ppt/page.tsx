@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth";
 import { requireModulePageAccess, getStaticModuleMeta } from "@/lib/module-controls";
 import { ModuleUnavailable } from "@/components/module-unavailable";
 import { prisma } from "@/lib/db";
-import { resolvePptAgentBillingMode } from "@/lib/ppt-agent/billing";
+import { getModuleModelOptions } from "@/lib/providers";
 import { getProjectSvgPreviews } from "@/lib/ppt-agent/paths";
 import { PptWorkbench } from "./components/workbench";
 
@@ -24,7 +24,7 @@ export default async function PptPage() {
     );
   }
 
-  const [projectRows, billingMode] = await Promise.all([
+  const [projectRows, modelOptions] = await Promise.all([
     prisma.pptProject.findMany({
       where: { userId: session!.user.id },
       orderBy: { createdAt: "desc" },
@@ -44,7 +44,7 @@ export default async function PptPage() {
         pptxPath: true,
       },
     }),
-    resolvePptAgentBillingMode(session!.user.id),
+    getModuleModelOptions(session!.user.id, "PPT"),
   ]);
 
   const recentProjects = await Promise.all(
@@ -70,7 +70,7 @@ export default async function PptPage() {
 
       <PptWorkbench
         recentProjects={recentProjects}
-        useOwnKey={billingMode.useOwnKey}
+        modelOptions={modelOptions}
         creditsPerSlide={creditsPerSlide}
       />
     </div>

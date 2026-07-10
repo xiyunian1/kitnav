@@ -31,6 +31,7 @@ export async function POST(req: Request) {
     quality: form.get("quality") || "standard",
     count: form.get("count") || "1",
     model: form.get("model") || undefined,
+    modelSource: form.get("modelSource") || undefined,
   });
   if (!parsed.success) {
     return NextResponse.json(
@@ -65,6 +66,7 @@ export async function POST(req: Request) {
           quality: parsed.data.quality,
           count: parsed.data.count,
           model: parsed.data.model,
+          modelSource: parsed.data.modelSource,
           mode: "edit",
           editImage: { blob: image, filename },
           referenceThumbs,

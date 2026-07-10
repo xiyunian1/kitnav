@@ -19,6 +19,7 @@ import { RATIO_TO_PIXEL, type AspectRatio } from "@/lib/providers/types";
 import { UpstreamImageError } from "@/lib/providers/types";
 import { saveImageFromUrl } from "@/lib/materials";
 import type { GenerationStatus, ImageTurn } from "@prisma/client";
+import type { ModelSource } from "@/lib/module-model-options";
 
 // 工作台单张图片的状态（与前端 StoredImage 对齐，存入 ImageTurn.images JSON）
 export interface TurnImage {
@@ -38,6 +39,7 @@ export interface SerializedTurn {
   prompt: string;
   mode: string;
   model: string;
+  providerSource: ModelSource | null;
   ratio: string;
   count: number;
   status: string;
@@ -166,6 +168,10 @@ export function serializeTurn(turn: ImageTurn): SerializedTurn {
     prompt: turn.prompt,
     mode: turn.mode,
     model: turn.model,
+    providerSource:
+      turn.providerSource === "user" || turn.providerSource === "platform"
+        ? turn.providerSource
+        : null,
     ratio: turn.ratio,
     count: turn.count,
     status: turn.status,
@@ -198,6 +204,7 @@ interface RunTurnOptions {
   quality: ImageQuality;
   count: number;
   model?: string;
+  modelSource?: ModelSource;
   mode: "generate" | "edit";
   // 图生图时提供：参考图二进制 + 文件名 + 展示缩略图
   editImage?: { blob: Blob; filename: string };
@@ -380,7 +387,12 @@ export async function runImageTurn(options: RunTurnOptions) {
   // 1. 分流（未配置 → 503）
   let resolved;
   try {
-    resolved = await resolveImageProvider(userId, "IMAGE", options.model);
+    resolved = await resolveImageProvider(
+      userId,
+      "IMAGE",
+      options.model,
+      options.modelSource,
+    );
   } catch (e) {
     if (e instanceof ProviderNotConfiguredError) {
       throw new TurnError(503, "图片服务尚未配置，请前往「API 设置」配置你的 API，或联系管理员");

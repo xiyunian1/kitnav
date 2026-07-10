@@ -5,13 +5,6 @@ import { Check, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -20,18 +13,14 @@ function normalize(list: string[]) {
 }
 
 interface Props {
-  defaultModel: string;
   selectedModels: string[];
   candidateModels: string[];
-  onDefaultModelChange: (model: string) => void;
   onSelectedModelsChange: (models: string[]) => void;
 }
 
 export function ModelSelector({
-  defaultModel,
   selectedModels,
   candidateModels,
-  onDefaultModelChange,
   onSelectedModelsChange,
 }: Props) {
   const [query, setQuery] = useState("");
@@ -39,8 +28,8 @@ export function ModelSelector({
 
   const selected = useMemo(() => normalize(selectedModels), [selectedModels]);
   const candidates = useMemo(
-    () => normalize([...candidateModels, ...selected, defaultModel ? defaultModel : ""]),
-    [candidateModels, selected, defaultModel]
+    () => normalize([...candidateModels, ...selected]),
+    [candidateModels, selected]
   );
 
   const filtered = candidates.filter((model) => {
@@ -49,11 +38,7 @@ export function ModelSelector({
   });
 
   function setSelected(next: string[]) {
-    const list = normalize(next);
-    onSelectedModelsChange(list);
-    if (defaultModel && !list.includes(defaultModel)) {
-      onDefaultModelChange(list[0] || "");
-    }
+    onSelectedModelsChange(normalize(next));
   }
 
   function toggle(model: string) {
@@ -64,7 +49,6 @@ export function ModelSelector({
     const value = manualModel.trim();
     if (!value) return;
     setSelected([...selected, value]);
-    if (!defaultModel) onDefaultModelChange(value);
     setManualModel("");
   }
 
@@ -74,30 +58,10 @@ export function ModelSelector({
         <div>
           <Label>模型配置</Label>
           <p className="mt-1 text-xs text-muted-foreground">
-            勾选创作台允许切换的模型，并指定进入创作台时的默认模型。
+            勾选并保存可在对应生成模块中使用的模型。
           </p>
         </div>
         <Badge variant="outline">{selected.length} 个已选</Badge>
-      </div>
-
-      <div className="space-y-2">
-        <Label>默认模型</Label>
-        <Select
-          value={defaultModel || undefined}
-          onValueChange={onDefaultModelChange}
-          disabled={selected.length === 0}
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="先勾选一个可用模型" />
-          </SelectTrigger>
-          <SelectContent>
-            {selected.map((model) => (
-              <SelectItem key={model} value={model}>
-                {model}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
       </div>
 
       <div className="flex gap-2">

@@ -2,7 +2,8 @@ import { auth } from "@/lib/auth";
 import { getSettingNumber } from "@/lib/credits";
 import { SETTING_KEYS } from "@/lib/settings-config";
 import { prisma } from "@/lib/db";
-import { resolveBillingMode } from "@/lib/providers";
+import { getModuleModelOptions } from "@/lib/providers";
+import type { ModelSource } from "@/lib/module-model-options";
 import { serializeMaterial } from "@/lib/materials";
 import { requireModulePageAccess, getStaticModuleMeta } from "@/lib/module-controls";
 import { ModuleUnavailable } from "@/components/module-unavailable";
@@ -49,6 +50,7 @@ export default async function ImagePage({
     quality?: string;
     count?: string;
     model?: string;
+    modelSource?: string;
   }>;
 }) {
   const session = await auth();
@@ -105,12 +107,24 @@ export default async function ImagePage({
     (typeof imageMeta.model === "string" ? imageMeta.model : undefined) ||
     params.model ||
     undefined;
+  const rawInitialModelSource =
+    (typeof promptMeta.modelSource === "string" ? promptMeta.modelSource : undefined) ||
+    (typeof imageMeta.modelSource === "string" ? imageMeta.modelSource : undefined) ||
+    params.modelSource;
+  const initialModelSource: ModelSource | undefined =
+    rawInitialModelSource === "user" || rawInitialModelSource === "platform"
+      ? rawInitialModelSource
+      : undefined;
 
-  const [unitCost, user, billing] = await Promise.all([
+  const [unitCost, user, modelOptions] = await Promise.all([
     getSettingNumber(SETTING_KEYS.IMAGE_CREDIT_COST),
     prisma.user.findUnique({ where: { id: userId }, select: { credits: true } }),
-    resolveBillingMode(userId, "IMAGE"),
+    getModuleModelOptions(userId, "IMAGE"),
   ]);
+  const sourceSummary = [
+    modelOptions.some((option) => option.source === "user") ? "我的 API" : "",
+    modelOptions.some((option) => option.source === "platform") ? "平台模型" : "",
+  ].filter(Boolean).join(" / ");
 
   return (
     <div className="flex min-h-[calc(100dvh-6rem)] flex-col gap-4 sm:min-h-[calc(100dvh-7rem)] md:h-[calc(100dvh-7rem)] md:min-h-0 md:overflow-hidden lg:h-[calc(100dvh-8rem)]">
@@ -120,21 +134,20 @@ export default async function ImagePage({
           <p className="text-muted-foreground">会话式创作，支持文生图与图生图</p>
         </div>
         <div className="rounded-full border bg-background px-3 py-1 text-xs text-muted-foreground">
-          {billing.useOwnKey ? "我的 API · 不消耗积分" : `平台模型 · ${unitCost} 积分/张`}
+          {sourceSummary || "暂无可用模型"}
         </div>
       </div>
       <ImageWorkbench
         unitCost={unitCost}
         credits={user?.credits ?? 0}
-        useOwnKey={billing.useOwnKey}
-        defaultModel={billing.defaultModel}
-        models={billing.models}
+        modelOptions={modelOptions}
         initialPrompt={initialPrompt}
         initialMode={initialMode}
         initialRatio={initialRatio}
         initialQuality={initialQuality}
         initialCount={initialCount}
         initialModel={initialModel}
+        initialModelSource={initialModelSource}
         initialImageMaterial={imageMaterial}
         initialPromptMaterial={promptMaterial}
       />

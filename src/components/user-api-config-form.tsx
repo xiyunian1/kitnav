@@ -49,7 +49,6 @@ const PPT_THINKING_LABELS: Record<PptThinkingLevel, string> = {
 export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
   const router = useRouter();
   const [baseUrl, setBaseUrl] = useState(initial.baseUrl);
-  const [model, setModel] = useState(initial.model);
   const [selectedModels, setSelectedModels] = useState(
     (initial.models || initial.model)
       .split(/[,\n，、]+/)
@@ -111,7 +110,6 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
         setModels(data.models);
         const next = preferredModels(data.models);
         setSelectedModels((prev) => (prev.length ? prev : next));
-        if (!model && next[0]) setModel(next[0]);
         toast.success(`获取到 ${data.models.length} 个模型`);
       } else {
         toast.error(`获取失败：${data.error || "未知错误"}`);
@@ -124,8 +122,9 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
   }
 
   async function handleTest() {
-    if (!baseUrl || !model) {
-      toast.error("请填写 Base URL 并选择默认模型");
+    const testModel = selectedModels[0]?.trim();
+    if (!baseUrl || !testModel) {
+      toast.error("请填写 Base URL 并至少保存一个模型");
       return;
     }
     if (!apiKey && !initial.hasKey) {
@@ -141,7 +140,7 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
           module: initial.module,
           baseUrl,
           apiKey,
-          model,
+          model: testModel,
         }),
       });
       const data = await res.json();
@@ -174,7 +173,7 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
         toast.error(data.error || "切换失败");
         return;
       }
-      toast.success(next ? "已启用我的 API" : "已切换为平台模型");
+      toast.success(next ? "已启用我的 API 模型" : "已隐藏我的 API 模型");
       router.refresh();
     } catch {
       setEnabled(previous);
@@ -185,8 +184,9 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
   }
 
   function handleSave() {
-    if (!baseUrl || !model) {
-      toast.error("请填写 Base URL 和模型名");
+    const fallbackModel = selectedModels[0]?.trim();
+    if (!baseUrl || !fallbackModel) {
+      toast.error("请填写 Base URL 并至少保存一个模型");
       return;
     }
     if (!apiKey && !initial.hasKey) {
@@ -201,7 +201,7 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
           module: initial.module,
           baseUrl,
           apiKey: apiKey || undefined,
-          model,
+          model: fallbackModel,
           models: selectedModels,
           modelOptions:
             initial.module === "PPT"
@@ -273,10 +273,8 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
           </Button>
         </div>
         <ModelSelector
-          defaultModel={model}
           selectedModels={selectedModels}
           candidateModels={models}
-          onDefaultModelChange={setModel}
           onSelectedModelsChange={setSelectedModels}
         />
         {initial.module === "PPT" && (
