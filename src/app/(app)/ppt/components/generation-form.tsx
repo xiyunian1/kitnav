@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import {
 	Select,
 	SelectContent,
@@ -16,6 +17,7 @@ import {
 	ArrowRight,
 	Bot,
 	Coins,
+	Eye,
 	FileText,
 	Image as ImageIcon,
 	KeyRound,
@@ -96,6 +98,7 @@ export function GenerationForm({
 	const [textVolume, setTextVolume] = useState<PptTextVolume>("balanced");
 	const [audience, setAudience] = useState<PptAudience>("general");
 	const [tone, setTone] = useState<PptTone>("natural");
+	const [visualReview, setVisualReview] = useState(false);
 	const [progress, setProgress] = useState(0);
 	const [phase, setPhase] = useState("任务正在排队");
 	const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -190,6 +193,8 @@ export function GenerationForm({
 						styleSource === "custom" ? customStyle.trim() : undefined,
 					model: selectedModel.model,
 					modelSource: selectedModel.source,
+					visualReview:
+						!hasUploadedTemplate && selectedModel.supportsVision && visualReview,
 					...(!hasUploadedTemplate && selectedImageModel
 						? {
 								imageModel: selectedImageModel.model,
@@ -515,7 +520,13 @@ export function GenerationForm({
 
 						<Select
 							value={selectedModel?.value}
-							onValueChange={setModelValue}
+							onValueChange={(value) => {
+								setModelValue(value);
+								const nextModel = modelOptions.find(
+									(option) => option.value === value,
+								);
+								if (!nextModel?.supportsVision) setVisualReview(false);
+							}}
 							disabled={modelOptions.length === 0}
 						>
 							<SelectTrigger className="h-9 w-[220px] max-w-full bg-background">
@@ -537,6 +548,11 @@ export function GenerationForm({
 											>
 												{option.sourceLabel}
 											</span>
+											{option.supportsVision && (
+												<span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+													视觉
+												</span>
+											)}
 										</span>
 									</SelectItem>
 								))}
@@ -593,7 +609,7 @@ export function GenerationForm({
 						</div>
 					</div>
 
-					<div className="grid gap-2 border-t bg-muted/15 px-3 py-2.5 sm:grid-cols-2 sm:px-4 lg:grid-cols-4">
+					<div className="grid gap-2 border-t bg-muted/15 px-3 py-2.5 sm:grid-cols-2 sm:px-4 lg:grid-cols-5">
 						<Select
 							value={
 								hasUploadedTemplate
@@ -684,6 +700,23 @@ export function GenerationForm({
 								))}
 							</SelectContent>
 						</Select>
+
+						<label className="flex h-9 min-w-0 items-center gap-2 rounded-md border bg-background px-3 text-sm">
+							<Eye className="size-3.5 shrink-0 text-muted-foreground" />
+							<span className="min-w-0 flex-1 truncate">视觉复核</span>
+							<Switch
+								aria-label="视觉复核"
+								checked={
+									!hasUploadedTemplate &&
+									Boolean(selectedModel?.supportsVision) &&
+									visualReview
+								}
+								disabled={
+									hasUploadedTemplate || !selectedModel?.supportsVision
+								}
+								onCheckedChange={setVisualReview}
+							/>
+						</label>
 					</div>
 
 					{loading && (

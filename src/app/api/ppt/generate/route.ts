@@ -73,6 +73,7 @@ const requestSchema = z
 		modelSource: z.enum(MODEL_SOURCES),
 		imageModel: z.string().trim().min(1).max(100).optional(),
 		imageModelSource: z.enum(MODEL_SOURCES).optional(),
+		visualReview: z.boolean().default(false),
 		textVolume: z.enum(PPT_TEXT_VOLUME_VALUES).default("balanced"),
 		audience: z.enum(PPT_AUDIENCE_VALUES).default("general"),
 		tone: z.enum(PPT_TONE_VALUES).default("natural"),
@@ -219,6 +220,12 @@ export async function POST(req: NextRequest) {
 			{ status: 503 },
 		);
 	}
+	if (parsed.visualReview && !billingMode.supportsVision) {
+		return Response.json(
+			{ error: "所选 PPT 模型未启用视觉能力，无法执行视觉复核。" },
+			{ status: 400 },
+		);
+	}
 	const textCreditsCost = billingMode.useOwnKey
 		? 0
 		: parsed.slideCount * Number(process.env.PPT_CREDITS_PER_SLIDE || 10);
@@ -252,6 +259,12 @@ export async function POST(req: NextRequest) {
 	if (uploadedTemplateFileUrls.some((file) => !isUploadedPptTemplateFile(file))) {
 		return Response.json(
 			{ error: "模板文件必须是 PPTX、PPTM、PPSX、PPSM、POTX 或 POTM 格式。" },
+			{ status: 400 },
+		);
+	}
+	if (uploadedTemplateFileUrls.length > 0 && parsed.visualReview) {
+		return Response.json(
+			{ error: "原生 PPTX 模板填充暂不支持视觉复核。" },
 			{ status: 400 },
 		);
 	}
@@ -335,6 +348,7 @@ export async function POST(req: NextRequest) {
 		imageModelSource,
 		imageCountLimit,
 		imageUnitCreditCost,
+		visualReview: parsed.visualReview,
 		textVolume: parsed.textVolume,
 		audience: parsed.audience,
 		tone: parsed.tone,

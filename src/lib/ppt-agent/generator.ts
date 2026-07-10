@@ -14,6 +14,7 @@ import { collectPptArtifactPaths } from "./artifacts";
 import { preparePptTemplateSelection } from "./templates";
 import { importExternalPptTemplateUrls } from "./external-templates";
 import { emitProjectLog, updateProject } from "./project-log";
+import { assertPptPythonRuntime } from "./python-tools";
 import {
 	resolvePptGenerationWorkflow,
 	stageNativePptTemplate,
@@ -51,6 +52,7 @@ export interface GenerationParams {
 	imageModelSource?: ModelSource;
 	imageCountLimit?: number;
 	imageUnitCreditCost?: number;
+	visualReview?: boolean;
 	textVolume?: PptTextVolume;
 	audience?: PptAudience;
 	tone?: PptTone;
@@ -77,6 +79,7 @@ export async function generatePPT(
 
 	try {
 		throwIfPptCancelled(params.signal);
+		await assertPptPythonRuntime();
 		await emitProjectLog(params.projectId, emit, "初始化 PPT Master 项目目录");
 		emit({ type: "phase", data: { phase: "PENDING", progress: 0 } });
 		await updateProject(params.projectId, {
@@ -135,6 +138,7 @@ export async function generatePPT(
 			workflow: PptGenerationWorkflow;
 			nativeTemplatePath?: string;
 			signal?: AbortSignal;
+			visualReview: boolean;
 			emit: EventEmitter;
 		} = {
 			projectDir,
@@ -169,6 +173,7 @@ export async function generatePPT(
 			workflow,
 			nativeTemplatePath: nativeTemplatePath || undefined,
 			signal: params.signal,
+			visualReview: Boolean(params.visualReview && workflow === "svg"),
 			emit,
 		};
 		throwIfPptCancelled(params.signal);

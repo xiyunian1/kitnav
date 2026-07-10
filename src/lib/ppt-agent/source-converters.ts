@@ -5,13 +5,12 @@ import { spawn } from "child_process";
 import { isIP } from "net";
 import { promises as dns } from "dns";
 import { getPptMasterSkillDir } from "./runtime-paths";
+import { getPptPythonCommand } from "./python-tools";
 import {
 	assertInsideUploadRoot,
 	getPptUploadRoot,
 	resolveUploadPath,
 } from "./upload-paths";
-
-const PYTHON_CMD = process.platform === "win32" ? "python" : "python3";
 
 const DOCUMENT_CONVERTERS: Record<
 	string,
@@ -163,7 +162,7 @@ async function executePython(
 	timeoutMs: number,
 ) {
 	return new Promise<void>((resolvePromise, reject) => {
-		const proc = spawn(PYTHON_CMD, [scriptPath, ...args], {
+		const proc = spawn(getPptPythonCommand(), [scriptPath, ...args], {
 			cwd: getPptMasterSkillDir(),
 			windowsHide: true,
 			env: { ...process.env, PYTHONIOENCODING: "utf-8" },

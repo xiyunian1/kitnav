@@ -5,7 +5,12 @@ PPT Master - Error Message Helper
 Provides user-friendly error messages and specific fix suggestions.
 """
 
+import argparse
 from typing import Dict, List, Optional
+
+from console_encoding import configure_utf8_stdio
+
+configure_utf8_stdio()
 
 
 class ErrorHelper:
@@ -70,10 +75,11 @@ class ErrorHelper:
             'severity': 'warning'
         },
         'viewbox_mismatch': {
-            'message': 'SVG viewBox does not match canvas format',
+            'message': 'SVG viewBox differs from the recorded canvas format',
             'solutions': [
                 'Check the viewBox attribute of SVG files',
-                'Ensure it matches the project canvas format',
+                'Treat the root viewBox as the actual canvas size',
+                'If the project metadata is stale, export will use the SVG viewBox',
                 'PPT 16:9 should be: viewBox="0 0 1280 720"',
                 'PPT 4:3 should be: viewBox="0 0 1024 768"',
                 'Reference: references/canvas-formats.md'
@@ -95,8 +101,8 @@ class ErrorHelper:
             'solutions': [
                 'Add the viewBox attribute to the SVG root element',
                 'Format: <svg viewBox="0 0 1280 720" ...>',
-                'Ensure width, height are consistent with viewBox',
-                'This is a mandatory requirement for SVG generation'
+                'Root width/height are optional compatibility attributes',
+                'The root viewBox is mandatory for SVG generation'
             ],
             'severity': 'error'
         },
@@ -261,7 +267,7 @@ class ErrorHelper:
             'message': 'Forbidden web font (@font-face) detected',
             'solutions': [
                 'Remove @font-face declarations',
-                'End every font-family stack with a PPT-safe pre-installed family',
+                'Use font-family stacks that export PPT-safe pre-installed typefaces',
                 'Example: font-family: "Microsoft YaHei", Arial, sans-serif'
             ],
             'severity': 'error'
@@ -285,9 +291,9 @@ class ErrorHelper:
             'severity': 'error'
         },
         'invalid_font': {
-            'message': 'Font stack does not end on a PPT-safe family',
+            'message': 'Font stack exports non-PPT-safe typefaces to PPTX',
             'solutions': [
-                'End the stack with a cross-platform pre-installed family',
+                'Use stacks whose exported Latin / EA typefaces are pre-installed',
                 'CJK: "Microsoft YaHei", sans-serif  |  SimSun, serif',
                 'Latin: Arial, sans-serif  |  "Times New Roman", serif',
                 'Mono: Consolas, "Courier New", monospace',
@@ -419,28 +425,45 @@ class ErrorHelper:
             print("-" * 80)
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
+    """Build the command-line parser."""
+    parser = argparse.ArgumentParser(
+        description="Look up PPT Master error messages and suggested fixes.",
+    )
+    parser.add_argument(
+        "error_type",
+        nargs="?",
+        choices=sorted(ErrorHelper.ERROR_SOLUTIONS),
+        help="Error type to explain",
+    )
+    parser.add_argument(
+        "context",
+        nargs="*",
+        metavar="key=value",
+        help="Optional context values used by templates",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
     """Run the CLI entry point for error lookup."""
-    import sys
+    parser = build_parser()
+    args = parser.parse_args(argv)
 
-    if len(sys.argv) > 1:
-        error_type = sys.argv[1]
-        if error_type in {'-h', '--help', 'help'}:
-            ErrorHelper.print_help()
-            return
-
-        context = {}
-
-        # Parse context parameters
-        for arg in sys.argv[2:]:
-            if '=' in arg:
-                key, value = arg.split('=', 1)
-                context[key] = value
-
-        print(ErrorHelper.format_error_message(error_type, context))
-    else:
+    if not args.error_type:
         ErrorHelper.print_help()
+        return 0
+
+    context = {}
+    for item in args.context:
+        if '=' not in item:
+            parser.error(f"context values must use key=value syntax: {item}")
+        key, value = item.split('=', 1)
+        context[key] = value
+
+    print(ErrorHelper.format_error_message(args.error_type, context))
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

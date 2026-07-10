@@ -45,7 +45,7 @@ ENV HOSTNAME=0.0.0.0
 ENV PORT=3001
 ENV PATH="/opt/ppt-venv/bin:${PATH}"
 ENV PI_CODING_AGENT_DIR=/app/data/pi-agent
-RUN apk add --no-cache bash cairo fd fontconfig gdk-pixbuf libstdc++ openssl p7zip pango python3 ripgrep ttf-dejavu \
+RUN apk add --no-cache bash cairo fd font-noto-cjk fontconfig gdk-pixbuf libstdc++ openssl p7zip pango python3 ripgrep ttf-dejavu \
   && npm install -g --no-audit --no-fund "@earendil-works/pi-coding-agent@${PI_CODING_AGENT_VERSION}" \
   && npm cache clean --force \
   && if ! command -v 7z >/dev/null 2>&1; then \

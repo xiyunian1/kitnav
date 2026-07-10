@@ -7,6 +7,7 @@ import { isModelEnabled, parseModelMeta } from "@/lib/model-meta";
 import type { ModelSource } from "@/lib/module-model-options";
 import {
 	normalizePptThinkingLevel,
+	isPptVisionModel,
 	parsePptModelOptions,
 	type PptThinkingLevel,
 } from "@/lib/ppt-agent/model-options";
@@ -17,6 +18,7 @@ export interface PreparedPiAgentConfig {
 	model: string;
 	thinkingLevel: PptThinkingLevel;
 	source: "user" | "platform";
+	supportsVision: boolean;
 }
 
 interface StoredPptProviderConfig {
@@ -123,7 +125,9 @@ function writePiConfig(
 		throw new Error("所选 PPT 模型未保存、已停用或对应 API 配置不可用。");
 	}
 	const apiKey = decrypt(stored.apiKey);
+	const modelOptions = parsePptModelOptions(stored.modelOptions);
 	const thinkingLevel = resolvePiThinkingLevel(stored.modelOptions);
+	const supportsVision = isPptVisionModel(modelOptions, model);
 
 	mkdirSync(configDir, { recursive: true });
 	writeFileSync(
@@ -157,7 +161,9 @@ function writePiConfig(
 							id,
 							name: id,
 							reasoning: resolvePiReasoningEnabled(),
-							input: ["text"],
+							input: isPptVisionModel(modelOptions, id)
+								? ["text", "image"]
+								: ["text"],
 							contextWindow: numberEnv("PPT_PI_CONTEXT_WINDOW", 128000),
 							maxTokens: numberEnv("PPT_PI_MAX_TOKENS", 16384),
 							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -190,7 +196,7 @@ function writePiConfig(
 		{ encoding: "utf8", mode: 0o600 },
 	);
 
-	return { configDir, provider, model, thinkingLevel, source };
+	return { configDir, provider, model, thinkingLevel, source, supportsVision };
 }
 
 function resolveConfiguredModels(

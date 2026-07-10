@@ -24,6 +24,7 @@ export const PPT_TONE_VALUES = [
 export type PptTextVolume = (typeof PPT_TEXT_VOLUME_VALUES)[number];
 export type PptAudience = (typeof PPT_AUDIENCE_VALUES)[number];
 export type PptTone = (typeof PPT_TONE_VALUES)[number];
+export type PptDeliveryPurpose = "presentation" | "balanced" | "text";
 
 interface ContentOption<T extends string> {
   id: T;
@@ -116,6 +117,12 @@ export function getPptAudienceOption(value?: string) {
 
 export function getPptToneOption(value?: string) {
   return PPT_TONE_OPTIONS.find((option) => option.id === value) ?? PPT_TONE_OPTIONS[0];
+}
+
+export function getPptDeliveryPurpose(value?: string): PptDeliveryPurpose {
+  if (value === "concise") return "presentation";
+  if (value === "detailed") return "text";
+  return "balanced";
 }
 
 export function buildPptContentInstruction(input: PptContentPreferences = {}) {

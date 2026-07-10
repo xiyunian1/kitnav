@@ -4,11 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "npm run ppt-master:verify && prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "ppt-master:check-env": "node scripts/check-ppt-env.mjs",
+    "ppt-master:verify": "tsx scripts/verify-ppt-master-upstream.ts",
     "postinstall": "prisma generate",
     "prod:check-env": "tsx scripts/check-production-env.ts",
     "prod:backup": "tsx scripts/backup-production-data.ts",
@@ -30,6 +32,7 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "saxes": "^6.0.0",
+    "sharp": "^0.34.5",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",
     "zod": "^4.4.3"

@@ -2,7 +2,7 @@ export const PPT_IMAGE_MODEL_NONE = "none";
 
 export function getPptImageCountLimit(slideCount: number) {
 	const normalized = Number.isFinite(slideCount) ? Math.round(slideCount) : 10;
-	return Math.min(4, Math.max(2, Math.ceil(normalized / 3)));
+	return Math.min(8, Math.max(2, Math.ceil(normalized / 3)));
 }
 
 export function getPptImageUnitCreditCost(input: {

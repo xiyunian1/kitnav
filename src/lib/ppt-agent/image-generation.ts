@@ -17,6 +17,8 @@ import { assertSafePublicUrl } from "./source-converters";
 
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const ALLOWED_IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
+const IMAGE_ANALYSIS_CSV_HEADER =
+	"No,Filename,Width,Height,AspectRatio,PixelAspectRatio,RatioSource,UsageCount,DisplayRatioVariants,AssetKind,SvgRenderable,PptxNativeSupported,SizeKB,Category,ImageArea_SxS,TextArea_SxS";
 
 export interface PptImageManifestItem {
 	filename: string;
@@ -47,12 +49,23 @@ export interface GeneratePptManifestImagesInput {
 
 export interface GeneratePptManifestImagesResult {
 	generatedCount: number;
+	failedCount: number;
 	plannedCount: number;
 	manifestPath: string;
 }
 
 export function hasPptImageManifest(projectDir: string) {
 	return existsSync(join(projectDir, "images", "image_prompts.json"));
+}
+
+export function ensurePptImageAnalysisCsv(projectDir: string, forceEmpty = false) {
+	const analysisDir = join(projectDir, "analysis");
+	const csvPath = join(analysisDir, "image_analysis.csv");
+	if (forceEmpty || !existsSync(csvPath)) {
+		mkdirSync(analysisDir, { recursive: true });
+		writeFileSync(csvPath, `${IMAGE_ANALYSIS_CSV_HEADER}\n`, "utf-8");
+	}
+	return csvPath;
 }
 
 export function readPptImageManifest(
@@ -131,23 +144,12 @@ export async function generatePptManifestImages(
 	mkdirSync(outputDir, { recursive: true });
 
 	const results = await Promise.allSettled(
-		manifest.items.map(async (item) => {
-			throwIfAborted(input.signal);
-			const generated = await input.provider.generate({
-				prompt: item.prompt,
-				size: imageSizeForAspectRatio(item.aspect_ratio),
-				count: 1,
-				signal: input.signal,
-				timeoutMs: input.requestTimeoutMs,
-			});
-			const url = generated.urls[0];
-			if (!url) throw new Error("上游未返回图片");
-			const image = await readGeneratedImage(url, input.signal);
-			return { item, image };
-		}),
+		manifest.items.map((item) => generateManifestItem(input, item)),
 	);
+	throwIfAborted(input.signal);
 
 	let generatedCount = 0;
+	let failedCount = 0;
 	const outputFilenames = new Set<string>();
 	results.forEach((result, index) => {
 		const item = manifest.items[index];
@@ -176,22 +178,47 @@ export async function generatePptManifestImages(
 				// The manifest receives the same generic failure as provider errors.
 			}
 		}
-		item.status = "Failed";
-		item.last_error = "图片生成失败";
+		item.status = "Needs-Manual";
+		item.last_error = "图片生成失败，已自动重试 1 次";
+		delete item.generated_at;
+		delete item.model;
+		failedCount += 1;
 	});
 	writeManifestAtomically(manifestPath, manifest);
 
-	if (generatedCount !== manifest.items.length) {
-		throw new Error(
-			`PPT 图片生成失败：成功 ${generatedCount}/${manifest.items.length} 张。`,
-		);
-	}
-
 	return {
 		generatedCount,
+		failedCount,
 		plannedCount: manifest.items.length,
 		manifestPath,
 	};
+}
+
+async function generateManifestItem(
+	input: GeneratePptManifestImagesInput,
+	item: PptImageManifestItem,
+) {
+	let lastError: unknown;
+	for (let attempt = 0; attempt < 2; attempt += 1) {
+		throwIfAborted(input.signal);
+		try {
+			const generated = await input.provider.generate({
+				prompt: item.prompt,
+				size: imageSizeForAspectRatio(item.aspect_ratio),
+				count: 1,
+				signal: input.signal,
+				timeoutMs: input.requestTimeoutMs,
+			});
+			const url = generated.urls[0];
+			if (!url) throw new Error("上游未返回图片");
+			const image = await readGeneratedImage(url, input.signal);
+			return { item, image };
+		} catch (error) {
+			throwIfAborted(input.signal);
+			lastError = error;
+		}
+	}
+	throw lastError instanceof Error ? lastError : new Error("图片生成失败");
 }
 
 function isManifestStatus(

@@ -47,6 +47,7 @@ describe("buildModuleModelOptions", () => {
           "enabled-model": { creditCost: 12, note: "高清模型" },
           "disabled-model": { enabled: false, creditCost: 1 },
         },
+        visionModels: ["enabled-model"],
       },
     ]);
 
@@ -57,6 +58,7 @@ describe("buildModuleModelOptions", () => {
         source: "platform",
         sourceLabel: "平台",
         creditCost: 12,
+        supportsVision: true,
         note: "高清模型",
       },
     ]);
@@ -78,5 +80,6 @@ describe("buildModuleModelOptions", () => {
 
     expect(options).toHaveLength(1);
     expect(options[0]?.value).toBe(moduleModelValue("platform", "legacy-platform-model"));
+    expect(options[0]?.supportsVision).toBe(false);
   });
 });

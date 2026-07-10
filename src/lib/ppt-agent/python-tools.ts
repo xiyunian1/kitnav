@@ -6,6 +6,54 @@ import { getPptMasterSkillDir } from "./runtime-paths";
 const PYTHON_CMD =
 	process.env.PPT_PYTHON_CMD?.trim() ||
 	(process.platform === "win32" ? "python" : "python3");
+let pythonRuntimeCheck: Promise<void> | undefined;
+
+export function getPptPythonCommand() {
+	return PYTHON_CMD;
+}
+
+export function assertPptPythonRuntime() {
+	pythonRuntimeCheck ??= new Promise<void>((resolvePromise, reject) => {
+		const proc = spawn(
+			PYTHON_CMD,
+			[
+				"-c",
+				"import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
+			],
+			{ windowsHide: true },
+		);
+		let output = "";
+		const timer = setTimeout(() => {
+			proc.kill();
+			reject(new Error(`PPT Python 版本检查超时：${PYTHON_CMD}`));
+		}, 10_000);
+		proc.stdout.on("data", (data) => {
+			output += data.toString();
+		});
+		proc.on("error", () => {
+			clearTimeout(timer);
+			reject(
+				new Error(
+					`PPT Master 需要 Python 3.10+，当前命令不可用：${PYTHON_CMD}。请配置 PPT_PYTHON_CMD。`,
+				),
+			);
+		});
+		proc.on("close", (code) => {
+			clearTimeout(timer);
+			const [major, minor] = output.trim().split(".").map(Number);
+			if (code === 0 && (major > 3 || (major === 3 && minor >= 10))) {
+				resolvePromise();
+				return;
+			}
+			reject(
+				new Error(
+					`PPT Master v3.1.0 需要 Python 3.10+，${PYTHON_CMD} 当前为 ${output.trim() || "未知版本"}。请配置 PPT_PYTHON_CMD。`,
+				),
+			);
+		});
+	});
+	return pythonRuntimeCheck;
+}
 
 function getSkillDir(skillDir?: string) {
 	return skillDir || getPptMasterSkillDir();

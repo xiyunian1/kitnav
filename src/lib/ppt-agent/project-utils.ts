@@ -110,6 +110,7 @@ export function ensureProjectStructure(
 	mkdirSync(join(projectDir, "svg_output"), { recursive: true });
 	mkdirSync(join(projectDir, "svg_final"), { recursive: true });
 	mkdirSync(join(projectDir, "images"), { recursive: true });
+	mkdirSync(join(projectDir, "analysis"), { recursive: true });
 	mkdirSync(join(projectDir, "notes"), { recursive: true });
 	mkdirSync(join(projectDir, "templates"), { recursive: true });
 	mkdirSync(join(projectDir, "sources"), { recursive: true });

@@ -11,6 +11,7 @@ import type { ModuleType } from "@prisma/client";
 import type { ProviderCredentials } from "./types";
 import { OpenAIImageProvider } from "./image-openai";
 import { OpenAITextProvider } from "./text-openai";
+import { parsePptModelOptions } from "@/lib/ppt-agent/model-options";
 
 // 未配置任何可用的图片 API 时抛出。route 层捕获后返回 503 + 引导文案。
 export class ProviderNotConfiguredError extends Error {
@@ -68,17 +69,24 @@ export async function getModuleModelOptions(
   const [userCfg, platformCfg] = await Promise.all([
     prisma.userApiConfig.findUnique({
       where: { userId_module: { userId, module } },
-      select: { enabled: true, model: true, models: true },
+      select: { enabled: true, model: true, models: true, modelOptions: true },
     }),
     prisma.providerConfig.findUnique({
       where: { module },
-      select: { enabled: true, model: true, models: true, modelMeta: true },
+      select: { enabled: true, model: true, models: true, modelMeta: true, modelOptions: true },
     }),
   ]);
 
   return buildModuleModelOptions([
     ...(userCfg
-      ? [{ source: "user" as const, ...userCfg }]
+      ? [{
+          source: "user" as const,
+          ...userCfg,
+          visionModels:
+            module === "PPT"
+              ? parsePptModelOptions(userCfg.modelOptions).visionModels
+              : [],
+        }]
       : []),
     ...(platformCfg
       ? [{
@@ -87,6 +95,10 @@ export async function getModuleModelOptions(
           model: platformCfg.model,
           models: platformCfg.models,
           modelMeta: parseModelMeta(platformCfg.modelMeta),
+          visionModels:
+            module === "PPT"
+              ? parsePptModelOptions(platformCfg.modelOptions).visionModels
+              : [],
         }]
       : []),
   ]);
@@ -237,10 +249,10 @@ export async function resolveBillingMode(
   module: ModuleType = "IMAGE",
   requestedModel?: string,
   requestedSource?: ModelSource,
-): Promise<{ useOwnKey: boolean; source: "user" | "platform" | "none"; models: string[]; defaultModel: string }> {
+): Promise<{ useOwnKey: boolean; source: "user" | "platform" | "none"; models: string[]; defaultModel: string; supportsVision: boolean }> {
   const options = await getModuleModelOptions(userId, module);
   if (options.length === 0) {
-    return { useOwnKey: false, source: "none", models: [], defaultModel: "" };
+    return { useOwnKey: false, source: "none", models: [], defaultModel: "", supportsVision: false };
   }
 
   const selected = requestedModel || requestedSource
@@ -258,6 +270,7 @@ export async function resolveBillingMode(
     useOwnKey: selected.source === "user",
     source: selected.source,
     defaultModel: selected.model,
+    supportsVision: selected.supportsVision,
     models: options
       .filter((option) => option.source === selected.source)
       .map((option) => option.model),

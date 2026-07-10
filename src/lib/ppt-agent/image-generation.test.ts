@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ImageProvider } from "@/lib/providers/types";
 import {
+	ensurePptImageAnalysisCsv,
 	generatePptManifestImages,
 	readPptImageManifest,
 } from "./image-generation";
@@ -64,7 +65,8 @@ describe("PPT image generation", () => {
 		expect(isPptImageGenerationEnabled({ workflow: "svg" })).toBe(false);
 		expect(getPptImageCountLimit(3)).toBe(2);
 		expect(getPptImageCountLimit(10)).toBe(4);
-		expect(getPptImageCountLimit(30)).toBe(4);
+		expect(getPptImageCountLimit(18)).toBe(6);
+		expect(getPptImageCountLimit(30)).toBe(8);
 		expect(
 			getPptImageUnitCreditCost({
 				source: "platform",
@@ -111,6 +113,8 @@ describe("PPT image generation", () => {
 		});
 
 		expect(result.generatedCount).toBe(2);
+		expect(result.failedCount).toBe(0);
+		expect(result.plannedCount).toBe(2);
 		expect(generate).toHaveBeenCalledTimes(2);
 		const manifestText = readFileSync(result.manifestPath, "utf-8");
 		expect(manifestText).not.toContain(provider.secretApiKey);
@@ -152,7 +156,7 @@ describe("PPT image generation", () => {
 		);
 	});
 
-	it("stores only a generic manifest error when the provider fails", async () => {
+	it("retries a failed image once before succeeding", async () => {
 		const projectDir = createProject([
 			{
 				filename: "cover.png",
@@ -161,26 +165,118 @@ describe("PPT image generation", () => {
 				status: "Pending",
 			},
 		]);
+		const generate = vi
+			.fn()
+			.mockRejectedValueOnce(new Error("temporary upstream failure"))
+			.mockResolvedValueOnce({ urls: [PNG_DATA_URL] });
+		const provider = { name: "mock", generate } as ImageProvider;
+
+		const result = await generatePptManifestImages({
+			projectDir,
+			provider,
+			model: "chosen-image-model",
+			maxImages: 4,
+		});
+
+		expect(generate).toHaveBeenCalledTimes(2);
+		expect(result).toEqual(
+			expect.objectContaining({ generatedCount: 1, failedCount: 0 }),
+		);
+		const manifest = JSON.parse(
+			readFileSync(result.manifestPath, "utf-8"),
+		) as { items: Array<{ status: string }> };
+		expect(manifest.items[0].status).toBe("Generated");
+	});
+
+	it("marks exhausted items Needs-Manual and keeps successful images", async () => {
+		const projectDir = createProject([
+			{
+				filename: "cover.png",
+				prompt: "cover",
+				aspect_ratio: "16:9",
+				status: "Pending",
+			},
+			{
+				filename: "detail.png",
+				prompt: "detail",
+				aspect_ratio: "4:3",
+				status: "Pending",
+			},
+		]);
+		let coverAttempts = 0;
 		const provider: ImageProvider = {
 			name: "mock",
-			generate: vi.fn(async () => {
-				throw new Error("sensitive upstream response");
+			generate: vi.fn(async ({ prompt }) => {
+				if (prompt === "cover") {
+					coverAttempts += 1;
+					throw new Error(`sensitive upstream response ${coverAttempts}`);
+				}
+				return { urls: [PNG_DATA_URL] };
 			}),
 		};
 
-		await expect(
-			generatePptManifestImages({
-				projectDir,
-				provider,
-				model: "chosen-image-model",
-				maxImages: 4,
+		const result = await generatePptManifestImages({
+			projectDir,
+			provider,
+			model: "chosen-image-model",
+			maxImages: 4,
+		});
+		expect(result).toEqual(
+			expect.objectContaining({
+				generatedCount: 1,
+				failedCount: 1,
+				plannedCount: 2,
 			}),
-		).rejects.toThrow("成功 0/1 张");
+		);
+		expect(provider.generate).toHaveBeenCalledTimes(3);
 		const manifestText = readFileSync(
 			join(projectDir, "images", "image_prompts.json"),
 			"utf-8",
 		);
-		expect(manifestText).toContain("图片生成失败");
+		expect(manifestText).toContain("Needs-Manual");
+		expect(manifestText).toContain("已自动重试 1 次");
 		expect(manifestText).not.toContain("sensitive upstream response");
+		expect(readFileSync(join(projectDir, "images", "detail.png"))).toEqual(
+			Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+		);
+	});
+
+	it("propagates cancellation instead of degrading it to a missing image", async () => {
+		const projectDir = createProject([
+			{
+				filename: "cover.png",
+				prompt: "cover",
+				aspect_ratio: "16:9",
+				status: "Pending",
+			},
+		]);
+		const generate = vi.fn(async () => ({ urls: [PNG_DATA_URL] }));
+		const controller = new AbortController();
+		controller.abort(new Error("用户已停止生成"));
+
+		await expect(
+			generatePptManifestImages({
+				projectDir,
+				provider: { name: "mock", generate },
+				model: "chosen-image-model",
+				maxImages: 4,
+				signal: controller.signal,
+			}),
+		).rejects.toThrow("用户已停止生成");
+		expect(generate).not.toHaveBeenCalled();
+	});
+
+	it("creates an empty analysis inventory when no image was generated", () => {
+		const projectDir = createProject([]);
+		mkdirSync(join(projectDir, "analysis"), { recursive: true });
+		writeFileSync(
+			join(projectDir, "analysis", "image_analysis.csv"),
+			"stale,image,row\n",
+			"utf-8",
+		);
+		const csvPath = ensurePptImageAnalysisCsv(projectDir, true);
+		const csv = readFileSync(csvPath, "utf-8");
+		expect(csv).toContain("Filename,Width,Height");
+		expect(csv.trim().split("\n")).toHaveLength(1);
 	});
 });

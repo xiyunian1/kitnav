@@ -72,6 +72,7 @@ export const apiConfigSchema = z.object({
   modelOptions: z
     .object({
       thinkingLevel: z.enum(PPT_THINKING_LEVELS).optional(),
+      visionModels: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
     })
     .optional(),
   enabled: z.boolean().default(false),

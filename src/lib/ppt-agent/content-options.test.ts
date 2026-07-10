@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPptContentInstruction,
   getPptAudienceOption,
+  getPptDeliveryPurpose,
   getPptTextVolumeOption,
   getPptToneOption,
 } from "./content-options";
@@ -30,5 +31,12 @@ describe("PPT content options", () => {
     expect(getPptTextVolumeOption("unknown").id).toBe("balanced");
     expect(getPptAudienceOption("unknown").id).toBe("general");
     expect(getPptToneOption("unknown").id).toBe("natural");
+  });
+
+  it("maps text volume to the official delivery purpose", () => {
+    expect(getPptDeliveryPurpose("concise")).toBe("presentation");
+    expect(getPptDeliveryPurpose("balanced")).toBe("balanced");
+    expect(getPptDeliveryPurpose("detailed")).toBe("text");
+    expect(getPptDeliveryPurpose("unknown")).toBe("balanced");
   });
 });

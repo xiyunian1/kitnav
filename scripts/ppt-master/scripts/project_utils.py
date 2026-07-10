@@ -6,10 +6,16 @@ Provides common functions for project information parsing and validation,
 reusable by other tools.
 """
 
+import argparse
 import re
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
+from xml.etree import ElementTree as ET
+
+from console_encoding import configure_utf8_stdio
+
+configure_utf8_stdio()
 
 # Canvas format definitions (unified source)
 try:
@@ -318,7 +324,6 @@ def validate_svg_viewbox(svg_files: List[Path], expected_format: Optional[str] =
         List of warnings
     """
     warnings = []
-    viewbox_pattern = re.compile(r'viewBox="([^"]+)"')
     viewboxes = set()
 
     # Determine expected viewBox
@@ -328,27 +333,28 @@ def validate_svg_viewbox(svg_files: List[Path], expected_format: Optional[str] =
 
     for svg_file in svg_files[:10]:  # Check first 10 files
         try:
-            with open(svg_file, 'r', encoding='utf-8') as f:
-                content = f.read(2000)  # Only read first 2000 characters
-                match = viewbox_pattern.search(content)
-                if match:
-                    viewbox = match.group(1)
-                    viewboxes.add(viewbox)
+            viewbox = ET.parse(svg_file).getroot().get('viewBox')
+            if viewbox:
+                viewboxes.add(viewbox)
 
-                    # If expected format is specified, check for match
-                    if expected_viewbox and viewbox != expected_viewbox:
-                        warnings.append(
-                            f"{svg_file.name}: viewBox '{viewbox}' does not match expected format "
-                            f"'{expected_format}' (expected: '{expected_viewbox}')"
-                        )
-                else:
-                    warnings.append(f"{svg_file.name}: viewBox attribute not found")
+                # If expected format is specified, check for match
+                if expected_viewbox and viewbox != expected_viewbox:
+                    warnings.append(
+                        f"{svg_file.name}: root viewBox '{viewbox}' differs from recorded "
+                        f"project format '{expected_format}' ({expected_viewbox}); export uses "
+                        f"the SVG viewBox as the canvas size"
+                    )
+            else:
+                warnings.append(f"{svg_file.name}: root viewBox attribute not found")
         except Exception as e:
             warnings.append(f"{svg_file.name}: Failed to read - {e}")
 
     # Check for multiple different viewBoxes
     if len(viewboxes) > 1:
-        warnings.append(f"Multiple different viewBox settings detected: {viewboxes}")
+        warnings.append(
+            f"Multiple different root viewBox settings detected: {viewboxes}; "
+            "confirm this mixed-canvas project is intentional"
+        )
 
     return warnings
 
@@ -438,45 +444,47 @@ def get_project_stats(project_path: str) -> Dict:
     return stats
 
 
+def build_parser() -> argparse.ArgumentParser:
+    """Build the command-line parser for the diagnostic entry point."""
+    parser = argparse.ArgumentParser(description="Inspect and validate a PPT Master project.")
+    parser.add_argument("project_path", help="Project directory")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the diagnostic CLI entry point."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    project_path = args.project_path
+    info = get_project_info(project_path)
+
+    print(f"\nProject Info: {info['dir_name']}")
+    print("=" * 60)
+    print(f"Project Name: {info['name']}")
+    print(f"Canvas Format: {info['format_name']} ({info['format']})")
+    print(f"Created: {info['date_formatted']}")
+    print(f"SVG Files: {info['svg_count']}")
+    print(f"README: {'Yes' if info['has_readme'] else 'No'}")
+    print(f"Design Spec: {'Yes' if info['has_spec'] else 'No'}")
+
+    print("\nValidation Results:")
+    print("-" * 60)
+    is_valid, errors, warnings = validate_project_structure(project_path)
+
+    if errors:
+        print("[ERROR]")
+        for error in errors:
+            print(f"  - {error}")
+
+    if warnings:
+        print("[WARN]")
+        for warning in warnings:
+            print(f"  - {warning}")
+
+    if is_valid and not warnings:
+        print("[OK] Project structure is complete, no issues found")
+    return 0 if is_valid else 1
+
+
 if __name__ == '__main__':
-    # Test code
-    import sys
-
-    def print_usage() -> None:
-        print("Usage: python3 project_utils.py <project_path>")
-
-    if len(sys.argv) > 1:
-        if sys.argv[1] in {'-h', '--help', 'help'}:
-            print_usage()
-            sys.exit(0)
-
-        project_path = sys.argv[1]
-        info = get_project_info(project_path)
-
-        print(f"\nProject Info: {info['dir_name']}")
-        print("=" * 60)
-        print(f"Project Name: {info['name']}")
-        print(f"Canvas Format: {info['format_name']} ({info['format']})")
-        print(f"Created: {info['date_formatted']}")
-        print(f"SVG Files: {info['svg_count']}")
-        print(f"README: {'Yes' if info['has_readme'] else 'No'}")
-        print(f"Design Spec: {'Yes' if info['has_spec'] else 'No'}")
-
-        print("\nValidation Results:")
-        print("-" * 60)
-        is_valid, errors, warnings = validate_project_structure(project_path)
-
-        if errors:
-            print("[ERROR]")
-            for error in errors:
-                print(f"  - {error}")
-
-        if warnings:
-            print("[WARN]")
-            for warning in warnings:
-                print(f"  - {warning}")
-
-        if is_valid and not warnings:
-            print("[OK] Project structure is complete, no issues found")
-    else:
-        print_usage()
+    raise SystemExit(main())

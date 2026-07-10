@@ -36,6 +36,7 @@ export interface UserConfigInitial {
   maskedKey: string;
   modelOptions?: {
     thinkingLevel?: PptThinkingLevel;
+    visionModels?: string[];
   };
 }
 
@@ -59,6 +60,9 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
   const [enabled, setEnabled] = useState(initial.enabled);
   const [thinkingLevel, setThinkingLevel] = useState<PptThinkingLevel>(
     normalizePptThinkingLevel(initial.modelOptions?.thinkingLevel)
+  );
+  const [visionModels, setVisionModels] = useState<string[]>(
+    initial.modelOptions?.visionModels ?? []
   );
   const [saving, startSave] = useTransition();
   const [testing, setTesting] = useState(false);
@@ -207,6 +211,7 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
             initial.module === "PPT"
               ? {
                   thinkingLevel,
+                  visionModels: visionModels.filter((model) => selectedModels.includes(model)),
                 }
               : undefined,
           enabled,
@@ -278,8 +283,9 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
           onSelectedModelsChange={setSelectedModels}
         />
         {initial.module === "PPT" && (
-          <div className="space-y-2 rounded-lg border p-3">
-            <Label>推理强度</Label>
+          <div className="space-y-4 rounded-lg border p-3">
+            <div className="space-y-2">
+              <Label>推理强度</Label>
             <Select
               value={thinkingLevel}
               onValueChange={(value) => setThinkingLevel(normalizePptThinkingLevel(value))}
@@ -295,9 +301,29 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">
-              用于 PPT 生成 agent 的思考强度。越高通常质量更稳，但耗时和上游消耗也会增加。
-            </p>
+            </div>
+            <div className="space-y-2">
+              <Label>视觉模型</Label>
+              {selectedModels.map((model) => (
+                <label
+                  key={model}
+                  className="flex min-h-9 items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm"
+                >
+                  <span className="min-w-0 truncate">{model}</span>
+                  <Switch
+                    aria-label={`${visionModels.includes(model) ? "关闭" : "开启"}视觉能力：${model}`}
+                    checked={visionModels.includes(model)}
+                    onCheckedChange={(checked) =>
+                      setVisionModels((current) =>
+                        checked
+                          ? Array.from(new Set([...current, model]))
+                          : current.filter((item) => item !== model)
+                      )
+                    }
+                  />
+                </label>
+              ))}
+            </div>
           </div>
         )}
         <div className="flex flex-col gap-2 sm:flex-row">

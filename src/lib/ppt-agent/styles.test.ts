@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   buildAutoCreativeInstruction,
   buildPptStyleInstruction,
+  getPptMasterStyleContract,
   getPptStylePreset,
+  PPT_MASTER_MODE_VALUES,
+  PPT_MASTER_VISUAL_STYLE_VALUES,
+  PPT_STYLE_PRESETS,
 } from "./styles";
 
 describe("PPT auto creative style", () => {
@@ -11,7 +15,7 @@ describe("PPT auto creative style", () => {
     expect(getPptStylePreset("unknown").id).toBe("auto");
   });
 
-  it("is deterministic for the same project", () => {
+  it("uses the official catalogs for automatic selection", () => {
     const first = buildAutoCreativeInstruction({
       projectId: "project-repeatable",
       sourceText: "Agent 学习路线",
@@ -22,10 +26,10 @@ describe("PPT auto creative style", () => {
     });
 
     expect(first).toBe(second);
-    expect(first).toContain("候选视觉方向：");
-    expect(first).toContain("最终选择：");
+    expect(first).toContain("references/modes/_index.md");
+    expect(first).toContain("references/visual-styles/_index.md");
     expect(first).toContain("当前输入较短");
-    expect(first).not.toContain("#1565C0");
+    expect(first).not.toMatch(/#[0-9A-F]{6}/i);
   });
 
   it("uses a generated direction when style is omitted", () => {
@@ -36,18 +40,20 @@ describe("PPT auto creative style", () => {
     });
 
     expect(instruction).toContain("风格名称：自动创意");
-    expect(instruction).toContain("候选视觉方向：");
+    expect(instruction).toContain("官方模式与视觉风格目录");
   });
 
-  it("varies the selected visual direction across project ids", () => {
-    const outputs = ["project-a", "project-b", "project-c", "project-d"].map(
-      (projectId) => buildAutoCreativeInstruction({ projectId }),
-    );
-    const selections = outputs.map(
-      (output) => output.match(/最终选择：(.+)/)?.[1],
-    );
-
-    expect(new Set(selections).size).toBeGreaterThan(1);
+  it("maps every preset to official catalog ids or auto", () => {
+    for (const preset of PPT_STYLE_PRESETS) {
+      expect(
+        preset.mode === "auto" || PPT_MASTER_MODE_VALUES.includes(preset.mode),
+      ).toBe(true);
+      expect(
+        preset.visualStyle === "auto" ||
+          preset.visualStyle === "custom" ||
+          PPT_MASTER_VISUAL_STYLE_VALUES.includes(preset.visualStyle),
+      ).toBe(true);
+    }
   });
 
   it("does not inject a generated direction when a template is present", () => {
@@ -58,7 +64,7 @@ describe("PPT auto creative style", () => {
     });
 
     expect(instruction).toContain("优先遵循上传模板");
-    expect(instruction).not.toContain("候选视觉方向：");
+    expect(instruction).toContain("PPT Master 官方设计契约");
   });
 
   it("keeps an explicitly selected preset unchanged", () => {
@@ -70,6 +76,20 @@ describe("PPT auto creative style", () => {
 
     expect(instruction).toContain("风格名称：通用演示");
     expect(instruction).toContain("白底或浅色背景");
-    expect(instruction).not.toContain("候选视觉方向：");
+    expect(instruction).toContain("mode: briefing");
+    expect(instruction).toContain("visual_style: soft-rounded");
+  });
+
+  it("preserves custom visual intent in the official escape hatch", () => {
+    const contract = getPptMasterStyleContract(
+      "custom",
+      "使用窄边框、强留白和纸张纹理",
+    );
+
+    expect(contract).toEqual({
+      mode: "auto",
+      visualStyle: "custom",
+      visualStyleBehavior: "使用窄边框、强留白和纸张纹理",
+    });
   });
 });

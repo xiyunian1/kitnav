@@ -166,6 +166,7 @@ function rebuildGenerationParams(
 		imageModelSource: stored.imageModelSource,
 		imageCountLimit: stored.imageCountLimit,
 		imageUnitCreditCost: stored.imageUnitCreditCost,
+		visualReview: stored.visualReview,
 		textVolume: stored.textVolume,
 		audience: stored.audience,
 		tone: stored.tone,

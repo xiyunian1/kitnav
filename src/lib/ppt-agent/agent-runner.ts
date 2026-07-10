@@ -30,8 +30,11 @@ import {
 	getPptScriptPath,
 	splitNotes,
 } from "./python-tools";
-import { getPptMasterSkillDir } from "./runtime-paths";
-import { getPptStyleLabel } from "./styles";
+import {
+	getPptMasterSkillDir,
+	getPptMasterUpstreamVersion,
+} from "./runtime-paths";
+import { getPptMasterStyleContract, getPptStyleLabel } from "./styles";
 import { throwIfPptCancelled } from "./cancellation";
 import {
 	preparePptPiAgentConfig,
@@ -41,6 +44,7 @@ import type { EventEmitter, GenerationParams } from "./generator";
 import {
 	buildPptContentInstruction,
 	getPptAudienceOption,
+	getPptDeliveryPurpose,
 	getPptTextVolumeOption,
 	getPptToneOption,
 } from "./content-options";
@@ -50,10 +54,19 @@ import { getSettingNumber } from "@/lib/credits";
 import { SETTING_KEYS } from "@/lib/settings-config";
 import { refundPptProjectCreditsAmount } from "./refund";
 import {
+	ensurePptImageAnalysisCsv,
 	generatePptManifestImages,
 	hasPptImageManifest,
 } from "./image-generation";
 import { isPptImageGenerationEnabled } from "./image-options";
+import {
+	assertPptVisualReviewImagesRead,
+	backupPptVisualReviewSlides,
+	batchPptVisualReviewSlides,
+	renderPptSlidesForVisualReview,
+	restorePptVisualReviewSlides,
+	type PptVisualReviewSlide,
+} from "./visual-review";
 
 export interface AgentRunResult {
 	pptxPath: string;
@@ -72,6 +85,7 @@ interface RunnerOptions {
 	workflow: PptGenerationWorkflow;
 	nativeTemplatePath?: string;
 	signal?: AbortSignal;
+	visualReview: boolean;
 	emit: EventEmitter;
 }
 
@@ -118,6 +132,14 @@ async function runPptMasterAgentInner(
 	const skillFile = join(sourceSkillDir, "SKILL.md");
 	if (!existsSync(skillFile)) {
 		throw new Error(`PPT Master skill 缺少 SKILL.md：${skillFile}`);
+	}
+	const upstreamVersion = getPptMasterUpstreamVersion();
+	if (upstreamVersion) {
+		await emitProjectLog(
+			params.projectId,
+			options.emit,
+			`PPT Master 上游版本：${upstreamVersion.ref} / ${upstreamVersion.commit.slice(0, 12)}`,
+		);
 	}
 	const skillDir = prepareProjectSkillDir(options.projectDir, sourceSkillDir);
 	const piConfig = await preparePptPiAgentConfig({
@@ -204,7 +226,7 @@ async function runPptMasterAgentInner(
 			);
 		}
 		clearPrematureSlideOutputs(options.projectDir);
-		await runSelectedImageGeneration(params, options);
+		await runSelectedImageGeneration(params, options, skillDir);
 
 		if (currentTurn >= maxTurns) {
 			throw new Error("PPT Master 图片规划已完成，但没有剩余轮次继续生成幻灯片。");
@@ -291,6 +313,23 @@ async function runPptMasterAgentInner(
 		}
 	}
 
+	await verifyAgentOutputWithSkill(params.projectId, options, skillDir);
+	if (options.workflow === "svg" && options.visualReview) {
+		if (!piConfig.supportsVision) {
+			throw new Error("所选 PPT 模型不支持图片输入，无法执行视觉复核。");
+		}
+		await runHostedVisualReview({
+			params,
+			options,
+			skillDir,
+			promptPath,
+			piConfig,
+			previous: result,
+			firstReviewTurn: maxTurns + 1,
+		});
+		await verifyAgentOutputWithSkill(params.projectId, options, skillDir);
+	}
+
 	options.emit({ type: "phase", data: { phase: "EXPORTING", progress: 90 } });
 	throwIfPptCancelled(options.signal);
 	await updateProject(params.projectId, {
@@ -299,9 +338,16 @@ async function runPptMasterAgentInner(
 		progress: 90,
 	});
 
-	await verifyAgentOutputWithSkill(params.projectId, options, skillDir);
-
 	let pptxPath = findLatestPptx(options.projectDir);
+	if (options.workflow === "svg" && options.visualReview) {
+		await emitProjectLog(
+			params.projectId,
+			options.emit,
+			"视觉复核已结束，服务器重新执行 Step 7 导出 PPTX",
+		);
+		await runServerSideExport(options.projectDir, skillDir);
+		pptxPath = findLatestPptx(options.projectDir);
+	}
 	if (
 		options.workflow === "svg" &&
 		!pptxPath &&
@@ -355,16 +401,25 @@ function buildSvgGenerationPrompt(
 	const textVolume = getPptTextVolumeOption(params.textVolume);
 	const audience = getPptAudienceOption(params.audience);
 	const tone = getPptToneOption(params.tone);
+	const deliveryPurpose = getPptDeliveryPurpose(params.textVolume);
+	const styleContract = getPptMasterStyleContract(
+		params.style,
+		params.stylePrompt,
+	);
+	const finalizationRequirement = options.visualReview
+		? "- 本任务已启用服务器托管视觉复核。完成全部 SVG、notes 和 svg_quality_checker.py 后立即停止本轮；不要运行 total_md_split.py、finalize_svg.py 或 svg_to_pptx.py，服务器会在看图复核后统一导出。"
+		: "- 最终阶段必须按 Step 7 依次运行 total_md_split.py、finalize_svg.py、svg_to_pptx.py，并在 exports/ 下生成可编辑 PPTX。";
 	const imageInstructions = params.imageModel
 		? [
-				`- 本任务已选择图片生成模型。规划阶段必须在 images/image_prompts.json 中安排 1-${params.imageCountLimit || 1} 张真正有助于叙事的 AI 图片。`,
-				"- 图片清单必须使用 PPT Master manifest schema；每项 status 写 Pending，文件名只使用安全的英文、数字、下划线或短横线，并以 .png 结尾。",
-				"- 第一阶段只完成 design_spec.md、spec_lock.md 和 images/image_prompts.json。不要调用 image_gen.py，不要调用网页搜图，不要生成 SVG，不要导出 PPTX；写完清单后立即结束本轮。",
-				"- 图片 API 由服务器在两阶段之间调用。不要查找、读取、请求或记录任何图片 API Key。",
-			]
-		: [
-				"- 本任务未启用 AI 图片。不得创建 ai 类型图片任务，不得调用 image_gen.py；可以按 skill 规则使用 SVG 图形或必要的公开网页素材。",
-			];
+					`- 本任务已选择图片生成模型。规划阶段必须在 images/image_prompts.json 中安排 1-${params.imageCountLimit || 1} 张真正有助于叙事的 AI 图片。`,
+					"- 图片清单必须使用 PPT Master manifest schema；每项 status 写 Pending，文件名只使用安全的英文、数字、下划线或短横线，并以 .png 结尾。",
+					"- 第一阶段只完成 design_spec.md、spec_lock.md 和 images/image_prompts.json。不要调用 image_gen.py，不要调用网页搜图，不要生成 SVG，不要导出 PPTX；写完清单后立即结束本轮。",
+					"- 官方图片路径锁定为 host-native；服务器会负责实际生成，并补齐 image_prompts.md 与 image_analysis.csv。",
+					"- 图片 API 由服务器在两阶段之间调用。不要查找、读取、请求或记录任何图片 API Key。",
+				]
+			: [
+					"- 本任务未启用 AI 图片。不得创建 ai 或 web 类型图片任务，不得调用 image_gen.py 或 image_search.py；项目内已有用户图片可标记为 provided/user，否则 image_usage 锁定为 none。",
+				];
 	return [
 		"# PPT Master Server Task",
 		"",
@@ -373,14 +428,16 @@ function buildSvgGenerationPrompt(
 		"## Hard Requirements",
 		"",
 		"- 先完整阅读 PPT Master skill 文件，再执行工作流。",
-		"- 本任务的用户输入已经在站内表单确认过。下面的 `USER CONFIRMS` 行就是 Step 4 Blocking Gate 的显式用户确认；不要再向用户请求确认。",
-		"- 如果 workflow 文档要求输出 Eight Confirmations，请把它们写入 `design_spec.md` 的 planning context 或日志，然后继续执行。不要把“请确认”作为最终回答。",
+		"- 本任务的用户输入已经在站内表单确认过。下面的 `USER CONFIRMS` 行就是 Step 4 Strategist confirmation stage 的显式用户确认；不要再向用户请求确认。",
+		"- Hosted confirmation override: 用户明确选择站内表单作为确认界面，不要启动 `confirm_ui/server.py`，不要等待本地网页。按 SKILL 的 chat-fallback/opt-out 路径处理，并把下方参数视为三阶段最终确认值。",
+		"- 如果 workflow 文档要求输出 Strategist confirmation recommendations，请把最终值及选择理由写入 `design_spec.md` 的 planning context 或日志，然后继续执行。不要把“请确认”作为最终回答。",
+		"- `mode` 与 `visual_style` 必须使用官方目录 id。参数为 auto 时，先读对应 `_index.md` 后选择并锁定一个 id；参数非 auto 时直接锁定，不得改写为站内中文风格名。",
 		"- 所有可见幻灯片文字必须使用简体中文。只有 AI、API、LLM、SaaS、PPTX 等无法自然翻译的产品名或技术缩写可以保留英文。",
 		"- 进入幻灯片生成阶段后，使用真实项目文件作为上下文，逐页顺序生成 SVG。不要写脚本批量生成 SVG，不要只生成占位页。",
 		"- 每页 SVG 生成前必须重新读取 `spec_lock.md`。",
 		"- 如果存在 `template_refs/template-map.md`，必须采用模板底稿优先工作流：先读取 `template_refs/template-map.md`，每页生成前读取对应 `template_refs/target_XX_from_slide_YY.svg`，在该 SVG 结构上替换内容并保留模板版式骨架、背景、主装饰、卡片、阴影、页眉页脚和空间比例；禁止只提取颜色后从空白页重画。",
 		"- 质量检查必须通过；如果 `svg_quality_checker.py` 报 error，修复后重跑。",
-		"- 最终阶段必须按 Step 7 依次运行 `total_md_split.py`、`finalize_svg.py`、`svg_to_pptx.py`，并在 `exports/` 下生成可编辑 PPTX。",
+		finalizationRequirement,
 		"- 不要修改项目目录以外的任何文件。只允许写入当前 PPT 项目目录。",
 		"- 如果需要临时修复 PPT Master 工具脚本，只能修改 `Project path` 下的 `.ppt-master-skill/` 私有副本，禁止编辑仓库源码的 `scripts/ppt-master/`。",
 		"- Hosted-mode override: 本站前端会直接预览 `svg_output/`，不要启动长期运行的 `svg_editor/server.py` live preview 服务；这一步视为由站内 SSE 预览替代。",
@@ -395,18 +452,24 @@ function buildSvgGenerationPrompt(
 		"",
 		"## Confirmed Parameters",
 		"",
-		"USER CONFIRMS: I approve the eight confirmations and continuous mode. Continue all remaining steps now without asking another question.",
+		"USER CONFIRMS: I approve the hosted Strategist confirmation values, continuous generation mode, and refine_spec=false. Continue without opening the Confirm UI or asking another question.",
 		`- Canvas: ${options.aspectRatio} (${options.canvasFormat})`,
 		`- Target slide count: ${options.slideCount}`,
 		`- Style: ${options.styleLabel || styleLabel(options.style)}`,
+		`- Official communication mode: ${styleContract.mode}`,
+		`- Official visual style: ${styleContract.visualStyle}`,
+		styleContract.visualStyleBehavior
+			? `- Official visual_style_behavior: ${styleContract.visualStyleBehavior}`
+			: "",
+		`- Official delivery_purpose: ${deliveryPurpose}`,
 		`- Template hint/path: ${params.template || "(none, free design)"}`,
 		`- Text volume: ${textVolume.label}`,
 		`- Target audience: ${audience.label}`,
 		`- Tone: ${tone.label}`,
 		"- Output language: Simplified Chinese for all visible slide text",
 		params.imageModel
-			? `- Image generation: server-managed, selected model ${params.imageModel}, maximum ${params.imageCountLimit || 1} images`
-			: "- Image generation: disabled; do not create AI image rows",
+			? `- Image usage: ai via host-native server adapter, selected model ${params.imageModel}, maximum ${params.imageCountLimit || 1} images`
+			: "- Image usage: provided project images only when present; otherwise none",
 		"",
 		"## Style Requirements",
 		"",
@@ -430,7 +493,9 @@ function buildSvgGenerationPrompt(
 		"",
 		"## Completion Signal",
 		"",
-		"When finished, print a concise final line containing the generated PPTX path.",
+		options.visualReview
+			? "When all SVGs and the static quality check are complete, print a concise final line saying the deck is ready for hosted visual review."
+			: "When finished, print a concise final line containing the generated PPTX path.",
 		"",
 	].join("\n");
 }
@@ -438,6 +503,7 @@ function buildSvgGenerationPrompt(
 function buildImagePlanningContinuePrompt(params: GenerationParams) {
 	return [
 		"继续完成服务器托管图片生成的第一阶段，不要进入 SVG 或 PPTX 生成。",
+		"站内确认仍然有效；不要启动 confirm_ui/server.py，不要再次请求确认。",
 		"保留已有 design_spec.md 和 spec_lock.md；如果缺少则补齐。",
 		`必须写入 images/image_prompts.json，按 PPT Master manifest schema 规划 1-${params.imageCountLimit || 1} 张图片，所有 status 为 Pending。`,
 		"不要调用 image_gen.py、网页搜图或任何图片 API。写完图片清单后立即结束本轮。",
@@ -449,13 +515,188 @@ function buildPostImageGenerationPrompt(
 	options: RunnerOptions,
 ) {
 	return [
-		"服务器已使用用户选择的图片模型完成图片生成。现在开始第二阶段。",
-		"先重新读取 images/image_prompts.json；其中 status=Generated 的 filename 是服务器实际落盘文件名，必须使用这些文件，不得重新生成、搜索或替换图片。",
-		"不要读取或请求任何 API Key。不要重写 design_spec.md、spec_lock.md 或图片清单。",
+		"服务器已使用用户选择的图片模型完成图片生成（个别图片可能在重试后仍不可用）。现在开始第二阶段。",
+		"先重新读取 images/image_prompts.json；只允许使用 status=Generated 且文件实际存在的图片，不得重新生成、搜索或替换图片。",
+		"status=Needs-Manual 的图片在本次任务中视为不可用：移除 design_spec.md、spec_lock.md 和页面布局中对它们的依赖，改用文字、图形、图表或留白完成叙事。不要等待用户补图，也不要在幻灯片中保留缺图占位框。",
+		"服务器已生成 images/image_prompts.md，并重新生成 analysis/image_analysis.csv；按官方 artifact ownership 读取这些事实文件。",
+		"不要读取或请求任何 API Key。除移除 Needs-Manual 图片依赖外，不要改写 design_spec.md 或 spec_lock.md；不要重写图片清单，不要调用 image_gen.py --manifest。",
 		`从第 1 页开始逐页生成 svg_output/*.svg，目标 ${options.slideCount} 页；每页前重新读取 spec_lock.md。`,
-		"完成全部页面和 notes 后运行质量检查并修复，再执行 total_md_split.py、finalize_svg.py、svg_to_pptx.py，在 exports/ 下生成可编辑 PPTX。",
+		options.visualReview
+			? "完成全部页面和 notes 后运行质量检查并修复，然后立即停止本轮，等待服务器托管视觉复核；不要执行 Step 7 导出。"
+			: "完成全部页面和 notes 后运行质量检查并修复，再执行 total_md_split.py、finalize_svg.py、svg_to_pptx.py，在 exports/ 下生成可编辑 PPTX。",
 		`图片模型仅用于已落盘素材：${params.imageModel || "未选择"}。完成前不要停止或请求确认。`,
 	].join("\n");
+}
+
+async function runHostedVisualReview(input: {
+	params: GenerationParams;
+	options: RunnerOptions;
+	skillDir: string;
+	promptPath: string;
+	piConfig: PreparedPiAgentConfig;
+	previous: CommandResult;
+	firstReviewTurn: number;
+}) {
+	const { params, options } = input;
+	throwIfPptCancelled(options.signal);
+	resetOutputDirectory(join(options.projectDir, "exports"));
+	const slides = await renderPptSlidesForVisualReview({
+		projectDir: options.projectDir,
+		aspectRatio: options.aspectRatio,
+	});
+	const batches = batchPptVisualReviewSlides(slides);
+	const allBackups = backupPptVisualReviewSlides(options.projectDir, slides);
+	const backupBySvg = new Map(
+		allBackups.map((backup) => [backup.svgPath, backup]),
+	);
+	const protectedPaths = ["design_spec.md", "spec_lock.md"]
+		.map((file) => join(options.projectDir, file))
+		.filter(existsSync);
+	let previous = input.previous;
+
+	await emitProjectLog(
+		params.projectId,
+		options.emit,
+		`开始服务器托管视觉复核：${slides.length} 页，共 ${batches.length} 批`,
+	);
+
+	for (const [batchIndex, batch] of batches.entries()) {
+		throwIfPptCancelled(options.signal);
+		const untouchedSnapshots = snapshotUnassignedReviewFiles(
+			slides,
+			batch,
+			protectedPaths,
+		);
+		const progress = Math.min(
+			88,
+			82 + Math.floor(((batchIndex + 1) / batches.length) * 6),
+		);
+		await updateProject(params.projectId, {
+			status: "EXECUTING",
+			currentPhase: `AI 视觉复核（${batchIndex + 1}/${batches.length}）`,
+			progress,
+		});
+		options.emit({ type: "progress", data: { progress } });
+
+		const command = resolveAgentCommand(
+			params.projectId,
+			options.projectDir,
+			input.skillDir,
+			input.promptPath,
+			buildHostedVisualReviewPrompt(batch, batchIndex, batches.length),
+			previous.sessionId,
+			input.piConfig,
+		);
+		try {
+			const reviewed = await runCommand(
+				params.projectId,
+				command,
+				options,
+				input.firstReviewTurn + batchIndex,
+			);
+			assertPptVisualReviewImagesRead(reviewed.output, batch);
+			restoreReviewSnapshots(untouchedSnapshots);
+			const quality = await checkSvgQuality(options.projectDir, input.skillDir);
+			if (quality.errors.length > 0) {
+				throw new Error("视觉复核修改未通过 SVG 静态质量检查");
+			}
+			await renderPptSlidesForVisualReview({
+				projectDir: options.projectDir,
+				aspectRatio: options.aspectRatio,
+				svgFiles: batch.map((slide) => slide.svgFile),
+			});
+			previous = reviewed;
+			await emitProjectLog(
+				params.projectId,
+				options.emit,
+				`视觉复核第 ${batchIndex + 1}/${batches.length} 批完成`,
+			);
+		} catch (error) {
+			throwIfPptCancelled(options.signal);
+			const failureReason = getVisualReviewFailureReason(error);
+			restoreReviewSnapshots(untouchedSnapshots);
+			restorePptVisualReviewSlides(
+				batch
+					.map((slide) => backupBySvg.get(slide.svgPath))
+					.filter((backup): backup is NonNullable<typeof backup> => Boolean(backup)),
+			);
+			await renderPptSlidesForVisualReview({
+				projectDir: options.projectDir,
+				aspectRatio: options.aspectRatio,
+				svgFiles: batch.map((slide) => slide.svgFile),
+			});
+			writeFileSync(
+				join(
+					options.projectDir,
+					".review",
+					`batch-${String(batchIndex + 1).padStart(2, "0")}.md`,
+				),
+				`# Visual Review Batch ${batchIndex + 1}\n\n- status: rolled_back\n- reason: ${failureReason}\n`,
+				"utf-8",
+			);
+			await emitProjectLog(
+				params.projectId,
+				options.emit,
+				`视觉复核第 ${batchIndex + 1}/${batches.length} 批未通过，已恢复原稿：${failureReason}`,
+			);
+		}
+	}
+}
+
+function getVisualReviewFailureReason(error: unknown) {
+	const message = error instanceof Error ? error.message : "";
+	if (message.startsWith("模型未实际读取")) return "模型未完整读取本批截图";
+	if (message.includes("SVG 静态质量检查")) {
+		return "修改未通过 SVG 静态质量检查";
+	}
+	if (message.includes("空白页")) return "修改后的页面渲染为空白";
+	return "模型调用或页面复核未完成";
+}
+
+function buildHostedVisualReviewPrompt(
+	batch: PptVisualReviewSlide[],
+	batchIndex: number,
+	totalBatches: number,
+) {
+	const pairs = batch.flatMap((slide) => [
+		`- PNG: .preview/${slide.pngFile}`,
+		`  SVG: svg_output/${slide.svgFile}`,
+	]);
+	return [
+		`执行服务器托管视觉复核第 ${batchIndex + 1}/${totalBatches} 批。用户已在站内明确启用视觉复核。`,
+		"先读取 .ppt-master-skill/references/visual-review.md、design_spec.md 和 spec_lock.md。不要启动 visual_review.py 或 live-preview server，PNG 已由服务器渲染。",
+		"必须对下面每个 PNG 分别调用一次 read 工具，真实查看图片后再判断；只读 SVG 文本不算完成视觉复核。",
+		...pairs,
+		"逐页检查文字或图形重叠、越界裁切、对齐漂移、间距失衡、字号层级和低对比度。只允许做局部、原子、可逆的坐标、尺寸、间距或字号修正。",
+		"除下列 SVG 与本批报告外，不允许写入或修改任何文件。",
+		"不得重做页面结构，不得改主题、配色、文案、数据、图片或其他批次页面；不得修改 design_spec.md、spec_lock.md、images/、animations.json 或图片清单。",
+		`将简短结果写入 .review/batch-${String(batchIndex + 1).padStart(2, "0")}.md，逐页标记 ok、fixed 或 needs_human。`,
+		"不要导出 PPTX，不要运行 finalize_svg.py。完成本批后立即停止。",
+	].join("\n");
+}
+
+function snapshotUnassignedReviewFiles(
+	allSlides: PptVisualReviewSlide[],
+	batch: PptVisualReviewSlide[],
+	protectedPaths: string[],
+) {
+	const assigned = new Set(batch.map((slide) => slide.svgPath));
+	return [...allSlides.map((slide) => slide.svgPath), ...protectedPaths]
+		.filter((path) => !assigned.has(path) && existsSync(path))
+		.map((path) => ({ path, content: readFileSync(path) }));
+}
+
+function restoreReviewSnapshots(
+	snapshots: Array<{ path: string; content: Buffer }>,
+) {
+	for (const snapshot of snapshots) {
+		if (
+			!existsSync(snapshot.path) ||
+			!readFileSync(snapshot.path).equals(snapshot.content)
+		) {
+			writeFileSync(snapshot.path, snapshot.content);
+		}
+	}
 }
 
 function shouldGeneratePptImages(
@@ -483,11 +724,12 @@ function resetOutputDirectory(path: string) {
 async function runSelectedImageGeneration(
 	params: GenerationParams,
 	options: RunnerOptions,
+	skillDir: string,
 ) {
 	if (!params.imageModel || !params.imageModelSource) {
 		throw new Error("PPT 图片模型参数不完整。");
 	}
-	const maxImages = Math.max(1, Math.min(4, params.imageCountLimit || 1));
+	const maxImages = Math.max(1, Math.min(8, params.imageCountLimit || 1));
 	throwIfPptCancelled(options.signal);
 	await updateProject(params.projectId, {
 		status: "ACQUIRING_IMAGES",
@@ -525,21 +767,36 @@ async function runSelectedImageGeneration(
 		signal: options.signal,
 		requestTimeoutMs,
 	});
+	await executePptPython(
+		getPptScriptPath("image_gen.py", skillDir),
+		["--render-md", generated.manifestPath],
+		60_000,
+		skillDir,
+	);
+	await executePptPython(
+		getPptScriptPath("analyze_images.py", skillDir),
+		[join(options.projectDir, "images")],
+		180_000,
+		skillDir,
+	);
+	ensurePptImageAnalysisCsv(options.projectDir, generated.generatedCount === 0);
 
 	const unusedReservation =
-		(maxImages - generated.plannedCount) *
+		(maxImages - generated.generatedCount) *
 		Math.max(0, Math.floor(params.imageUnitCreditCost || 0));
 	if (unusedReservation > 0) {
 		await refundPptProjectCreditsAmount(
 			params.projectId,
 			unusedReservation,
-			`PPT 配图未使用额度退款（${maxImages - generated.plannedCount} 张）`,
+			`PPT 配图未生成额度退款（${maxImages - generated.generatedCount} 张）`,
 		);
 	}
 	await emitProjectLog(
 		params.projectId,
 		options.emit,
-		`PPT 配图生成完成：${generated.generatedCount} 张`,
+		generated.failedCount > 0
+			? `PPT 配图生成完成：成功 ${generated.generatedCount} 张，重试后仍失败 ${generated.failedCount} 张；已自动降级继续`
+			: `PPT 配图生成完成：${generated.generatedCount} 张`,
 	);
 }
 
@@ -684,8 +941,12 @@ function buildContinuePrompt(
 	if (svgCount >= options.slideCount) {
 		return [
 			"确认继续。当前目标页数的 SVG 页面已经生成，请不要重新开始，也不要重写已有 SVG。",
-			"继续执行 PPT Master Step 7：质量检查、notes/total.md、total_md_split.py、finalize_svg.py、svg_to_pptx.py。",
-			"必须在 exports/ 下生成可编辑 PPTX。完成前不要停止或请求确认。",
+			options.visualReview
+				? "完成 notes/total.md 并运行 svg_quality_checker.py；修复全部 error 后立即停止，等待服务器托管视觉复核，不要执行 Step 7 导出。"
+				: "继续执行 PPT Master Step 7：质量检查、notes/total.md、total_md_split.py、finalize_svg.py、svg_to_pptx.py。",
+			options.visualReview
+				? "不要请求确认，也不要自行启动 visual_review.py 或 live-preview server。"
+				: "必须在 exports/ 下生成可编辑 PPTX。完成前不要停止或请求确认。",
 		].join("\n");
 	}
 
@@ -693,7 +954,9 @@ function buildContinuePrompt(
 		return [
 			"确认继续。不要重新开始，不要重写已有 SVG。",
 			`当前 svg_output/ 已有 ${svgCount}/${options.slideCount} 页。请从第 ${nextSlide} 页继续逐页生成，直到第 ${options.slideCount} 页全部完成。`,
-			"每页生成前必须重新读取 spec_lock.md。全部 SVG 完成后生成 notes/total.md，运行质量检查并修复，再执行 Step 7 导出 PPTX。",
+			options.visualReview
+				? "每页生成前必须重新读取 spec_lock.md。全部 SVG 完成后生成 notes/total.md，运行质量检查并修复，然后停止等待服务器托管视觉复核；不要执行 Step 7。"
+				: "每页生成前必须重新读取 spec_lock.md。全部 SVG 完成后生成 notes/total.md，运行质量检查并修复，再执行 Step 7 导出 PPTX。",
 			interruptedByToolUse
 				? "上一轮停在工具调用边界；如果上一条工具写入没有落盘，请重新发起对应写入或 Bash 工具调用。"
 				: "",
@@ -708,7 +971,9 @@ function buildContinuePrompt(
 		return [
 			"确认继续。design_spec.md 和 spec_lock.md 已经存在，请不要重新规划，不要重写这两个文件。",
 			`当前还没有 SVG 落盘。请从第 1 页开始，逐页生成 svg_output/*.svg，目标页数 ${options.slideCount}。`,
-			"每页生成前必须重新读取 spec_lock.md。全部 SVG 完成后生成 notes/total.md，运行质量检查并修复，再执行 Step 7 导出 PPTX。",
+			options.visualReview
+				? "每页生成前必须重新读取 spec_lock.md。全部 SVG 完成后生成 notes/total.md，运行质量检查并修复，然后停止等待服务器托管视觉复核；不要执行 Step 7。"
+				: "每页生成前必须重新读取 spec_lock.md。全部 SVG 完成后生成 notes/total.md，运行质量检查并修复，再执行 Step 7 导出 PPTX。",
 			interruptedByToolUse
 				? "上一轮停在未完成的工具调用边界；请先完成或重做上一条 SVG Write 工具调用。"
 				: "",
@@ -719,9 +984,11 @@ function buildContinuePrompt(
 	}
 
 	return [
-		"我确认并批准上一轮 Eight Confirmations。",
+		"我确认并批准上一轮 Strategist confirmation stage 的全部站内参数。",
 		`这是服务器自动续跑第 ${turn} 轮，等价于用户明确回复“确认，继续”。`,
-		"请立刻继续执行完整 PPT Master 流程：写入 design_spec.md 和 spec_lock.md，按需跳过无可用环境的可选图片生成，顺序逐页生成 svg_output/*.svg，生成 notes/total.md，运行质量检查并修复，然后执行 total_md_split.py、finalize_svg.py、svg_to_pptx.py。",
+		options.visualReview
+			? "请立刻继续执行 PPT Master 规划与 Executor 流程：写入 design_spec.md 和 spec_lock.md，按需跳过无可用环境的可选图片生成，顺序逐页生成 svg_output/*.svg，生成 notes/total.md，运行质量检查并修复，然后停止等待服务器托管视觉复核；不要执行 Step 7。"
+			: "请立刻继续执行完整 PPT Master 流程：写入 design_spec.md 和 spec_lock.md，按需跳过无可用环境的可选图片生成，顺序逐页生成 svg_output/*.svg，生成 notes/total.md，运行质量检查并修复，然后执行 total_md_split.py、finalize_svg.py、svg_to_pptx.py。",
 		"不要再输出确认问题。不要只输出计划。完成前不要停止。",
 	].join("\n");
 }
@@ -1241,12 +1508,13 @@ function shouldContinueAgent(
 		);
 	}
 	const svgCount = countSvgSlides(projectDir);
+	if (options.visualReview && svgCount >= options.slideCount) return false;
 	const needsMoreSlides = svgCount < options.slideCount;
 	return (
 		result.stopReason === "tool_use" ||
 		(svgCount > 0 && needsMoreSlides) ||
 		(existsSync(join(projectDir, "spec_lock.md")) && needsMoreSlides) ||
-		/请确认|确认后|wait for|explicit user confirmation|Eight Confirmations|继续执行|Step 7|svg_to_pptx/i.test(
+		/请确认|确认后|wait for|explicit user confirmation|Eight Confirmations|Strategist confirmation|继续执行|Step 7|svg_to_pptx/i.test(
 			text,
 		)
 	);
@@ -1273,7 +1541,9 @@ function describeContinueState(projectDir: string, options: RunnerOptions) {
 	}
 	const svgCount = countSvgSlides(projectDir);
 	if (svgCount >= options.slideCount)
-		return "SVG 已齐，推进质量检查和 PPTX 导出";
+		return options.visualReview
+			? "SVG 已齐，推进静态质量检查并等待视觉复核"
+			: "SVG 已齐，推进质量检查和 PPTX 导出";
 	if (svgCount > 0)
 		return `继续生成剩余 SVG（${svgCount}/${options.slideCount} 已完成）`;
 	if (existsSync(join(projectDir, "spec_lock.md")))

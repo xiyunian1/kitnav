@@ -15,6 +15,7 @@ export interface ModuleModelOption {
   source: ModelSource;
   sourceLabel: "我的 API" | "平台";
   creditCost: number | null;
+  supportsVision: boolean;
   note?: string;
 }
 
@@ -24,6 +25,7 @@ export interface StoredModuleModelConfig {
   model: string;
   models?: string | null;
   modelMeta?: ModelMetaMap;
+  visionModels?: string[];
 }
 
 export function moduleModelValue(source: ModelSource, model: string) {
@@ -49,6 +51,7 @@ export function buildModuleModelOptions(
         sourceLabel: config.source === "user" ? "我的 API" as const : "平台" as const,
         creditCost:
           config.source === "platform" ? getModelCreditCost(meta, model) : null,
+        supportsVision: config.visionModels?.includes(model) ?? false,
         note: config.source === "platform" ? meta[model]?.note : undefined,
       }));
   });

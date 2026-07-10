@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/hugohe3/ppt-master",
+  "ref": "v3.1.0",
+  "commit": "b8808a3a17377ea4e7fd79bdad096bab613f86b9",
+  "skillPath": "skills/ppt-master",
+  "treeSha": "2b45824bf9a0076e2e68e98a26ade407414ed23d",
+  "executableFiles": [
+    "scripts/update_spec.py"
+  ],
+  "syncedAt": "2026-07-10"
+}
