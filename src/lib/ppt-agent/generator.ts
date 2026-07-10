@@ -18,6 +18,11 @@ import {
 } from "./external-templates";
 import { emitProjectLog, updateProject } from "./project-log";
 import type { ModelSource } from "@/lib/module-model-options";
+import type {
+	PptAudience,
+	PptTextVolume,
+	PptTone,
+} from "./content-options";
 
 export interface GenerationParams {
 	projectId: string;
@@ -40,6 +45,9 @@ export interface GenerationParams {
 	styleLabel?: string;
 	model?: string;
 	modelSource?: ModelSource;
+	textVolume?: PptTextVolume;
+	audience?: PptAudience;
+	tone?: PptTone;
 	signal?: AbortSignal;
 }
 

@@ -162,5 +162,8 @@ function rebuildGenerationParams(
 		styleLabel: stored.styleLabel,
 		model: stored.model,
 		modelSource: stored.modelSource,
+		textVolume: stored.textVolume,
+		audience: stored.audience,
+		tone: stored.tone,
 	};
 }

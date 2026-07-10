@@ -15,6 +15,11 @@ import { rateLimitCheck, rateLimitResponse } from "@/lib/rate-limit";
 import { PPT_PROCESSING_STATUSES } from "@/lib/ppt-agent/status";
 import { MODEL_SOURCES } from "@/lib/module-model-options";
 import { ProviderConfigInvalidError } from "@/lib/providers";
+import {
+	PPT_AUDIENCE_VALUES,
+	PPT_TEXT_VOLUME_VALUES,
+	PPT_TONE_VALUES,
+} from "@/lib/ppt-agent/content-options";
 
 export const runtime = "nodejs";
 
@@ -51,6 +56,9 @@ const requestSchema = z
 		customStyle: z.string().trim().max(2000).optional(),
 		model: z.string().trim().min(1).max(100),
 		modelSource: z.enum(MODEL_SOURCES),
+		textVolume: z.enum(PPT_TEXT_VOLUME_VALUES).default("balanced"),
+		audience: z.enum(PPT_AUDIENCE_VALUES).default("general"),
+		tone: z.enum(PPT_TONE_VALUES).default("natural"),
 	})
 	.superRefine((data, ctx) => {
 		if (
@@ -250,6 +258,9 @@ export async function POST(req: NextRequest) {
 		styleLabel: resolvedStyle.styleLabel,
 		model: billingMode.defaultModel,
 		modelSource: billingMode.source,
+		textVolume: parsed.textVolume,
+		audience: parsed.audience,
+		tone: parsed.tone,
 	});
 
 	let projectId = "";

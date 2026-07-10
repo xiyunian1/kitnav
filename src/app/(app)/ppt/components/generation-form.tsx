@@ -12,6 +12,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import {
+	AlignLeft,
 	ArrowRight,
 	Bot,
 	Coins,
@@ -20,11 +21,13 @@ import {
 	Languages,
 	LayoutTemplate,
 	Loader2,
+	MessageSquareText,
 	Minus,
 	Paperclip,
 	Plus,
 	Sparkles,
 	Upload,
+	Users,
 	X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -37,6 +40,14 @@ import {
 } from "@/lib/ppt-agent/status";
 import type { ModuleModelOption } from "@/lib/module-model-options";
 import { cn } from "@/lib/utils";
+import {
+	PPT_AUDIENCE_OPTIONS,
+	PPT_TEXT_VOLUME_OPTIONS,
+	PPT_TONE_OPTIONS,
+	type PptAudience,
+	type PptTextVolume,
+	type PptTone,
+} from "@/lib/ppt-agent/content-options";
 
 interface GenerationFormProps {
 	modelOptions: ModuleModelOption[];
@@ -70,6 +81,9 @@ export function GenerationForm({
 	const [styleSource, setStyleSource] = useState<StyleSource>("preset");
 	const [customStyle, setCustomStyle] = useState("");
 	const [modelValue, setModelValue] = useState(modelOptions[0]?.value ?? "");
+	const [textVolume, setTextVolume] = useState<PptTextVolume>("balanced");
+	const [audience, setAudience] = useState<PptAudience>("general");
+	const [tone, setTone] = useState<PptTone>("natural");
 	const [progress, setProgress] = useState(0);
 	const [phase, setPhase] = useState("任务正在排队");
 	const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -142,6 +156,9 @@ export function GenerationForm({
 						styleSource === "custom" ? customStyle.trim() : undefined,
 					model: selectedModel.model,
 					modelSource: selectedModel.source,
+					textVolume,
+					audience,
+					tone,
 				}),
 			});
 
@@ -512,6 +529,59 @@ export function GenerationForm({
 										: `${estimatedCost} 积分`}
 							</span>
 						</div>
+					</div>
+
+					<div className="grid gap-2 border-t bg-muted/15 px-3 py-2.5 sm:grid-cols-3 sm:px-4">
+						<Select
+							value={textVolume}
+							onValueChange={(value) => setTextVolume(value as PptTextVolume)}
+						>
+							<SelectTrigger className="h-9 w-full min-w-0 bg-background">
+								<AlignLeft className="size-3.5 shrink-0 text-muted-foreground" />
+								<span className="shrink-0 text-xs text-muted-foreground">文字量</span>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{PPT_TEXT_VOLUME_OPTIONS.map((option) => (
+									<SelectItem key={option.id} value={option.id}>
+										{option.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+
+						<Select
+							value={audience}
+							onValueChange={(value) => setAudience(value as PptAudience)}
+						>
+							<SelectTrigger className="h-9 w-full min-w-0 bg-background">
+								<Users className="size-3.5 shrink-0 text-muted-foreground" />
+								<span className="shrink-0 text-xs text-muted-foreground">面向对象</span>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{PPT_AUDIENCE_OPTIONS.map((option) => (
+									<SelectItem key={option.id} value={option.id}>
+										{option.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+
+						<Select value={tone} onValueChange={(value) => setTone(value as PptTone)}>
+							<SelectTrigger className="h-9 w-full min-w-0 bg-background">
+								<MessageSquareText className="size-3.5 shrink-0 text-muted-foreground" />
+								<span className="shrink-0 text-xs text-muted-foreground">表达语气</span>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{PPT_TONE_OPTIONS.map((option) => (
+									<SelectItem key={option.id} value={option.id}>
+										{option.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
 					</div>
 
 					{loading && (

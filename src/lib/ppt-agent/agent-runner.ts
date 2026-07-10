@@ -32,6 +32,12 @@ import {
 	type PreparedPiAgentConfig,
 } from "./pi-agent-config";
 import type { EventEmitter, GenerationParams } from "./generator";
+import {
+	buildPptContentInstruction,
+	getPptAudienceOption,
+	getPptTextVolumeOption,
+	getPptToneOption,
+} from "./content-options";
 
 export interface AgentRunResult {
 	pptxPath: string;
@@ -231,6 +237,9 @@ function writeAgentPrompt(
 	options: RunnerOptions,
 	skillDir: string,
 ) {
+	const textVolume = getPptTextVolumeOption(params.textVolume);
+	const audience = getPptAudienceOption(params.audience);
+	const tone = getPptToneOption(params.tone);
 	const promptPath = join(options.projectDir, "agent-task.md");
 	const sourcePath = join(options.projectDir, "sources", "source.md");
 	const output = [
@@ -267,12 +276,23 @@ function writeAgentPrompt(
 		`- Target slide count: ${options.slideCount}`,
 		`- Style: ${options.styleLabel || styleLabel(options.style)}`,
 		`- Template hint/path: ${params.template || "(none, free design)"}`,
+		`- Text volume: ${textVolume.label}`,
+		`- Target audience: ${audience.label}`,
+		`- Tone: ${tone.label}`,
 		"- Output language: Simplified Chinese for all visible slide text",
 		"- Image usage: use placeholders or generated/web images only when the skill workflow and available environment support them; never block final PPTX solely because an optional image is unavailable.",
 		"",
 		"## Style Requirements",
 		"",
 		options.stylePrompt,
+		"",
+		"## Content Requirements",
+		"",
+		buildPptContentInstruction({
+			textVolume: params.textVolume,
+			audience: params.audience,
+			tone: params.tone,
+		}),
 		"",
 		"## Source Content",
 		"",
