@@ -1,8 +1,14 @@
 import { auth } from "@/lib/auth";
-import { requireModulePageAccess, getStaticModuleMeta } from "@/lib/module-controls";
+import {
+  getModuleAccess,
+  getStaticModuleMeta,
+  requireModulePageAccess,
+} from "@/lib/module-controls";
 import { ModuleUnavailable } from "@/components/module-unavailable";
 import { prisma } from "@/lib/db";
 import { getModuleModelOptions } from "@/lib/providers";
+import { getSettingNumber } from "@/lib/credits";
+import { SETTING_KEYS } from "@/lib/settings-config";
 import { getProjectSvgPreviews } from "@/lib/ppt-agent/paths";
 import { PptWorkbench } from "./components/workbench";
 
@@ -24,7 +30,14 @@ export default async function PptPage() {
     );
   }
 
-  const [projectRows, modelOptions] = await Promise.all([
+  const [
+    projectRows,
+    modelOptions,
+    storedImageModelOptions,
+    imageCreditCost,
+    imageModuleEnabled,
+    imageAccess,
+  ] = await Promise.all([
     prisma.pptProject.findMany({
       where: { userId: session!.user.id },
       orderBy: { createdAt: "desc" },
@@ -45,7 +58,13 @@ export default async function PptPage() {
       },
     }),
     getModuleModelOptions(session!.user.id, "PPT"),
+    getModuleModelOptions(session!.user.id, "IMAGE"),
+    getSettingNumber(SETTING_KEYS.IMAGE_CREDIT_COST),
+    getSettingNumber(SETTING_KEYS.IMAGE_MODULE_ENABLED),
+    getModuleAccess("image", session?.user?.role),
   ]);
+  const imageModelOptions =
+    imageModuleEnabled === 1 && imageAccess.usable ? storedImageModelOptions : [];
 
   const recentProjects = await Promise.all(
     projectRows.map(async (project) => {
@@ -71,7 +90,9 @@ export default async function PptPage() {
       <PptWorkbench
         recentProjects={recentProjects}
         modelOptions={modelOptions}
+        imageModelOptions={imageModelOptions}
         creditsPerSlide={creditsPerSlide}
+        imageCreditCost={imageCreditCost}
       />
     </div>
   );

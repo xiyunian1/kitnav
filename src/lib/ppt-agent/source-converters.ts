@@ -74,7 +74,7 @@ export async function convertUrlToMarkdownFile(
 	return readConvertedMarkdown(outputPath);
 }
 
-async function assertSafePublicUrl(rawUrl: string): Promise<void> {
+export async function assertSafePublicUrl(rawUrl: string): Promise<void> {
 	let url: URL;
 	try {
 		url = new URL(rawUrl);

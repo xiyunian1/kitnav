@@ -2,7 +2,11 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { consumeCreditsInTransaction, InsufficientCreditsError } from "@/lib/credits";
+import {
+	consumeCreditsInTransaction,
+	getSettingNumber,
+	InsufficientCreditsError,
+} from "@/lib/credits";
 import { logger } from "@/lib/logger";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
 import { resolvePptAgentBillingMode } from "@/lib/ppt-agent/billing";
@@ -14,7 +18,17 @@ import { resolveUploadPath } from "@/lib/ppt-agent/upload-paths";
 import { rateLimitCheck, rateLimitResponse } from "@/lib/rate-limit";
 import { PPT_PROCESSING_STATUSES } from "@/lib/ppt-agent/status";
 import { MODEL_SOURCES } from "@/lib/module-model-options";
-import { ProviderConfigInvalidError } from "@/lib/providers";
+import {
+	ProviderConfigInvalidError,
+	ProviderNotConfiguredError,
+	resolveImageProvider,
+} from "@/lib/providers";
+import { assertModuleOperationAllowed, OperationBlockedError } from "@/lib/operations";
+import { SETTING_KEYS } from "@/lib/settings-config";
+import {
+	getPptImageCountLimit,
+	getPptImageUnitCreditCost,
+} from "@/lib/ppt-agent/image-options";
 import {
 	PPT_AUDIENCE_VALUES,
 	PPT_TEXT_VOLUME_VALUES,
@@ -57,11 +71,21 @@ const requestSchema = z
 		customStyle: z.string().trim().max(2000).optional(),
 		model: z.string().trim().min(1).max(100),
 		modelSource: z.enum(MODEL_SOURCES),
+		imageModel: z.string().trim().min(1).max(100).optional(),
+		imageModelSource: z.enum(MODEL_SOURCES).optional(),
 		textVolume: z.enum(PPT_TEXT_VOLUME_VALUES).default("balanced"),
 		audience: z.enum(PPT_AUDIENCE_VALUES).default("general"),
 		tone: z.enum(PPT_TONE_VALUES).default("natural"),
 	})
 	.superRefine((data, ctx) => {
+		if (Boolean(data.imageModel) !== Boolean(data.imageModelSource)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["imageModel"],
+				message: "图片模型参数不完整，请重新选择。",
+			});
+			return;
+		}
 		if (
 			data.sourceType === "url" ||
 			data.sourceUrl ||
@@ -195,8 +219,7 @@ export async function POST(req: NextRequest) {
 			{ status: 503 },
 		);
 	}
-	const useOwnKey = billingMode.useOwnKey;
-	const creditsCost = useOwnKey
+	const textCreditsCost = billingMode.useOwnKey
 		? 0
 		: parsed.slideCount * Number(process.env.PPT_CREDITS_PER_SLIDE || 10);
 	const title = buildTitle(parsed);
@@ -244,6 +267,52 @@ export async function POST(req: NextRequest) {
 			{ status: 400 },
 		);
 	}
+
+	let imageModel: string | undefined;
+	let imageModelSource: (typeof MODEL_SOURCES)[number] | undefined;
+	let imageCountLimit: number | undefined;
+	let imageUnitCreditCost = 0;
+	if (
+		uploadedTemplateFileUrls.length === 0 &&
+		parsed.imageModel &&
+		parsed.imageModelSource
+	) {
+		try {
+			await assertModuleOperationAllowed(session.user.id, "IMAGE");
+			const resolvedImage = await resolveImageProvider(
+				session.user.id,
+				"IMAGE",
+				parsed.imageModel,
+				parsed.imageModelSource,
+			);
+			const fallbackCost = await getSettingNumber(
+				SETTING_KEYS.IMAGE_CREDIT_COST,
+			);
+			imageModel = resolvedImage.model;
+			imageModelSource = resolvedImage.source;
+			imageCountLimit = getPptImageCountLimit(parsed.slideCount);
+			imageUnitCreditCost = getPptImageUnitCreditCost({
+				source: resolvedImage.source,
+				creditCost: resolvedImage.creditCostOverride,
+				fallbackCost,
+			});
+		} catch (error) {
+			const message =
+				error instanceof OperationBlockedError ||
+				error instanceof ProviderConfigInvalidError
+					? error.message
+					: error instanceof ProviderNotConfiguredError
+						? "图片服务尚未配置，请重新选择。"
+						: "所选图片模型不可用，请重新选择。";
+			return Response.json(
+				{ error: message },
+				{ status: error instanceof OperationBlockedError ? error.status : 400 },
+			);
+		}
+	}
+	const imageCreditsCost = (imageCountLimit || 0) * imageUnitCreditCost;
+	const creditsCost = textCreditsCost + imageCreditsCost;
+	const useOwnKey = creditsCost === 0;
 	const resolvedSingleFileUrl = parsed.sourceFileUrl
 		? resolveUploadPath(userId, parsed.sourceFileUrl)
 		: undefined;
@@ -262,6 +331,10 @@ export async function POST(req: NextRequest) {
 		styleLabel: resolvedStyle.styleLabel,
 		model: billingMode.defaultModel,
 		modelSource: billingMode.source,
+		imageModel,
+		imageModelSource,
+		imageCountLimit,
+		imageUnitCreditCost,
 		textVolume: parsed.textVolume,
 		audience: parsed.audience,
 		tone: parsed.tone,
@@ -285,7 +358,7 @@ export async function POST(req: NextRequest) {
 					tx,
 					session.user.id,
 					creditsCost,
-					`PPT 生成预扣费（${parsed.slideCount} 页）`,
+					`PPT 生成预扣费（${parsed.slideCount} 页${imageCountLimit ? `，最多 ${imageCountLimit} 张配图` : ""}）`,
 				);
 			}
 			return tx.pptProject.create({

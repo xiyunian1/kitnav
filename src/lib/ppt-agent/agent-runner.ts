@@ -45,6 +45,15 @@ import {
 	getPptToneOption,
 } from "./content-options";
 import type { PptGenerationWorkflow } from "./workflow";
+import { resolveImageProvider } from "@/lib/providers";
+import { getSettingNumber } from "@/lib/credits";
+import { SETTING_KEYS } from "@/lib/settings-config";
+import { refundPptProjectCreditsAmount } from "./refund";
+import {
+	generatePptManifestImages,
+	hasPptImageManifest,
+} from "./image-generation";
+import { isPptImageGenerationEnabled } from "./image-options";
 
 export interface AgentRunResult {
 	pptxPath: string;
@@ -158,8 +167,76 @@ async function runPptMasterAgentInner(
 		`PPT Master agent 最大续跑轮次：${maxTurns}`,
 	);
 
-	let result = await runCommand(params.projectId, command, options, 1);
-	for (let turn = 2; turn <= maxTurns && !hasPptx(options.projectDir); turn++) {
+	let currentTurn = 1;
+	let result = await runCommand(params.projectId, command, options, currentTurn);
+	if (shouldGeneratePptImages(params, options)) {
+		const maxPlanningTurns = Math.min(maxTurns, 4);
+		while (
+			!hasPptImageManifest(options.projectDir) &&
+			currentTurn < maxPlanningTurns
+		) {
+			currentTurn += 1;
+			const planningCommand = resolveAgentCommand(
+				params.projectId,
+				options.projectDir,
+				skillDir,
+				promptPath,
+				buildImagePlanningContinuePrompt(params),
+				result.sessionId,
+				piConfig,
+			);
+			await emitProjectLog(
+				params.projectId,
+				options.emit,
+				`agent 第 ${currentTurn} 轮继续完成图片规划清单`,
+			);
+			result = await runCommand(
+				params.projectId,
+				planningCommand,
+				options,
+				currentTurn,
+			);
+		}
+
+		if (!hasPptImageManifest(options.projectDir)) {
+			throw new Error(
+				"PPT Master 未在规划阶段生成 images/image_prompts.json。",
+			);
+		}
+		clearPrematureSlideOutputs(options.projectDir);
+		await runSelectedImageGeneration(params, options);
+
+		if (currentTurn >= maxTurns) {
+			throw new Error("PPT Master 图片规划已完成，但没有剩余轮次继续生成幻灯片。");
+		}
+		currentTurn += 1;
+		const resumeCommand = resolveAgentCommand(
+			params.projectId,
+			options.projectDir,
+			skillDir,
+			promptPath,
+			buildPostImageGenerationPrompt(params, options),
+			result.sessionId,
+			piConfig,
+		);
+		await emitProjectLog(
+			params.projectId,
+			options.emit,
+			`图片已由服务器生成，恢复 agent 第 ${currentTurn} 轮继续制作 PPT`,
+		);
+		result = await runCommand(
+			params.projectId,
+			resumeCommand,
+			options,
+			currentTurn,
+		);
+	}
+
+	for (
+		let turn = currentTurn + 1;
+		turn <= maxTurns && !hasPptx(options.projectDir);
+		turn++
+	) {
 		throwIfPptCancelled(options.signal);
 		const needsContinue = shouldContinueAgent(
 			options.projectDir,
@@ -278,6 +355,16 @@ function buildSvgGenerationPrompt(
 	const textVolume = getPptTextVolumeOption(params.textVolume);
 	const audience = getPptAudienceOption(params.audience);
 	const tone = getPptToneOption(params.tone);
+	const imageInstructions = params.imageModel
+		? [
+				`- 本任务已选择图片生成模型。规划阶段必须在 images/image_prompts.json 中安排 1-${params.imageCountLimit || 1} 张真正有助于叙事的 AI 图片。`,
+				"- 图片清单必须使用 PPT Master manifest schema；每项 status 写 Pending，文件名只使用安全的英文、数字、下划线或短横线，并以 .png 结尾。",
+				"- 第一阶段只完成 design_spec.md、spec_lock.md 和 images/image_prompts.json。不要调用 image_gen.py，不要调用网页搜图，不要生成 SVG，不要导出 PPTX；写完清单后立即结束本轮。",
+				"- 图片 API 由服务器在两阶段之间调用。不要查找、读取、请求或记录任何图片 API Key。",
+			]
+		: [
+				"- 本任务未启用 AI 图片。不得创建 ai 类型图片任务，不得调用 image_gen.py；可以按 skill 规则使用 SVG 图形或必要的公开网页素材。",
+			];
 	return [
 		"# PPT Master Server Task",
 		"",
@@ -289,15 +376,16 @@ function buildSvgGenerationPrompt(
 		"- 本任务的用户输入已经在站内表单确认过。下面的 `USER CONFIRMS` 行就是 Step 4 Blocking Gate 的显式用户确认；不要再向用户请求确认。",
 		"- 如果 workflow 文档要求输出 Eight Confirmations，请把它们写入 `design_spec.md` 的 planning context 或日志，然后继续执行。不要把“请确认”作为最终回答。",
 		"- 所有可见幻灯片文字必须使用简体中文。只有 AI、API、LLM、SaaS、PPTX 等无法自然翻译的产品名或技术缩写可以保留英文。",
-		"- 使用真实项目文件作为上下文，逐页顺序生成 SVG。不要写脚本批量生成 SVG，不要只生成占位页。",
+		"- 进入幻灯片生成阶段后，使用真实项目文件作为上下文，逐页顺序生成 SVG。不要写脚本批量生成 SVG，不要只生成占位页。",
 		"- 每页 SVG 生成前必须重新读取 `spec_lock.md`。",
 		"- 如果存在 `template_refs/template-map.md`，必须采用模板底稿优先工作流：先读取 `template_refs/template-map.md`，每页生成前读取对应 `template_refs/target_XX_from_slide_YY.svg`，在该 SVG 结构上替换内容并保留模板版式骨架、背景、主装饰、卡片、阴影、页眉页脚和空间比例；禁止只提取颜色后从空白页重画。",
 		"- 质量检查必须通过；如果 `svg_quality_checker.py` 报 error，修复后重跑。",
-		"- 最后必须按 Step 7 依次运行 `total_md_split.py`、`finalize_svg.py`、`svg_to_pptx.py`，并在 `exports/` 下生成可编辑 PPTX。",
+		"- 最终阶段必须按 Step 7 依次运行 `total_md_split.py`、`finalize_svg.py`、`svg_to_pptx.py`，并在 `exports/` 下生成可编辑 PPTX。",
 		"- 不要修改项目目录以外的任何文件。只允许写入当前 PPT 项目目录。",
 		"- 如果需要临时修复 PPT Master 工具脚本，只能修改 `Project path` 下的 `.ppt-master-skill/` 私有副本，禁止编辑仓库源码的 `scripts/ppt-master/`。",
 		"- Hosted-mode override: 本站前端会直接预览 `svg_output/`，不要启动长期运行的 `svg_editor/server.py` live preview 服务；这一步视为由站内 SSE 预览替代。",
 		"- 如果缺少 API key、依赖或 agent 权限，明确写入失败原因，不要生成假文件。",
+		...imageInstructions,
 		"",
 		"## Paths",
 		"",
@@ -316,7 +404,9 @@ function buildSvgGenerationPrompt(
 		`- Target audience: ${audience.label}`,
 		`- Tone: ${tone.label}`,
 		"- Output language: Simplified Chinese for all visible slide text",
-		"- Image usage: use placeholders or generated/web images only when the skill workflow and available environment support them; never block final PPTX solely because an optional image is unavailable.",
+		params.imageModel
+			? `- Image generation: server-managed, selected model ${params.imageModel}, maximum ${params.imageCountLimit || 1} images`
+			: "- Image generation: disabled; do not create AI image rows",
 		"",
 		"## Style Requirements",
 		"",
@@ -343,6 +433,114 @@ function buildSvgGenerationPrompt(
 		"When finished, print a concise final line containing the generated PPTX path.",
 		"",
 	].join("\n");
+}
+
+function buildImagePlanningContinuePrompt(params: GenerationParams) {
+	return [
+		"继续完成服务器托管图片生成的第一阶段，不要进入 SVG 或 PPTX 生成。",
+		"保留已有 design_spec.md 和 spec_lock.md；如果缺少则补齐。",
+		`必须写入 images/image_prompts.json，按 PPT Master manifest schema 规划 1-${params.imageCountLimit || 1} 张图片，所有 status 为 Pending。`,
+		"不要调用 image_gen.py、网页搜图或任何图片 API。写完图片清单后立即结束本轮。",
+	].join("\n");
+}
+
+function buildPostImageGenerationPrompt(
+	params: GenerationParams,
+	options: RunnerOptions,
+) {
+	return [
+		"服务器已使用用户选择的图片模型完成图片生成。现在开始第二阶段。",
+		"先重新读取 images/image_prompts.json；其中 status=Generated 的 filename 是服务器实际落盘文件名，必须使用这些文件，不得重新生成、搜索或替换图片。",
+		"不要读取或请求任何 API Key。不要重写 design_spec.md、spec_lock.md 或图片清单。",
+		`从第 1 页开始逐页生成 svg_output/*.svg，目标 ${options.slideCount} 页；每页前重新读取 spec_lock.md。`,
+		"完成全部页面和 notes 后运行质量检查并修复，再执行 total_md_split.py、finalize_svg.py、svg_to_pptx.py，在 exports/ 下生成可编辑 PPTX。",
+		`图片模型仅用于已落盘素材：${params.imageModel || "未选择"}。完成前不要停止或请求确认。`,
+	].join("\n");
+}
+
+function shouldGeneratePptImages(
+	params: GenerationParams,
+	options: RunnerOptions,
+) {
+	return isPptImageGenerationEnabled({
+		workflow: options.workflow,
+		imageModel: params.imageModel,
+		imageModelSource: params.imageModelSource,
+		imageCountLimit: params.imageCountLimit,
+	});
+}
+
+function clearPrematureSlideOutputs(projectDir: string) {
+	resetOutputDirectory(join(projectDir, "svg_output"));
+	resetOutputDirectory(join(projectDir, "exports"));
+}
+
+function resetOutputDirectory(path: string) {
+	if (existsSync(path)) rmSync(path, { recursive: true, force: true });
+	mkdirSync(path, { recursive: true });
+}
+
+async function runSelectedImageGeneration(
+	params: GenerationParams,
+	options: RunnerOptions,
+) {
+	if (!params.imageModel || !params.imageModelSource) {
+		throw new Error("PPT 图片模型参数不完整。");
+	}
+	const maxImages = Math.max(1, Math.min(4, params.imageCountLimit || 1));
+	throwIfPptCancelled(options.signal);
+	await updateProject(params.projectId, {
+		status: "ACQUIRING_IMAGES",
+		currentPhase: "正在生成 PPT 配图",
+		progress: 35,
+	});
+	options.emit({
+		type: "phase",
+		data: { phase: "ACQUIRING_IMAGES", progress: 35 },
+	});
+
+	const resolved = await resolveImageProvider(
+		params.userId,
+		"IMAGE",
+		params.imageModel,
+		params.imageModelSource,
+	);
+	await emitProjectLog(
+		params.projectId,
+		options.emit,
+		`服务器开始生成 PPT 配图：${resolved.source === "user" ? "我的 API" : "平台"} / ${resolved.model}`,
+	);
+	const timeoutSeconds = await getSettingNumber(
+		SETTING_KEYS.IMAGE_REQUEST_TIMEOUT_SECONDS,
+	);
+	const requestTimeoutMs =
+		timeoutSeconds === 0
+			? 0
+			: Math.max(1, Math.floor(timeoutSeconds || 180)) * 1000;
+	const generated = await generatePptManifestImages({
+		projectDir: options.projectDir,
+		provider: resolved.provider,
+		model: resolved.model,
+		maxImages,
+		signal: options.signal,
+		requestTimeoutMs,
+	});
+
+	const unusedReservation =
+		(maxImages - generated.plannedCount) *
+		Math.max(0, Math.floor(params.imageUnitCreditCost || 0));
+	if (unusedReservation > 0) {
+		await refundPptProjectCreditsAmount(
+			params.projectId,
+			unusedReservation,
+			`PPT 配图未使用额度退款（${maxImages - generated.plannedCount} 张）`,
+		);
+	}
+	await emitProjectLog(
+		params.projectId,
+		options.emit,
+		`PPT 配图生成完成：${generated.generatedCount} 张`,
+	);
 }
 
 function buildNativeTemplateFillPrompt(
@@ -617,6 +815,30 @@ function buildAgentPathEnv() {
 	return [pythonDir, process.env.PATH].filter(Boolean).join(":");
 }
 
+function buildAgentProcessEnv(command: AgentCommand): NodeJS.ProcessEnv {
+	const environment = Object.fromEntries(
+		Object.entries(process.env).filter(([name]) => !isSensitiveAgentEnv(name)),
+	);
+	return {
+		...environment,
+		NODE_ENV: process.env.NODE_ENV,
+		PATH: buildAgentPathEnv(),
+		PI_CODING_AGENT_DIR: command.piConfig.configDir,
+		PPT_PI_PROVIDER: command.piConfig.provider,
+		PPT_PI_MODEL: command.piConfig.model,
+		PPT_MASTER_SKILL_DIR: command.skillDir,
+		PYTHONIOENCODING: "utf-8",
+	};
+}
+
+function isSensitiveAgentEnv(name: string) {
+	return (
+		name === "DATABASE_URL" ||
+		name === "FAL_KEY" ||
+		/(?:^|_)(?:API_KEY|API_TOKEN|SECRET|PASSWORD)$/.test(name)
+	);
+}
+
 async function runCommand(
 	projectId: string,
 	command: AgentCommand,
@@ -639,15 +861,7 @@ async function runCommand(
 			{
 				cwd: command.cwd,
 				windowsHide: true,
-				env: {
-					...process.env,
-					PATH: buildAgentPathEnv(),
-					PI_CODING_AGENT_DIR: command.piConfig.configDir,
-					PPT_PI_PROVIDER: command.piConfig.provider,
-					PPT_PI_MODEL: command.piConfig.model,
-					PPT_MASTER_SKILL_DIR: command.skillDir,
-					PYTHONIOENCODING: "utf-8",
-				},
+				env: buildAgentProcessEnv(command),
 			} satisfies SpawnOptionsWithoutStdio,
 		);
 

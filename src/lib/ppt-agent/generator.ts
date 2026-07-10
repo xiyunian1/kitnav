@@ -47,6 +47,10 @@ export interface GenerationParams {
 	styleLabel?: string;
 	model?: string;
 	modelSource?: ModelSource;
+	imageModel?: string;
+	imageModelSource?: ModelSource;
+	imageCountLimit?: number;
+	imageUnitCreditCost?: number;
 	textVolume?: PptTextVolume;
 	audience?: PptAudience;
 	tone?: PptTone;

@@ -17,6 +17,7 @@ import {
 	Bot,
 	Coins,
 	FileText,
+	Image as ImageIcon,
 	KeyRound,
 	Languages,
 	LayoutTemplate,
@@ -48,10 +49,17 @@ import {
 	type PptTextVolume,
 	type PptTone,
 } from "@/lib/ppt-agent/content-options";
+import {
+	getPptImageCountLimit,
+	getPptImageUnitCreditCost,
+	PPT_IMAGE_MODEL_NONE,
+} from "@/lib/ppt-agent/image-options";
 
 interface GenerationFormProps {
 	modelOptions: ModuleModelOption[];
+	imageModelOptions: ModuleModelOption[];
 	creditsPerSlide: number;
+	imageCreditCost: number;
 }
 
 interface UploadedFile {
@@ -69,7 +77,9 @@ const TEMPLATE_ACCEPT = ".pptx,.pptm,.ppsx,.ppsm,.potx,.potm";
 
 export function GenerationForm({
 	modelOptions,
+	imageModelOptions,
 	creditsPerSlide,
+	imageCreditCost,
 }: GenerationFormProps) {
 	const router = useRouter();
 	const [loading, setLoading] = useState(false);
@@ -82,6 +92,7 @@ export function GenerationForm({
 	const [styleSource, setStyleSource] = useState<StyleSource>("preset");
 	const [customStyle, setCustomStyle] = useState("");
 	const [modelValue, setModelValue] = useState(modelOptions[0]?.value ?? "");
+	const [imageModelValue, setImageModelValue] = useState(PPT_IMAGE_MODEL_NONE);
 	const [textVolume, setTextVolume] = useState<PptTextVolume>("balanced");
 	const [audience, setAudience] = useState<PptAudience>("general");
 	const [tone, setTone] = useState<PptTone>("natural");
@@ -98,10 +109,24 @@ export function GenerationForm({
 	const templateFiles = sourceFiles.filter((file) => file.kind === "template");
 	const hasUploadedTemplate = templateFiles.length > 0;
 	const useOwnKey = selectedModel?.source === "user";
-	const estimatedCost = useMemo(
+	const selectedImageModel = imageModelOptions.find(
+		(option) => option.value === imageModelValue,
+	);
+	const imageCountLimit = getPptImageCountLimit(slideCount);
+	const textEstimatedCost = useMemo(
 		() => (useOwnKey ? 0 : slideCount * creditsPerSlide),
 		[creditsPerSlide, slideCount, useOwnKey],
 	);
+	const imageEstimatedCost =
+		!hasUploadedTemplate && selectedImageModel
+			? imageCountLimit *
+				getPptImageUnitCreditCost({
+					source: selectedImageModel.source,
+					creditCost: selectedImageModel.creditCost,
+					fallbackCost: imageCreditCost,
+				})
+			: 0;
+	const estimatedCost = textEstimatedCost + imageEstimatedCost;
 	const attachmentCount = sourceFiles.length;
 	const progressLabel = phase || progressMessage(progress);
 	const durationLabel = formatProjectDurationLabel({
@@ -165,6 +190,12 @@ export function GenerationForm({
 						styleSource === "custom" ? customStyle.trim() : undefined,
 					model: selectedModel.model,
 					modelSource: selectedModel.source,
+					...(!hasUploadedTemplate && selectedImageModel
+						? {
+								imageModel: selectedImageModel.model,
+								imageModelSource: selectedImageModel.source,
+							}
+						: {}),
 					textVolume,
 					audience,
 					tone,
@@ -397,16 +428,16 @@ export function GenerationForm({
 									/>
 								</label>
 								<span className="flex items-center gap-1.5 rounded-md bg-muted/70 px-2.5 py-1.5 text-xs text-foreground">
-									{useOwnKey ? (
+									{estimatedCost === 0 ? (
 										<KeyRound className="size-3.5" />
 									) : (
 										<Coins className="size-3.5" />
 									)}
 									{!selectedModel
 										? "暂无可用模型"
-										: useOwnKey
-											? "自带 API"
-											: `${creditsPerSlide} 积分 / 页`}
+										: estimatedCost === 0
+											? "自带 API · 0 积分"
+											: `预估 ${estimatedCost} 积分`}
 								</span>
 							</div>
 
@@ -557,14 +588,52 @@ export function GenerationForm({
 							<span className="ml-1.5 font-medium">
 								{!selectedModel
 									? "--"
-									: useOwnKey
-										? "0 积分"
-										: `${estimatedCost} 积分`}
+									: `${estimatedCost} 积分`}
 							</span>
 						</div>
 					</div>
 
-					<div className="grid gap-2 border-t bg-muted/15 px-3 py-2.5 sm:grid-cols-3 sm:px-4">
+					<div className="grid gap-2 border-t bg-muted/15 px-3 py-2.5 sm:grid-cols-2 sm:px-4 lg:grid-cols-4">
+						<Select
+							value={
+								hasUploadedTemplate
+									? PPT_IMAGE_MODEL_NONE
+									: imageModelValue
+							}
+							onValueChange={setImageModelValue}
+							disabled={hasUploadedTemplate}
+						>
+							<SelectTrigger className="h-9 w-full min-w-0 bg-background">
+								<ImageIcon className="size-3.5 shrink-0 text-muted-foreground" />
+								<span className="shrink-0 text-xs text-muted-foreground">图片模型</span>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value={PPT_IMAGE_MODEL_NONE}>
+									{hasUploadedTemplate
+										? "模板填充不替换图片"
+										: "不使用 AI 图片"}
+								</SelectItem>
+								{imageModelOptions.map((option) => (
+									<SelectItem key={option.value} value={option.value}>
+										<span className="flex min-w-0 items-center gap-2">
+											<span className="truncate">{option.model}</span>
+											<span
+												className={cn(
+													"shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
+													option.source === "user"
+														? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+														: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+												)}
+											>
+												{option.sourceLabel}
+											</span>
+										</span>
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+
 						<Select
 							value={textVolume}
 							onValueChange={(value) => setTextVolume(value as PptTextVolume)}
