@@ -3,13 +3,13 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
+import { Loader2 } from "lucide-react";
 import { isPptProcessingStatus, PPT_STATUS_LABELS } from "@/lib/ppt-agent/status";
 import { formatProjectDurationLabel } from "../components/duration";
 
 interface ProjectStatusSnapshot {
 	id: string;
 	status: string;
-	progress: number;
 	currentPhase: string | null;
 	error: string | null;
 	createdAt?: string;
@@ -26,7 +26,6 @@ export function ProjectStatusCard({ initial }: ProjectStatusCardProps) {
 	const [snapshot, setSnapshot] = useState(initial);
 	const [now, setNow] = useState<number | null>(null);
 	const isProcessing = isPptProcessingStatus(snapshot.status);
-	const progress = clampProgress(snapshot.progress);
 	const phase =
 		snapshot.currentPhase || PPT_STATUS_LABELS[snapshot.status] || "处理中";
 	const durationLabel = formatProjectDurationLabel({
@@ -78,31 +77,24 @@ export function ProjectStatusCard({ initial }: ProjectStatusCardProps) {
 
 	return (
 		<Card className="p-4">
-			<div className="flex flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between">
+			<div className="flex items-start gap-3 text-sm">
+				{isProcessing && (
+					<Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-primary" />
+				)}
 				<div className="min-w-0">
-					<p className="font-medium">{phase}</p>
+					<p className="font-medium" role="status" aria-live="polite">
+						{phase}
+					</p>
 					{durationLabel && (
 						<p className="mt-1 text-xs text-muted-foreground">
 							{durationLabel}
 						</p>
 					)}
 				</div>
-				<span className="shrink-0 text-muted-foreground">{progress}%</span>
-			</div>
-			<div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
-				<div
-					className="h-full rounded-full bg-primary transition-all"
-					style={{ width: `${progress}%` }}
-				/>
 			</div>
 			{snapshot.error && (
 				<p className="mt-3 text-sm text-destructive">{snapshot.error}</p>
 			)}
 		</Card>
 	);
-}
-
-function clampProgress(value: number) {
-	if (!Number.isFinite(value)) return 0;
-	return Math.max(0, Math.min(100, Math.round(value)));
 }

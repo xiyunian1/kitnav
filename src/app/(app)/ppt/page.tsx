@@ -47,7 +47,6 @@ export default async function PptPage() {
         title: true,
         sourceType: true,
         status: true,
-        progress: true,
         currentPhase: true,
         slideCount: true,
         aspectRatio: true,

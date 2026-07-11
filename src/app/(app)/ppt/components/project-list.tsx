@@ -28,7 +28,6 @@ export interface ProjectListItem {
   title: string;
   sourceType: string;
   status: string;
-  progress: number;
   currentPhase?: string | null;
   slideCount: number | null;
   aspectRatio?: string | null;
@@ -205,7 +204,6 @@ export function ProjectList({ projects }: Props) {
             const status = STATUS_MAP[project.status as keyof typeof STATUS_MAP] || STATUS_MAP.PENDING;
             const StatusIcon = status.icon;
             const isProcessing = isPptProcessingStatus(project.status);
-            const progress = Math.max(0, Math.min(100, Math.round(project.progress || 0)));
             const durationLabel = formatProjectDurationLabel({
               startedAt: project.createdAt,
               completedAt: project.completedAt,
@@ -253,14 +251,6 @@ export function ProjectList({ projects }: Props) {
                       <StatusIcon className={cn("size-3", isProcessing && "animate-spin")} />
                       {status.label}
                     </Badge>
-                    {isProcessing && (
-                      <div className="absolute inset-x-0 bottom-0 h-1.5 bg-black/10">
-                        <div
-                          className="h-full bg-primary transition-all"
-                          style={{ width: `${progress}%` }}
-                        />
-                      </div>
-                    )}
                   </div>
                 </Link>
 
@@ -290,9 +280,9 @@ export function ProjectList({ projects }: Props) {
                   </div>
 
                   {isProcessing && (
-                    <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="size-3 shrink-0 animate-spin" />
                       <p className="truncate">{project.currentPhase || status.label}</p>
-                      <p className="shrink-0">{progress}%</p>
                     </div>
                   )}
                   {!isProcessing && project.status === "FAILED" && (

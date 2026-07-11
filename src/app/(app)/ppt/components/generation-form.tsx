@@ -99,7 +99,6 @@ export function GenerationForm({
 	const [audience, setAudience] = useState<PptAudience>("general");
 	const [tone, setTone] = useState<PptTone>("natural");
 	const [visualReview, setVisualReview] = useState(false);
-	const [progress, setProgress] = useState(0);
 	const [phase, setPhase] = useState("任务正在排队");
 	const [startedAt, setStartedAt] = useState<number | null>(null);
 	const [now, setNow] = useState<number | null>(null);
@@ -131,7 +130,7 @@ export function GenerationForm({
 			: 0;
 	const estimatedCost = textEstimatedCost + imageEstimatedCost;
 	const attachmentCount = sourceFiles.length;
-	const progressLabel = phase || progressMessage(progress);
+	const phaseLabel = phase || "正在生成 PPT";
 	const durationLabel = formatProjectDurationLabel({
 		startedAt,
 		running: loading,
@@ -168,7 +167,6 @@ export function GenerationForm({
 		}
 
 		setLoading(true);
-		setProgress(0);
 		setPhase("任务正在排队");
 		const submitStartedAt = Date.now();
 		setStartedAt(submitStartedAt);
@@ -222,7 +220,6 @@ export function GenerationForm({
 				await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
 				let status: {
 					status?: string;
-					progress?: number;
 					currentPhase?: string | null;
 					error?: string;
 					createdAt?: string;
@@ -239,8 +236,6 @@ export function GenerationForm({
 				}
 				if (status) {
 					emptyPolls = 0;
-					if (typeof status.progress === "number")
-						setProgress(clampProgress(status.progress));
 					if (status.createdAt) {
 						const createdTime = new Date(status.createdAt).getTime();
 						if (Number.isFinite(createdTime)) setStartedAt(createdTime);
@@ -721,34 +716,34 @@ export function GenerationForm({
 
 					{loading && (
 						<div className="border-t px-4 py-3 sm:px-5">
-							<div className="mb-2 flex items-center justify-between gap-3 text-sm">
-								<div className="min-w-0">
-									<p className="truncate font-medium">{progressLabel}</p>
-									{durationLabel && (
-										<p className="mt-0.5 text-xs text-muted-foreground">
-											{durationLabel}
+							<div className="flex items-center justify-between gap-3 text-sm">
+								<div className="flex min-w-0 items-center gap-3">
+									<Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+									<div className="min-w-0">
+										<p
+											className="truncate font-medium"
+											role="status"
+											aria-live="polite"
+										>
+											{phaseLabel}
 										</p>
-									)}
+										{durationLabel && (
+											<p className="mt-0.5 text-xs text-muted-foreground">
+												{durationLabel}
+											</p>
+										)}
+									</div>
 								</div>
-								<div className="flex items-center gap-2">
-									<span className="text-muted-foreground">{progress}%</span>
-									{activeProjectId && (
-										<CancelProjectButton
-											projectId={activeProjectId}
-											size="sm"
-											variant="destructive"
-											onCancelled={() => {
-												cancelledRef.current = true;
-											}}
-										/>
-									)}
-								</div>
-							</div>
-							<div className="h-1.5 overflow-hidden rounded-full bg-muted">
-								<div
-									className="h-full rounded-full bg-primary transition-all"
-									style={{ width: `${progress}%` }}
-								/>
+								{activeProjectId && (
+									<CancelProjectButton
+										projectId={activeProjectId}
+										size="sm"
+										variant="destructive"
+										onCancelled={() => {
+											cancelledRef.current = true;
+										}}
+									/>
+								)}
 							</div>
 						</div>
 					)}
@@ -825,14 +820,4 @@ function formatBytes(bytes: number) {
 	if (!Number.isFinite(bytes) || bytes <= 0) return "0 KB";
 	if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
 	return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function clampProgress(value: number) {
-	if (!Number.isFinite(value)) return 0;
-	return Math.max(0, Math.min(100, Math.round(value)));
-}
-
-function progressMessage(progress: number) {
-	if (progress <= 0) return "任务正在排队";
-	return "正在生成 PPT";
 }

@@ -20,7 +20,7 @@ export function PptWorkbench({
   imageCreditCost,
 }: Props) {
   const projectListKey = recentProjects
-    .map((project) => `${project.id}:${project.status}:${project.progress}`)
+    .map((project) => `${project.id}:${project.status}:${project.currentPhase ?? ""}`)
     .join("|");
 
   return (

@@ -100,7 +100,6 @@ export default async function PptProjectPage({
 				initial={{
 					id: project.id,
 					status: project.status,
-					progress: project.progress,
 					currentPhase: project.currentPhase,
 					error:
 						project.status === "FAILED" ? PPT_USER_FAILURE_MESSAGE : null,
