@@ -200,7 +200,7 @@ function buildOpenAiCompatibleCompat() {
       process.env.PPT_PI_SUPPORTS_DEVELOPER_ROLE ?? "false",
     ),
     supportsReasoningEffort: isTruthy(
-      process.env.PPT_PI_SUPPORTS_REASONING_EFFORT ?? "false",
+      process.env.PPT_PI_SUPPORTS_REASONING_EFFORT ?? "true",
     ),
     supportsUsageInStreaming: isTruthy(
       process.env.PPT_PI_SUPPORTS_USAGE_IN_STREAMING ?? "false",
@@ -217,7 +217,7 @@ function buildThinkingLevelMap() {
     low: "low",
     medium: "medium",
     high: "high",
-    xhigh: process.env.PPT_PI_THINKING_VALUE || "max",
+    xhigh: process.env.PPT_PI_THINKING_VALUE || "xhigh",
   };
 }
 

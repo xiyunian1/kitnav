@@ -236,30 +236,34 @@ function buildPiProviderHeaders() {
 	};
 }
 
-function buildOpenAiCompatibleCompat() {
+export function buildOpenAiCompatibleCompat(
+	environment: Readonly<Record<string, string | undefined>> = process.env,
+) {
 	return {
-		supportsStore: isTruthy(process.env.PPT_PI_SUPPORTS_STORE ?? "false"),
+		supportsStore: isTruthy(environment.PPT_PI_SUPPORTS_STORE ?? "false"),
 		supportsDeveloperRole: isTruthy(
-			process.env.PPT_PI_SUPPORTS_DEVELOPER_ROLE ?? "false",
+			environment.PPT_PI_SUPPORTS_DEVELOPER_ROLE ?? "false",
 		),
 		supportsReasoningEffort: isTruthy(
-			process.env.PPT_PI_SUPPORTS_REASONING_EFFORT ?? "false",
+			environment.PPT_PI_SUPPORTS_REASONING_EFFORT ?? "true",
 		),
 		supportsUsageInStreaming: isTruthy(
-			process.env.PPT_PI_SUPPORTS_USAGE_IN_STREAMING ?? "false",
+			environment.PPT_PI_SUPPORTS_USAGE_IN_STREAMING ?? "false",
 		),
 		maxTokensField:
-			process.env.PPT_PI_MAX_TOKENS_FIELD === "max_completion_tokens"
+			environment.PPT_PI_MAX_TOKENS_FIELD === "max_completion_tokens"
 				? "max_completion_tokens"
 				: "max_tokens",
 	};
 }
 
-function buildThinkingLevelMap() {
+export function buildThinkingLevelMap(
+	environment: Readonly<Record<string, string | undefined>> = process.env,
+) {
 	return {
 		low: "low",
 		medium: "medium",
 		high: "high",
-		xhigh: process.env.PPT_PI_THINKING_VALUE || "max",
+		xhigh: environment.PPT_PI_THINKING_VALUE || "xhigh",
 	};
 }
