@@ -132,7 +132,8 @@ function runCommand(
         child.kill();
         finish(error);
       });
-      child.stdin.once("error", (error) => {
+      child.stdin.once("error", (error: NodeJS.ErrnoException) => {
+        if (error.code === "EPIPE") return;
         child.kill();
         finish(error);
       });
@@ -318,10 +319,18 @@ async function validateCreatedArchives(
     { stdinPath: databasePath, ignoreStdout: true },
   );
   if (archivedPaths.length === 0) return;
-  const listing = await runCapture("tar", ["-tzf", filesPath]);
+  const listing = await runCapture("tar", [
+    "--quoting-style=literal",
+    "-tzf",
+    filesPath,
+  ]);
   assertSafeArchiveEntries(listing, archivedPaths);
   assertSafeArchiveEntryTypes(
-    await runCapture("tar", ["-tvzf", filesPath]),
+    await runCapture("tar", [
+      "--quoting-style=literal",
+      "-tvzf",
+      filesPath,
+    ]),
   );
 }
 

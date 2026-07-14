@@ -91,5 +91,10 @@ function hashObject(type: "blob" | "tree", content: Buffer) {
 }
 
 function isGeneratedArtifact(name: string) {
-  return name === "__pycache__" || name === ".DS_Store" || name.endsWith(".pyc");
+  return (
+    name === "__pycache__" ||
+    name === ".DS_Store" ||
+    name.startsWith("._") ||
+    name.endsWith(".pyc")
+  );
 }

@@ -43,10 +43,18 @@ async function main() {
     "/backup/database.dump",
   ]);
   if (verified.manifest.files.included.length > 0) {
-    const listing = await runCapture("tar", ["-tzf", verified.filesPath]);
+    const listing = await runCapture("tar", [
+      "--quoting-style=literal",
+      "-tzf",
+      verified.filesPath,
+    ]);
     assertSafeArchiveEntries(listing, verified.manifest.files.included);
     assertSafeArchiveEntryTypes(
-      await runCapture("tar", ["-tvzf", verified.filesPath]),
+      await runCapture("tar", [
+        "--quoting-style=literal",
+        "-tvzf",
+        verified.filesPath,
+      ]),
     );
   }
   console.log(`Backup snapshot verified: ${verified.root}`);

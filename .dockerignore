@@ -1,6 +1,7 @@
 .git
 .next
 node_modules
+._*
 data
 backups
 deploy-backups
@@ -10,6 +11,7 @@ public/projects
 public/uploads
 .env
 .env.*
+!scripts/ppt-master/.env.example
 npm-debug.log
 .next-dev.out.log
 .next-dev.err.log
