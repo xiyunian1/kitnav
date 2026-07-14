@@ -10,6 +10,8 @@ import { getModuleModelOptions } from "@/lib/providers";
 import { getSettingNumber } from "@/lib/credits";
 import { SETTING_KEYS } from "@/lib/settings-config";
 import { getProjectSvgPreviews } from "@/lib/ppt-agent/paths";
+import { toPublicPptProject } from "@/lib/ppt-agent/project-public";
+import { getPptCreditsPerSlide } from "@/lib/ppt-agent/billing";
 import { PptWorkbench } from "./components/workbench";
 
 export const metadata = { title: "PPT 生成" };
@@ -54,6 +56,7 @@ export default async function PptPage() {
         completedAt: true,
         updatedAt: true,
         pptxPath: true,
+        artifactsDeletedAt: true,
       },
     }),
     getModuleModelOptions(session!.user.id, "PPT"),
@@ -69,13 +72,13 @@ export default async function PptPage() {
     projectRows.map(async (project) => {
       const previews = await getProjectSvgPreviews(project.id);
       return {
-        ...project,
+        ...toPublicPptProject(project),
         coverUrl: previews[0]?.url ?? null,
       };
     }),
   );
 
-  const creditsPerSlide = Number(process.env.PPT_CREDITS_PER_SLIDE || 10);
+  const creditsPerSlide = getPptCreditsPerSlide();
   const displayName = session?.user?.name?.trim();
 
   return (

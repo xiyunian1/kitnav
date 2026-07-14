@@ -4,6 +4,15 @@ import { decrypt } from "@/lib/crypto";
 import { testImageConnection, testTextConnection } from "@/lib/providers";
 import { testConnectionSchema } from "@/lib/api-config-schema";
 import { getCurrentUserOrUnauthorized } from "@/lib/current-user";
+import {
+  enforceUserRequestLimit,
+  REQUEST_LIMITS,
+} from "@/lib/request-limits";
+import {
+  JSON_BODY_LIMITS,
+  jsonRequestErrorDetails,
+  readLimitedJsonBody,
+} from "@/lib/json-request";
 
 // 用户测试自己的 API 配置连接。apiKey 留空则用已存的 key 测试。
 export async function POST(req: Request) {
@@ -12,12 +21,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: current.error }, { status: current.status });
   }
   const userId = current.user.id;
+  const limited = await enforceUserRequestLimit(userId, REQUEST_LIMITS.apiProbe);
+  if (limited) return limited;
 
   let raw: unknown;
   try {
-    raw = await req.json();
-  } catch {
-    return NextResponse.json({ error: "请求格式错误" }, { status: 400 });
+    raw = await readLimitedJsonBody(req, JSON_BODY_LIMITS.small);
+  } catch (error) {
+    const bodyError = jsonRequestErrorDetails(error);
+    return NextResponse.json(
+      { error: bodyError.message },
+      { status: bodyError.status },
+    );
   }
 
   const parsed = testConnectionSchema.safeParse(raw);

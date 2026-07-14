@@ -6,11 +6,18 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import {
   deleteStoredMaterialFile,
+  materialStorageKeyFromUrl,
   saveImageFromUrl,
   tagsToJson,
 } from "@/lib/materials";
+import { deleteUnreferencedMaterialFile } from "@/lib/material-storage-references";
 import { resolveMaterialSubmissionState } from "@/lib/material-review";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
+import { createMaterialReport } from "@/lib/material-reports";
+import {
+  enforceUserRequestLimit,
+  REQUEST_LIMITS,
+} from "@/lib/request-limits";
 
 const saveGenerationSchema = z.object({
   url: z.string().min(1),
@@ -27,9 +34,10 @@ export async function saveGeneratedImageAction(input: z.infer<typeof saveGenerat
   const parsed = saveGenerationSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "参数错误" };
 
+  let stored: Awaited<ReturnType<typeof saveImageFromUrl>> | null = null;
   try {
     await assertControlledModuleAvailableForUser("library", session.user.id);
-    const stored = await saveImageFromUrl(parsed.data.url, session.user.id);
+    stored = await saveImageFromUrl(parsed.data.url, session.user.id);
     await prisma.material.create({
       data: {
         ownerId: session.user.id,
@@ -50,6 +58,7 @@ export async function saveGeneratedImageAction(input: z.infer<typeof saveGenerat
       },
     });
   } catch (e) {
+    await deleteStoredMaterialFile(stored?.storageKey ?? null);
     return { error: e instanceof Error ? e.message : "保存失败" };
   }
 
@@ -68,14 +77,22 @@ export async function deleteMaterialAction(materialId: string) {
 
   const material = await prisma.material.findUnique({
     where: { id: materialId },
-    select: { ownerId: true, storageKey: true },
+    select: {
+      ownerId: true,
+      storageKey: true,
+      url: true,
+      thumbnailUrl: true,
+    },
   });
   if (!material || material.ownerId !== session.user.id) {
     return { error: "素材不存在" };
   }
-
+  const storageKey =
+    material.storageKey ??
+    materialStorageKeyFromUrl(material.url) ??
+    materialStorageKeyFromUrl(material.thumbnailUrl ?? "");
   await prisma.material.delete({ where: { id: materialId } });
-  await deleteStoredMaterialFile(material.storageKey);
+  await deleteUnreferencedMaterialFile(storageKey);
   revalidatePath("/library");
   revalidatePath("/materials");
   return { ok: true };
@@ -233,16 +250,30 @@ export async function reportMaterialAction(materialId: string, reason: string) {
   } catch (error) {
     return { error: error instanceof Error ? error.message : "操作已暂停" };
   }
-  const text = reason.trim().slice(0, 200);
-  if (!text) return { error: "请填写举报原因" };
-  const material = await prisma.material.findFirst({
-    where: { id: materialId, visibility: "PUBLIC", status: "APPROVED" },
-    select: { id: true },
+  const parsed = z.object({
+    materialId: z.string().min(1).max(100),
+    reason: z.string().trim().min(1, "请填写举报原因").max(200, "举报原因不能超过 200 字"),
+  }).safeParse({ materialId, reason });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "参数错误" };
+  }
+
+  const limited = await enforceUserRequestLimit(
+    session.user.id,
+    REQUEST_LIMITS.materialReport,
+  );
+  if (limited) return { error: REQUEST_LIMITS.materialReport.message };
+
+  const result = await createMaterialReport({
+    materialId: parsed.data.materialId,
+    reporterId: session.user.id,
+    reason: parsed.data.reason,
   });
-  if (!material) return { error: "素材不存在" };
-  await prisma.materialReport.create({
-    data: { materialId, reporterId: session.user.id, reason: text },
-  });
+  if (result === "not-found") return { error: "素材不存在" };
+  if (result === "own-material") return { error: "不能举报自己的素材" };
+  if (result === "already-reported") return { error: "该举报正在处理中" };
+
+  revalidatePath("/admin/materials");
   return { ok: true };
 }
 
@@ -268,13 +299,18 @@ export async function saveImageMaterialCopyAction(materialId: string) {
       description: true,
       tags: true,
       url: true,
+      storageKey: true,
       sourceGenerationId: true,
     },
   });
   if (!material?.url) return { error: "素材不存在" };
 
+  let stored: Awaited<ReturnType<typeof saveImageFromUrl>> | null = null;
   try {
-    const stored = await saveImageFromUrl(material.url, session.user.id);
+    stored = await saveImageFromUrl(material.url, session.user.id, {
+      allowedLocalStorageKey:
+        material.storageKey ?? materialStorageKeyFromUrl(material.url),
+    });
     await prisma.material.create({
       data: {
         ownerId: session.user.id,
@@ -295,6 +331,7 @@ export async function saveImageMaterialCopyAction(materialId: string) {
       },
     });
   } catch (e) {
+    await deleteStoredMaterialFile(stored?.storageKey ?? null);
     return { error: e instanceof Error ? e.message : "保存失败" };
   }
 
@@ -324,6 +361,7 @@ export async function savePromptMaterialCopyAction(materialId: string) {
       title: true,
       description: true,
       tags: true,
+      storageKey: true,
       thumbnailUrl: true,
       promptText: true,
       promptMeta: true,
@@ -333,25 +371,42 @@ export async function savePromptMaterialCopyAction(materialId: string) {
   });
   if (!material?.promptText) return { error: "提示词不存在" };
 
-  await prisma.material.create({
-    data: {
-      ownerId: session.user.id,
-      ownerType: "USER",
-      type: "PROMPT",
-      source: "REFERENCE",
-      visibility: "PRIVATE",
-      status: "DRAFT",
-      title: material.title,
-      description: material.description,
-      tags: material.tags,
-      url: "",
-      thumbnailUrl: material.thumbnailUrl,
-      promptText: material.promptText,
-      promptMeta: material.promptMeta,
-      mimeType: material.mimeType || "text/plain",
-      sizeBytes: material.sizeBytes,
-    },
-  });
+  let cover: Awaited<ReturnType<typeof saveImageFromUrl>> | null = null;
+  try {
+    if (material.thumbnailUrl) {
+      cover = await saveImageFromUrl(material.thumbnailUrl, session.user.id, {
+        namePrefix: "prompt-cover",
+        allowedLocalStorageKey:
+          materialStorageKeyFromUrl(material.thumbnailUrl) ??
+          material.storageKey,
+      });
+    }
+    await prisma.material.create({
+      data: {
+        ownerId: session.user.id,
+        ownerType: "USER",
+        type: "PROMPT",
+        source: "REFERENCE",
+        visibility: "PRIVATE",
+        status: "DRAFT",
+        title: material.title,
+        description: material.description,
+        tags: material.tags,
+        url: "",
+        storageKey: cover?.storageKey,
+        thumbnailUrl: cover?.url,
+        promptText: material.promptText,
+        promptMeta: material.promptMeta,
+        mimeType: cover?.mimeType || material.mimeType || "text/plain",
+        sizeBytes: cover?.sizeBytes ?? material.sizeBytes,
+      },
+    });
+  } catch (error) {
+    await deleteStoredMaterialFile(cover?.storageKey ?? null);
+    return {
+      error: error instanceof Error ? error.message : "提示词保存失败",
+    };
+  }
 
   revalidatePath("/library");
   revalidatePath(`/materials/${materialId}`);

@@ -17,7 +17,7 @@ export function MobileNav({ controls }: { controls: SidebarControlState }) {
         <button
           type="button"
           aria-label="打开导航菜单"
-          className="inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:hidden"
+          className="inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground xl:hidden"
         >
           <Menu className="size-5" />
         </button>

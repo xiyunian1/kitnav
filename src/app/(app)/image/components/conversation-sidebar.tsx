@@ -1,7 +1,14 @@
 "use client";
 
 import { memo } from "react";
-import { Plus, Search, Trash2, MessageSquare } from "lucide-react";
+import {
+  ChevronDown,
+  Loader2,
+  MessageSquare,
+  Plus,
+  Search,
+  Trash2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -13,6 +20,8 @@ interface Props {
   activeId: string | null;
   search: string;
   loading: boolean;
+  loadingMore: boolean;
+  hasMore: boolean;
   balance: number;
   useOwnKey: boolean;
   onSearch: (value: string) => void;
@@ -20,6 +29,7 @@ interface Props {
   onNew: () => void;
   onDelete: (id: string) => void;
   onClear: () => void;
+  onLoadMore: () => void;
 }
 
 function formatTime(value: string) {
@@ -38,6 +48,8 @@ export const ConversationSidebar = memo(function ConversationSidebar({
   activeId,
   search,
   loading,
+  loadingMore,
+  hasMore,
   balance,
   useOwnKey,
   onSearch,
@@ -45,6 +57,7 @@ export const ConversationSidebar = memo(function ConversationSidebar({
   onNew,
   onDelete,
   onClear,
+  onLoadMore,
 }: Props) {
   return (
     <div className="flex h-full flex-col gap-3">
@@ -90,36 +103,57 @@ export const ConversationSidebar = memo(function ConversationSidebar({
         ) : conversations.length === 0 ? (
           <p className="px-2 py-4 text-center text-xs text-muted-foreground">暂无会话，点击上方新建</p>
         ) : (
-          conversations.map((c) => (
-            <div
-              key={c.id}
-              className={cn(
-                "group flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 transition",
-                activeId === c.id ? "border-primary/40 bg-muted" : "border-transparent hover:bg-muted/60"
-              )}
-              onClick={() => onSelect(c.id)}
-            >
-              <MessageSquare className="size-4 shrink-0 text-muted-foreground" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{c.title}</p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {c.turnCount} 轮 · {formatTime(c.updatedAt)}
-                </p>
-              </div>
-              <button
-                type="button"
-                className="opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete(c.id);
-                }}
-                title="删除会话"
-                aria-label={`删除会话：${c.title}`}
+          <>
+            {conversations.map((c) => (
+              <div
+                key={c.id}
+                className={cn(
+                  "group flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 transition",
+                  activeId === c.id
+                    ? "border-primary/40 bg-muted"
+                    : "border-transparent hover:bg-muted/60",
+                )}
+                onClick={() => onSelect(c.id)}
               >
-                <Trash2 className="size-3.5 text-muted-foreground hover:text-destructive" />
-              </button>
-            </div>
-          ))
+                <MessageSquare className="size-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{c.title}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {c.turnCount} 轮 · {formatTime(c.updatedAt)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(c.id);
+                  }}
+                  title="删除会话"
+                  aria-label={`删除会话：${c.title}`}
+                >
+                  <Trash2 className="size-3.5 text-muted-foreground hover:text-destructive" />
+                </button>
+              </div>
+            ))}
+            {hasMore && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                onClick={onLoadMore}
+                disabled={loadingMore}
+              >
+                {loadingMore ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <ChevronDown className="size-4" />
+                )}
+                加载更多
+              </Button>
+            )}
+          </>
         )}
       </div>
 

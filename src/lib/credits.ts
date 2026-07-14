@@ -116,32 +116,59 @@ export async function adjustCredits(
   delta: number,
   description?: string
 ): Promise<number> {
-  if (delta === 0) throw new Error("调整值不能为 0");
+  if (!Number.isSafeInteger(delta) || delta === 0) {
+    throw new Error("调整值必须是非零整数");
+  }
 
-  return prisma.$transaction(async (tx) => {
-    const user = await tx.user.findUnique({ where: { id: userId } });
-    if (!user) throw new Error("用户不存在");
+  return prisma.$transaction((tx) =>
+    adjustCreditsInTransaction(tx, userId, delta, description),
+  );
+}
 
-    const newBalance = user.credits + delta;
-    if (newBalance < 0) throw new Error("调整后余额不能为负");
-
-    const updated = await tx.user.update({
-      where: { id: userId },
-      data: { credits: newBalance },
-    });
-
-    await tx.creditTransaction.create({
-      data: {
-        userId,
-        amount: delta,
-        type: "ADMIN_ADJUST",
-        balanceAfter: updated.credits,
-        description: description ?? "管理员调整",
-      },
-    });
-
-    return updated.credits;
+export async function adjustCreditsInTransaction(
+  tx: Prisma.TransactionClient | typeof prisma,
+  userId: string,
+  delta: number,
+  description?: string,
+) {
+  if (!Number.isSafeInteger(delta) || delta === 0) {
+    throw new Error("调整值必须是非零整数");
+  }
+  const amount = Math.abs(delta);
+  const claimed = await tx.user.updateMany({
+    where:
+      delta > 0
+        ? { id: userId }
+        : { id: userId, credits: { gte: amount } },
+    data:
+      delta > 0
+        ? { credits: { increment: amount } }
+        : { credits: { decrement: amount } },
   });
+  if (claimed.count !== 1) {
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: { credits: true },
+    });
+    if (!user) throw new Error("用户不存在");
+    throw new Error("调整后余额不能为负");
+  }
+
+  const updated = await tx.user.findUnique({
+    where: { id: userId },
+    select: { credits: true },
+  });
+  if (!updated) throw new Error("用户不存在");
+  await tx.creditTransaction.create({
+    data: {
+      userId,
+      amount: delta,
+      type: "ADMIN_ADJUST",
+      balanceAfter: updated.credits,
+      description: description ?? "管理员调整",
+    },
+  });
+  return updated.credits;
 }
 
 export { SETTING_KEYS };

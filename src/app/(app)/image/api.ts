@@ -16,11 +16,46 @@ async function parseError(res: Response, fallback: string): Promise<string> {
   }
 }
 
-export async function listConversations(q = ""): Promise<ConversationSummary[]> {
-  const res = await fetch(`/api/image/conversations${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+export interface ConversationListPage {
+  conversations: ConversationSummary[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
+export interface ConversationSnapshot {
+  conversation: ConversationDetail;
+  balance: number;
+}
+
+export interface CancelTurnResult {
+  turn: Turn;
+  balance: number;
+}
+
+function readBalance(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error("积分余额响应无效");
+  }
+  return value;
+}
+
+export async function listConversations(
+  q = "",
+  cursor?: string,
+): Promise<ConversationListPage> {
+  const params = new URLSearchParams({ take: "50" });
+  if (q) params.set("q", q);
+  if (cursor) params.set("cursor", cursor);
+  const res = await fetch(`/api/image/conversations?${params.toString()}`, {
+    cache: "no-store",
+  });
   if (!res.ok) throw new Error(await parseError(res, "读取会话失败"));
   const data = await res.json();
-  return data.conversations;
+  return {
+    conversations: data.conversations,
+    hasMore: Boolean(data.hasMore),
+    nextCursor: typeof data.nextCursor === "string" ? data.nextCursor : null,
+  };
 }
 
 export async function createConversation(): Promise<ConversationSummary> {
@@ -33,7 +68,7 @@ export async function createConversation(): Promise<ConversationSummary> {
 export async function getConversation(
   id: string,
   options?: { before?: string; take?: number }
-): Promise<ConversationDetail> {
+): Promise<ConversationSnapshot> {
   const params = new URLSearchParams();
   params.set("take", String(options?.take ?? 8));
   if (options?.before) params.set("before", options.before);
@@ -41,7 +76,10 @@ export async function getConversation(
   const res = await fetch(`/api/image/conversations/${id}${query ? `?${query}` : ""}`);
   if (!res.ok) throw new Error(await parseError(res, "读取会话详情失败"));
   const data = await res.json();
-  return data.conversation;
+  return {
+    conversation: data.conversation,
+    balance: readBalance(data.balance),
+  };
 }
 
 export async function renameConversation(id: string, title: string): Promise<void> {
@@ -63,11 +101,11 @@ export async function clearConversations(): Promise<void> {
   if (!res.ok) throw new Error(await parseError(res, "清空失败"));
 }
 
-export async function cancelTurn(turnId: string): Promise<Turn> {
+export async function cancelTurn(turnId: string): Promise<CancelTurnResult> {
   const res = await fetch(`/api/image/turns/${turnId}/cancel`, { method: "POST" });
   if (!res.ok) throw new Error(await parseError(res, "停止生成失败"));
   const data = await res.json();
-  return data.turn;
+  return { turn: data.turn, balance: readBalance(data.balance) };
 }
 
 // 文生图

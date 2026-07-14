@@ -15,6 +15,7 @@ import { getProjectSvgPreviews } from "@/lib/ppt-agent/paths";
 import { CancelProjectButton } from "../components/cancel-project-button";
 import { ProjectStatusCard } from "./project-status-card";
 import {
+	isPptCompletedStatus,
 	isPptProcessingStatus,
 	PPT_STATUS_LABELS,
 	PPT_USER_FAILURE_MESSAGE,
@@ -70,6 +71,11 @@ export default async function PptProjectPage({
 						{project.slideCount ?? "-"} 页 · {project.aspectRatio} · 消耗{" "}
 						{project.creditsCost} 积分
 					</p>
+					{project.artifactsDeletedAt && (
+						<p className="text-sm text-amber-700">
+							生成文件已超过保留期限，项目记录仍保留；需要下载时请重新生成。
+						</p>
+					)}
 				</div>
 
 				<div className="flex gap-2">
@@ -77,7 +83,7 @@ export default async function PptProjectPage({
 						<RefreshCw className="size-4" />
 						返回列表
 					</Link>
-					{project.status === "COMPLETED" && project.pptxPath && (
+					{isPptCompletedStatus(project.status) && project.pptxPath && (
 						<a
 							href={`/api/ppt/projects/${project.id}/export`}
 							className={buttonVariants()}

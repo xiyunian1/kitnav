@@ -83,14 +83,14 @@ export type ApiConfigInput = z.infer<typeof apiConfigSchema>;
 // 测试连接的校验（apiKey 必填，因为要真实调用；但允许用已存的 key 占位符）
 export const testConnectionSchema = z.object({
   module: z.enum(MODULE_TYPES),
-  baseUrl: z.string().trim().url("Base URL 格式不正确"),
-  apiKey: z.string().trim().optional(),
-  model: z.string().trim().min(1, "请填写模型名"),
+  baseUrl: z.string().trim().url("Base URL 格式不正确").max(300),
+  apiKey: z.string().trim().max(300).optional(),
+  model: z.string().trim().min(1, "请填写模型名").max(100),
 });
 
 // 拉取模型列表的校验（只需 baseUrl；apiKey 留空用已存的 key）
 export const listModelsSchema = z.object({
   module: z.enum(MODULE_TYPES),
-  baseUrl: z.string().trim().url("Base URL 格式不正确"),
-  apiKey: z.string().trim().optional(),
+  baseUrl: z.string().trim().url("Base URL 格式不正确").max(300),
+  apiKey: z.string().trim().max(300).optional(),
 });

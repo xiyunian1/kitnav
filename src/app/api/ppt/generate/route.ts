@@ -9,14 +9,26 @@ import {
 } from "@/lib/credits";
 import { logger } from "@/lib/logger";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
-import { resolvePptAgentBillingMode } from "@/lib/ppt-agent/billing";
+import {
+	getPptCreditsPerSlide,
+	resolvePptAgentBillingMode,
+} from "@/lib/ppt-agent/billing";
 import { getPptStyleLabel, getPptStylePreset } from "@/lib/ppt-agent/styles";
 import { releaseStaleProject } from "@/lib/ppt-agent/queue";
-import { wakePptWorker } from "@/lib/ppt-agent/start-worker";
 import { getStaleActiveProjectMs } from "@/lib/ppt-agent/timings";
 import { resolveUploadPath } from "@/lib/ppt-agent/upload-paths";
-import { rateLimitCheck, rateLimitResponse } from "@/lib/rate-limit";
 import { PPT_PROCESSING_STATUSES } from "@/lib/ppt-agent/status";
+import { tryAcquirePptStorageReferenceLock } from "@/lib/ppt-agent/storage-lock";
+import {
+	enforceUserRequestLimit,
+	REQUEST_LIMITS,
+} from "@/lib/request-limits";
+import {
+	JSON_BODY_LIMITS,
+	jsonRequestErrorDetails,
+	readLimitedJsonBody,
+} from "@/lib/json-request";
+import { checkPptQueueCapacity } from "@/lib/queue-capacity";
 import { MODEL_SOURCES } from "@/lib/module-model-options";
 import {
 	ProviderConfigInvalidError,
@@ -53,18 +65,32 @@ class ActivePptProjectError extends Error {
 	}
 }
 
+class PptUploadUnavailableError extends Error {
+	constructor(
+		message: string,
+		public readonly status = 400,
+	) {
+		super(message);
+		this.name = "PptUploadUnavailableError";
+	}
+}
+
+class PptQueueCapacityError extends Error {
+	constructor() {
+		super("当前 PPT 生成任务较多，请稍后再试。");
+		this.name = "PptQueueCapacityError";
+	}
+}
+
 const requestSchema = z
 	.object({
-		sourceType: z.enum(["topic", "markdown", "document", "url"]).optional(),
+		sourceType: z.enum(["topic", "markdown", "document"]).optional(),
 		prompt: z.string().trim().max(80000).optional(),
-		sourceUrls: z.array(z.string().trim().url().max(1000)).max(10).optional(),
 		sourceFileUrls: z.array(z.string().trim().max(2000)).max(10).optional(),
 		templateFileUrls: z.array(z.string().trim().max(2000)).max(1).optional(),
-		templateUrls: z.array(z.string().trim().url().max(1000)).max(1).optional(),
 		sourceTopic: z.string().trim().max(4000).optional(),
 		sourceMarkdown: z.string().trim().max(80000).optional(),
 		sourceFileUrl: z.string().trim().max(2000).optional(),
-		sourceUrl: z.string().trim().url().max(1000).optional(),
 		slideCount: z.coerce.number().int().min(3).max(30).default(10),
 		aspectRatio: z.enum(["16:9", "4:3"]).default("16:9"),
 		style: z.string().trim().min(1).max(80).default("auto"),
@@ -78,25 +104,13 @@ const requestSchema = z
 		audience: z.enum(PPT_AUDIENCE_VALUES).default("general"),
 		tone: z.enum(PPT_TONE_VALUES).default("natural"),
 	})
+	.strict()
 	.superRefine((data, ctx) => {
 		if (Boolean(data.imageModel) !== Boolean(data.imageModelSource)) {
 			ctx.addIssue({
 				code: "custom",
 				path: ["imageModel"],
 				message: "图片模型参数不完整，请重新选择。",
-			});
-			return;
-		}
-		if (
-			data.sourceType === "url" ||
-			data.sourceUrl ||
-			data.sourceUrls?.length ||
-			data.templateUrls?.length
-		) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["sourceUrl"],
-				message: "PPT 生成仅支持上传文件资料，不支持链接。",
 			});
 			return;
 		}
@@ -158,21 +172,25 @@ export async function POST(req: NextRequest) {
 	}
 
 	// 限流：防生成接口被滥打（预扣费、入队都是重操作）。
-	const genLimit = rateLimitCheck(
-		`ppt-generate:u:${session.user.id}`,
-		Math.max(1, Number(process.env.PPT_GENERATE_RATE_MAX || 10)),
-		Math.max(1000, Number(process.env.PPT_GENERATE_RATE_WINDOW_MS || 60_000)),
+	const limited = await enforceUserRequestLimit(
+		session.user.id,
+		REQUEST_LIMITS.pptGenerate,
 	);
-	if (!genLimit.allowed)
-		return rateLimitResponse(genLimit, "生成请求过于频繁，请稍后再试。");
+	if (limited) return limited;
 
 	let parsed: z.infer<typeof requestSchema>;
 	try {
-		parsed = requestSchema.parse(await req.json());
+		parsed = requestSchema.parse(
+			await readLimitedJsonBody(req, JSON_BODY_LIMITS.pptGeneration),
+		);
 	} catch (error) {
+		const bodyError = jsonRequestErrorDetails(error, "请求参数错误");
 		const message =
-			error instanceof z.ZodError ? error.issues[0]?.message : "请求参数错误";
-		return Response.json({ error: message || "请求参数错误" }, { status: 400 });
+			error instanceof z.ZodError ? error.issues[0]?.message : bodyError.message;
+		return Response.json(
+			{ error: message || "请求参数错误" },
+			{ status: bodyError.status },
+		);
 	}
 
 	const staleMs = getStaleActiveProjectMs();
@@ -182,14 +200,18 @@ export async function POST(req: NextRequest) {
 			status: { in: [...PPT_PROCESSING_STATUSES] },
 		},
 		orderBy: { updatedAt: "desc" },
-		select: { id: true, updatedAt: true },
+		select: { id: true, updatedAt: true, workerLease: true },
 	});
 
 	const now = Date.now();
+	const staleBefore = new Date(now - staleMs);
 	for (const activeProject of activeProjects) {
 		if (now - activeProject.updatedAt.getTime() > staleMs) {
-			await releaseStaleProject(activeProject.id);
-			continue;
+			const released = await releaseStaleProject(activeProject.id, undefined, {
+				expectedLease: activeProject.workerLease,
+				staleBefore,
+			});
+			if (released) continue;
 		}
 		return Response.json(
 			{ error: "你已有一个 PPT 项目正在生成，请等待完成或先停止当前项目。" },
@@ -228,7 +250,7 @@ export async function POST(req: NextRequest) {
 	}
 	const textCreditsCost = billingMode.useOwnKey
 		? 0
-		: parsed.slideCount * Number(process.env.PPT_CREDITS_PER_SLIDE || 10);
+		: parsed.slideCount * getPptCreditsPerSlide();
 	const title = buildTitle(parsed);
 	const normalizedSourceType = resolveSourceType(parsed);
 	let resolvedStyle: Awaited<ReturnType<typeof resolveStyleInput>>;
@@ -250,12 +272,25 @@ export async function POST(req: NextRequest) {
 	// 完整入参（除 signal 外）序列化进 params 列，供后台 worker 异步重建 GenerationParams。
 	// 上传文件标识（不透明 token）在此解析为服务器内部路径；绝对路径永不返回客户端。
 	const userId = session.user.id;
-	const resolvedFileUrls = (parsed.sourceFileUrls ?? []).map((token) =>
-		resolveUploadPath(userId, token),
-	);
-	const uploadedTemplateFileUrls = (parsed.templateFileUrls ?? []).map((token) =>
-		resolveUploadPath(userId, token),
-	);
+	let uploadInputs: ReturnType<typeof resolvePptUploadInputs>;
+	try {
+		uploadInputs = resolvePptUploadInputs(userId, parsed);
+	} catch (error) {
+		return Response.json(
+			{
+				error:
+					error instanceof Error
+						? error.message
+						: "上传文件不存在或已过期，请重新上传。",
+			},
+			{ status: 400 },
+		);
+	}
+	const {
+		resolvedFileUrls,
+		uploadedTemplateFileUrls,
+		resolvedSingleFileUrl,
+	} = uploadInputs;
 	if (uploadedTemplateFileUrls.some((file) => !isUploadedPptTemplateFile(file))) {
 		return Response.json(
 			{ error: "模板文件必须是 PPTX、PPTM、PPSX、PPSM、POTX 或 POTM 格式。" },
@@ -326,9 +361,6 @@ export async function POST(req: NextRequest) {
 	const imageCreditsCost = (imageCountLimit || 0) * imageUnitCreditCost;
 	const creditsCost = textCreditsCost + imageCreditsCost;
 	const useOwnKey = creditsCost === 0;
-	const resolvedSingleFileUrl = parsed.sourceFileUrl
-		? resolveUploadPath(userId, parsed.sourceFileUrl)
-		: undefined;
 	const storedParams = JSON.stringify({
 		sourceType: normalizedSourceType,
 		sourceTopic: parsed.sourceTopic,
@@ -358,6 +390,15 @@ export async function POST(req: NextRequest) {
 	try {
 		const project = await prisma.$transaction(async (tx) => {
 			const id = crypto.randomUUID();
+			if (!(await tryAcquirePptStorageReferenceLock(tx))) {
+				throw new PptUploadUnavailableError(
+					"文件存储正在清理，请稍后重试。",
+					503,
+				);
+			}
+			resolvePptUploadInputs(userId, parsed);
+			const capacity = await checkPptQueueCapacity(tx);
+			if (!capacity.allowed) throw new PptQueueCapacityError();
 			await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${session.user.id} FOR UPDATE`;
 			const existingActive = await tx.pptProject.findFirst({
 				where: {
@@ -383,8 +424,7 @@ export async function POST(req: NextRequest) {
 					sourceType: normalizedSourceType.toUpperCase() as
 						| "TOPIC"
 						| "MARKDOWN"
-						| "DOCUMENT"
-						| "URL",
+						| "DOCUMENT",
 					sourceTopic: parsed.sourceTopic,
 					sourceMarkdown: parsed.sourceMarkdown,
 					sourceFileUrl: parsed.sourceFileUrl,
@@ -408,11 +448,17 @@ export async function POST(req: NextRequest) {
 		const message =
 			error instanceof ActivePptProjectError
 				? error.message
-				: error instanceof InsufficientCreditsError
-					? `积分不足，需要 ${error.required}，当前 ${error.balance}`
-					: "创建生成任务失败";
+				: error instanceof PptUploadUnavailableError
+					? error.message
+					: error instanceof PptQueueCapacityError
+						? error.message
+						: error instanceof InsufficientCreditsError
+							? `积分不足，需要 ${error.required}，当前 ${error.balance}`
+							: "创建生成任务失败";
 		if (
 			!(error instanceof ActivePptProjectError) &&
+			!(error instanceof PptUploadUnavailableError) &&
+			!(error instanceof PptQueueCapacityError) &&
 			!(error instanceof InsufficientCreditsError)
 		) {
 			logger.error("ppt-generate", "创建生成任务失败", {
@@ -426,22 +472,48 @@ export async function POST(req: NextRequest) {
 				status:
 					error instanceof ActivePptProjectError
 						? 429
-						: error instanceof InsufficientCreditsError
-							? 402
-							: 500,
+						: error instanceof PptUploadUnavailableError
+							? error.status
+							: error instanceof PptQueueCapacityError
+								? 503
+								: error instanceof InsufficientCreditsError
+									? 402
+									: 500,
 			},
 		);
 	}
 
-	// 启动后台 worker（幂等）消费队列；立即返回，前端轮询项目状态。
-	wakePptWorker();
-
 	return Response.json({ projectId, status: "QUEUED" });
+}
+
+function resolvePptUploadInputs(
+	userId: string,
+	input: z.infer<typeof requestSchema>,
+) {
+	try {
+		return {
+			resolvedFileUrls: (input.sourceFileUrls ?? []).map((token) =>
+				resolveUploadPath(userId, token),
+			),
+			uploadedTemplateFileUrls: (input.templateFileUrls ?? []).map((token) =>
+				resolveUploadPath(userId, token),
+			),
+			resolvedSingleFileUrl: input.sourceFileUrl
+				? resolveUploadPath(userId, input.sourceFileUrl)
+				: undefined,
+		};
+	} catch (error) {
+		throw new PptUploadUnavailableError(
+			error instanceof Error
+				? error.message
+				: "上传文件不存在或已过期，请重新上传。",
+		);
+	}
 }
 
 function resolveSourceType(
 	input: z.infer<typeof requestSchema>,
-): "topic" | "markdown" | "document" | "url" {
+): "topic" | "markdown" | "document" {
 	if (input.prompt || input.sourceFileUrls?.length) return "markdown";
 	return input.sourceType || "topic";
 }

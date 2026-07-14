@@ -16,6 +16,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { AUTH_INPUT_LIMITS } from "@/lib/auth-inputs";
 
 interface RegisterFormProps {
   linuxDoEnabled: boolean;
@@ -139,6 +140,7 @@ export function RegisterForm({ linuxDoEnabled, registrationMode }: RegisterFormP
                     placeholder="请输入邀请码"
                     value={inviteCode}
                     onChange={(e) => setInviteCode(e.target.value)}
+                    maxLength={64}
                     required
                   />
                 </div>
@@ -151,6 +153,7 @@ export function RegisterForm({ linuxDoEnabled, registrationMode }: RegisterFormP
                   autoComplete="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
+                  maxLength={30}
                 />
               </div>
               <div className="space-y-2">
@@ -162,6 +165,7 @@ export function RegisterForm({ linuxDoEnabled, registrationMode }: RegisterFormP
                   autoComplete="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  maxLength={AUTH_INPUT_LIMITS.emailCharacters}
                   required
                 />
               </div>
@@ -177,6 +181,7 @@ export function RegisterForm({ linuxDoEnabled, registrationMode }: RegisterFormP
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     minLength={6}
+                    maxLength={AUTH_INPUT_LIMITS.newPasswordCharacters}
                     className="pr-10"
                   />
                   <button
@@ -189,7 +194,7 @@ export function RegisterForm({ linuxDoEnabled, registrationMode }: RegisterFormP
                     {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                   </button>
                 </div>
-                <p className="text-xs text-muted-foreground">密码至少需要 6 个字符</p>
+                <p className="text-xs text-muted-foreground">密码长度为 6-72 个字符</p>
               </div>
               <Button type="submit" className="w-full" disabled={loading} aria-busy={loading}>
                 {loading && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}

@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "minimumChannelStdev": 0.5,
+  "templates": {
+    "layouts/academic_defense": 5,
+    "layouts/ai_ops": 6,
+    "layouts/government_blue": 5,
+    "layouts/government_red": 5,
+    "layouts/medical_university": 5,
+    "layouts/pixel_retro": 5,
+    "layouts/psychology_attachment": 5,
+    "decks/中国电信": 5,
+    "decks/中国电建": 5,
+    "decks/中汽研": 5,
+    "decks/招商银行": 5,
+    "decks/重庆大学": 5
+  }
+}

@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { resolvePrismaDatabaseUrl } from "@/lib/database-url";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -7,6 +8,7 @@ const globalForPrisma = globalThis as unknown as {
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
+    datasourceUrl: resolvePrismaDatabaseUrl(),
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
   });
 

@@ -1,7 +1,7 @@
-import { spawn } from "child_process";
 import { existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { getPptMasterSkillDir } from "./runtime-paths";
+import { runBoundedProcess } from "./bounded-process";
 
 const PYTHON_CMD =
 	process.env.PPT_PYTHON_CMD?.trim() ||
@@ -13,44 +13,37 @@ export function getPptPythonCommand() {
 }
 
 export function assertPptPythonRuntime() {
-	pythonRuntimeCheck ??= new Promise<void>((resolvePromise, reject) => {
-		const proc = spawn(
-			PYTHON_CMD,
-			[
-				"-c",
-				"import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
-			],
-			{ windowsHide: true },
-		);
-		let output = "";
-		const timer = setTimeout(() => {
-			proc.kill();
-			reject(new Error(`PPT Python 版本检查超时：${PYTHON_CMD}`));
-		}, 10_000);
-		proc.stdout.on("data", (data) => {
-			output += data.toString();
-		});
-		proc.on("error", () => {
-			clearTimeout(timer);
-			reject(
+	pythonRuntimeCheck ??= runBoundedProcess(
+		/* turbopackIgnore: true */ PYTHON_CMD,
+		[
+			"-c",
+			"import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
+		],
+		{
+			timeoutMs: 10_000,
+			maxOutputBytes: 16 * 1024,
+			spawnOptions: { windowsHide: true },
+			timeoutError: () =>
+				new Error(`PPT Python 版本检查超时：${PYTHON_CMD}`),
+			outputLimitError: () =>
+				new Error(`PPT Python 版本检查输出异常：${PYTHON_CMD}`),
+			spawnError: () =>
 				new Error(
 					`PPT Master 需要 Python 3.10+，当前命令不可用：${PYTHON_CMD}。请配置 PPT_PYTHON_CMD。`,
 				),
-			);
-		});
-		proc.on("close", (code) => {
-			clearTimeout(timer);
-			const [major, minor] = output.trim().split(".").map(Number);
-			if (code === 0 && (major > 3 || (major === 3 && minor >= 10))) {
-				resolvePromise();
-				return;
-			}
-			reject(
-				new Error(
-					`PPT Master v3.1.0 需要 Python 3.10+，${PYTHON_CMD} 当前为 ${output.trim() || "未知版本"}。请配置 PPT_PYTHON_CMD。`,
-				),
-			);
-		});
+		},
+	).then((result) => {
+		const output = result.stdout.trim();
+		const [major, minor] = output.split(".").map(Number);
+		if (
+			result.exitCode === 0 &&
+			(major > 3 || (major === 3 && minor >= 10))
+		) {
+			return;
+		}
+		throw new Error(
+			`PPT Master v3.1.0 需要 Python 3.10+，${PYTHON_CMD} 当前为 ${output || "未知版本"}。请配置 PPT_PYTHON_CMD。`,
+		);
 	});
 	return pythonRuntimeCheck;
 }
@@ -60,7 +53,7 @@ function getSkillDir(skillDir?: string) {
 }
 
 function getScriptsDir(skillDir?: string) {
-	return join(getSkillDir(skillDir), "scripts");
+	return join(/* turbopackIgnore: true */ getSkillDir(skillDir), "scripts");
 }
 
 export interface PythonResult {
@@ -79,50 +72,37 @@ export async function executePptPython(
 		throw new Error(`PPT Master script not found: ${scriptPath}`);
 	}
 
-	return new Promise((resolvePromise, reject) => {
-		const proc = spawn(PYTHON_CMD, [scriptPath, ...args], {
-			cwd: getSkillDir(skillDir),
-			windowsHide: true,
-			env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-		});
-
-		let stdout = "";
-		let stderr = "";
-		const timer = setTimeout(() => {
-			proc.kill();
-			reject(new Error(`Python script timed out: ${scriptPath}`));
-		}, timeoutMs);
-
-		proc.stdout.on("data", (data) => {
-			stdout += data.toString();
-		});
-
-		proc.stderr.on("data", (data) => {
-			stderr += data.toString();
-		});
-
-		proc.on("close", (code) => {
-			clearTimeout(timer);
-			if (code === 0) {
-				resolvePromise({ stdout, stderr, exitCode: code });
-				return;
-			}
-			reject(
-				new Error(
-					`Python script failed with code ${code}: ${stderr || stdout}`,
-				),
-			);
-		});
-
-		proc.on("error", (error) => {
-			clearTimeout(timer);
-			reject(new Error(`Failed to spawn Python: ${error.message}`));
-		});
-	});
+	const result = await runBoundedProcess(
+		/* turbopackIgnore: true */ PYTHON_CMD,
+		[scriptPath, ...args],
+		{
+			timeoutMs,
+			spawnOptions: {
+				cwd: getSkillDir(skillDir),
+				windowsHide: true,
+				env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+			},
+			timeoutError: () => new Error(`Python script timed out: ${scriptPath}`),
+			outputLimitError: () =>
+				new Error(`Python script produced too much output: ${scriptPath}`),
+			spawnError: (error) =>
+				new Error(`Failed to spawn Python: ${error.message}`),
+		},
+	);
+	if (result.exitCode === 0) {
+		return {
+			stdout: result.stdout,
+			stderr: result.stderr,
+			exitCode: result.exitCode,
+		};
+	}
+	throw new Error(
+		`Python script failed with code ${result.exitCode}: ${(result.stderr || result.stdout).slice(0, 4_000)}`,
+	);
 }
 
 export function getPptScriptPath(name: string, skillDir?: string) {
-	return join(getScriptsDir(skillDir), name);
+	return join(/* turbopackIgnore: true */ getScriptsDir(skillDir), name);
 }
 
 export async function convertPdfToMarkdown(pdfPath: string): Promise<string> {
@@ -134,12 +114,6 @@ export async function convertPdfToMarkdown(pdfPath: string): Promise<string> {
 export async function convertDocxToMarkdown(docxPath: string): Promise<string> {
 	const script = join(getScriptsDir(), "source_to_md", "doc_to_md.py");
 	const result = await executePptPython(script, [docxPath]);
-	return result.stdout;
-}
-
-export async function convertUrlToMarkdown(url: string): Promise<string> {
-	const script = join(getScriptsDir(), "source_to_md", "web_to_md.py");
-	const result = await executePptPython(script, [url], 120_000);
 	return result.stdout;
 }
 

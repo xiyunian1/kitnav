@@ -4,7 +4,12 @@ import { EmptyState } from "@/components/empty-state";
 import type { MaterialType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { parsePromptMeta, parseTags, serializeMaterial } from "@/lib/materials";
+import {
+  getMaterialStorageUsage,
+  parsePromptMeta,
+  parseTags,
+  serializeMaterial,
+} from "@/lib/materials";
 import { isPptStylePrompt } from "@/lib/ppt-agent/styles";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -14,6 +19,7 @@ import { MaterialUploadForm } from "@/components/materials/material-upload-form"
 import { PromptMaterialForm } from "@/components/materials/prompt-material-form";
 import { requireModulePageAccess } from "@/lib/module-controls";
 import { ModuleUnavailable } from "@/components/module-unavailable";
+import { MaterialStorageUsageView } from "@/components/materials/material-storage-usage";
 
 export const metadata = { title: "我的素材库" };
 
@@ -60,7 +66,7 @@ export default async function LibraryPage({
       }
     : {};
 
-  const [mine, favorites] = await Promise.all([
+  const [mine, favorites, storageUsage] = await Promise.all([
     prisma.material.findMany({
       where: { ownerId: userId, type: typeWhere, ...whereSearch },
       orderBy: { createdAt: "desc" },
@@ -89,6 +95,7 @@ export default async function LibraryPage({
         _count: { select: { favorites: true, likes: true } },
       },
     }),
+    getMaterialStorageUsage(userId),
   ]);
 
   const filterPromptKind = <T extends { type: MaterialType; promptMeta: string | null; tags: string | null }>(items: T[]) => {
@@ -121,6 +128,8 @@ export default async function LibraryPage({
           <MaterialUploadForm />
         </div>
       </div>
+
+      <MaterialStorageUsageView usage={storageUsage} />
 
       <div className="flex flex-wrap gap-2">
         {[

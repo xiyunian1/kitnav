@@ -10,6 +10,7 @@ import { SETTING_KEYS } from "@/lib/settings-config";
 import { listRechargePackages } from "@/lib/recharge-packages";
 import { requireModulePageAccess } from "@/lib/module-controls";
 import { ModuleUnavailable } from "@/components/module-unavailable";
+import { getRechargeProvider } from "@/lib/linuxdo-credit";
 
 export const metadata = { title: "积分充值" };
 
@@ -39,6 +40,16 @@ export default async function CreditsPage() {
   ]);
 
   const visibleTransactions = transactions.slice(0, 30);
+  const rechargeProvider = getRechargeProvider();
+  const rechargeAvailable = rechargeEnabled === 1 && rechargeProvider !== "disabled";
+  const rechargeNotice =
+    rechargeEnabled !== 1
+      ? "积分充值已暂停。"
+      : rechargeProvider === "linuxdo_credit"
+        ? "支付由 Linux.do Credit 提供，支付完成后积分自动到账。"
+        : rechargeProvider === "mock"
+          ? "当前为演示模式，点击充值即时到账，不产生真实扣款。"
+          : "充值通道暂未配置。";
 
   return (
     <div className="space-y-6">
@@ -63,9 +74,9 @@ export default async function CreditsPage() {
       {/* 充值套餐 */}
       <div>
         <h2 className="mb-3 text-lg font-semibold">选择套餐</h2>
-        <RechargePackages packages={packages} rechargeEnabled={rechargeEnabled === 1} />
+        <RechargePackages packages={packages} rechargeEnabled={rechargeAvailable} />
         <p className="mt-2 text-xs text-muted-foreground">
-          * 当前为演示模式，点击充值即时到账，不产生真实扣款
+          {rechargeNotice}
         </p>
       </div>
 

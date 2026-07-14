@@ -3,6 +3,16 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { renameConversationSchema } from "@/lib/image-schema";
 import { serializeTurn } from "@/lib/image-workbench";
+import { deleteStoredMaterialUrl } from "@/lib/materials";
+import {
+  enforceUserRequestLimit,
+  REQUEST_LIMITS,
+} from "@/lib/request-limits";
+import {
+  JSON_BODY_LIMITS,
+  jsonRequestErrorDetails,
+  readLimitedJsonBody,
+} from "@/lib/json-request";
 
 // 校验会话归属，返回匹配的会话或 null
 async function getOwnedConversation(userId: string, id: string) {
@@ -51,6 +61,7 @@ export async function GET(
       title: true,
       createdAt: true,
       updatedAt: true,
+      user: { select: { credits: true } },
       _count: { select: { turns: true } },
       turns: {
         where: before ? { createdAt: { lt: before } } : undefined,
@@ -65,18 +76,25 @@ export async function GET(
   const hasMore = conv.turns.length > take;
   const pageTurns = conv.turns.slice(0, take).reverse();
 
-  return NextResponse.json({
-    conversation: {
-      id: conv.id,
-      title: conv.title,
-      createdAt: conv.createdAt.toISOString(),
-      updatedAt: conv.updatedAt.toISOString(),
-      turns: pageTurns.map(serializeTurn),
-      totalTurns: conv._count.turns,
-      hasMore,
-      nextBefore: hasMore && pageTurns.length > 0 ? pageTurns[0].createdAt.toISOString() : null,
+  return NextResponse.json(
+    {
+      conversation: {
+        id: conv.id,
+        title: conv.title,
+        createdAt: conv.createdAt.toISOString(),
+        updatedAt: conv.updatedAt.toISOString(),
+        turns: pageTurns.map(serializeTurn),
+        totalTurns: conv._count.turns,
+        hasMore,
+        nextBefore:
+          hasMore && pageTurns.length > 0
+            ? pageTurns[0].createdAt.toISOString()
+            : null,
+      },
+      balance: conv.user.credits,
     },
-  });
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }
 
 // PATCH 重命名
@@ -88,6 +106,11 @@ export async function PATCH(
   if (!session?.user) {
     return NextResponse.json({ error: "请先登录" }, { status: 401 });
   }
+  const limited = await enforceUserRequestLimit(
+    session.user.id,
+    REQUEST_LIMITS.imageConversationWrite,
+  );
+  if (limited) return limited;
   const { id } = await params;
   const owned = await getOwnedConversation(session.user.id, id);
   if (!owned) {
@@ -96,9 +119,13 @@ export async function PATCH(
 
   let raw: unknown;
   try {
-    raw = await req.json();
-  } catch {
-    return NextResponse.json({ error: "请求格式错误" }, { status: 400 });
+    raw = await readLimitedJsonBody(req, JSON_BODY_LIMITS.small);
+  } catch (error) {
+    const bodyError = jsonRequestErrorDetails(error);
+    return NextResponse.json(
+      { error: bodyError.message },
+      { status: bodyError.status },
+    );
   }
   const parsed = renameConversationSchema.safeParse(raw);
   if (!parsed.success) {
@@ -124,11 +151,47 @@ export async function DELETE(
   if (!session?.user) {
     return NextResponse.json({ error: "请先登录" }, { status: 401 });
   }
+  const limited = await enforceUserRequestLimit(
+    session.user.id,
+    REQUEST_LIMITS.imageConversationWrite,
+  );
+  if (limited) return limited;
   const { id } = await params;
   const owned = await getOwnedConversation(session.user.id, id);
   if (!owned) {
     return NextResponse.json({ error: "会话不存在" }, { status: 404 });
   }
+  const pending = await prisma.imageTurn.count({
+    where: { conversationId: id, status: "PENDING" },
+  });
+  if (pending > 0) {
+    return NextResponse.json(
+      { error: "请先停止正在等待或生成的图片任务" },
+      { status: 409 },
+    );
+  }
+  const turns = await prisma.imageTurn.findMany({
+    where: { conversationId: id },
+    select: { images: true },
+  });
   await prisma.imageConversation.delete({ where: { id } });
+  await deleteTurnImageFiles(turns);
   return NextResponse.json({ ok: true });
+}
+
+async function deleteTurnImageFiles(turns: Array<{ images: string | null }>) {
+  const urls = new Set<string>();
+  for (const turn of turns) {
+    if (!turn.images) continue;
+    try {
+      const images = JSON.parse(turn.images) as Array<{ url?: unknown }>;
+      if (!Array.isArray(images)) continue;
+      for (const image of images) {
+        if (typeof image?.url === "string") urls.add(image.url);
+      }
+    } catch {
+      // Ignore corrupt historical result JSON while deleting the conversation.
+    }
+  }
+  for (const url of urls) await deleteStoredMaterialUrl(url);
 }

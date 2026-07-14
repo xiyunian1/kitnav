@@ -46,7 +46,12 @@ export interface ProviderCredentials {
   baseUrl: string;
   apiKey: string;
   model: string;
+  networkPolicy?: "public" | "trusted";
 }
+
+export type ProviderNetworkPolicy = NonNullable<
+  ProviderCredentials["networkPolicy"]
+>;
 
 export const IMAGE_SIZES = ["1024x1024", "1024x1536", "1536x1024"] as const;
 export type ImageSize = (typeof IMAGE_SIZES)[number];

@@ -2,6 +2,8 @@ import { prisma } from "@/lib/db";
 // 仅类型导入：编译期擦除，不产生运行时循环依赖。
 import type { EventEmitter } from "./generator";
 
+const MAX_PROJECT_LOG_CHARS = 100_000;
+
 /**
  * PPT 项目日志 / 状态更新的公共工具。
  *
@@ -15,8 +17,22 @@ import type { EventEmitter } from "./generator";
  */
 
 export type PptProjectUpdateData = Parameters<
-	typeof prisma.pptProject.update
+	typeof prisma.pptProject.updateMany
 >[0]["data"];
+
+export class PptLeaseLostError extends Error {
+	constructor(projectId: string) {
+		super(`PPT 任务租约已失效：${projectId}`);
+		this.name = "PptLeaseLostError";
+	}
+}
+
+export function isPptLeaseLostError(error: unknown): error is PptLeaseLostError {
+	return (
+		error instanceof PptLeaseLostError ||
+		(error instanceof Error && error.name === "PptLeaseLostError")
+	);
+}
 
 /**
  * 向 PptProject.logs 原子追加一行。服务端 CASE 表达式处理 null/空串，避免开头出现多余换行。
@@ -25,16 +41,33 @@ export type PptProjectUpdateData = Parameters<
 export async function appendProjectLog(
 	projectId: string,
 	message: string,
+	expectedLease?: string,
 ): Promise<void> {
 	const line = `[${new Date().toISOString()}] ${message}`;
-	await prisma.$executeRaw`
-    UPDATE "PptProject"
-    SET "logs" = CASE
-      WHEN "logs" IS NULL OR "logs" = '' THEN ${line}
-      ELSE "logs" || ${"\n" + line}
-    END
-    WHERE "id" = ${projectId}
-  `;
+	const updated = expectedLease
+		? await prisma.$executeRaw`
+	    UPDATE "PptProject"
+	    SET "logs" = RIGHT(
+	      CASE
+	        WHEN "logs" IS NULL OR "logs" = '' THEN ${line}
+	        ELSE "logs" || ${"\n" + line}
+	      END,
+	      CAST(${MAX_PROJECT_LOG_CHARS} AS integer)
+	    )
+	    WHERE "id" = ${projectId} AND "workerLease" = ${expectedLease}
+	  `
+		: await prisma.$executeRaw`
+	    UPDATE "PptProject"
+	    SET "logs" = RIGHT(
+	      CASE
+	        WHEN "logs" IS NULL OR "logs" = '' THEN ${line}
+	        ELSE "logs" || ${"\n" + line}
+	      END,
+	      CAST(${MAX_PROJECT_LOG_CHARS} AS integer)
+	    )
+	    WHERE "id" = ${projectId}
+	  `;
+	if (expectedLease && updated !== 1) throw new PptLeaseLostError(projectId);
 }
 
 /**
@@ -45,9 +78,10 @@ export async function emitProjectLog(
 	projectId: string,
 	emit: EventEmitter,
 	message: string,
+	expectedLease?: string,
 ): Promise<void> {
 	emit({ type: "log", data: { message } });
-	await appendProjectLog(projectId, message);
+	await appendProjectLog(projectId, message, expectedLease);
 }
 
 /**
@@ -56,6 +90,11 @@ export async function emitProjectLog(
 export async function updateProject(
 	projectId: string,
 	data: PptProjectUpdateData,
+	expectedLease: string,
 ): Promise<void> {
-	await prisma.pptProject.update({ where: { id: projectId }, data });
+	const updated = await prisma.pptProject.updateMany({
+		where: { id: projectId, workerLease: expectedLease },
+		data,
+	});
+	if (updated.count !== 1) throw new PptLeaseLostError(projectId);
 }

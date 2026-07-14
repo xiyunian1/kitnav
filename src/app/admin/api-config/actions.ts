@@ -1,14 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { isAdmin } from "@/lib/admin-guard";
+import { getActiveAdminId, isAdmin } from "@/lib/admin-guard";
 import { prisma } from "@/lib/db";
 import { encrypt, decrypt } from "@/lib/crypto";
 import { modelListToJson } from "@/lib/model-options";
 import { modelMetaToJson } from "@/lib/model-meta";
 import { pptModelOptionsToJson } from "@/lib/ppt-agent/model-options";
 import { testImageConnection, testTextConnection } from "@/lib/providers";
-import { writeAuditLog } from "@/lib/audit";
+import { runAuditedAdminTransaction } from "@/lib/audit";
 import {
   apiConfigSchema,
   testConnectionSchema,
@@ -17,7 +17,8 @@ import {
 
 // 保存平台上游配置（管理员）。apiKey 留空表示沿用已存的 key。
 export async function saveProviderConfigAction(input: ApiConfigInput) {
-  if (!(await isAdmin())) return { error: "无权限" };
+  const adminId = await getActiveAdminId();
+  if (!adminId) return { error: "无权限" };
 
   const parsed = apiConfigSchema.safeParse(input);
   if (!parsed.success) {
@@ -31,34 +32,47 @@ export async function saveProviderConfigAction(input: ApiConfigInput) {
   }
   const encryptedKey = apiKey ? encrypt(apiKey) : existing!.apiKey;
 
-  await prisma.providerConfig.upsert({
-    where: { module },
-    update: {
-      baseUrl,
-      apiKey: encryptedKey,
-      model,
-      models: modelListToJson(models ?? [], model),
-      modelMeta: modelMeta ? modelMetaToJson(modelMeta) : undefined,
-      modelOptions: module === "PPT" ? pptModelOptionsToJson(modelOptions) : null,
-      enabled,
+  await runAuditedAdminTransaction(
+    adminId,
+    (tx) =>
+      tx.providerConfig.upsert({
+        where: { module },
+        update: {
+          baseUrl,
+          apiKey: encryptedKey,
+          model,
+          models: modelListToJson(models ?? [], model),
+          modelMeta: modelMeta ? modelMetaToJson(modelMeta) : undefined,
+          modelOptions:
+            module === "PPT" ? pptModelOptionsToJson(modelOptions) : null,
+          enabled,
+        },
+        create: {
+          module,
+          baseUrl,
+          apiKey: encryptedKey,
+          model,
+          models: modelListToJson(models ?? [], model),
+          modelMeta: modelMeta ? modelMetaToJson(modelMeta) : undefined,
+          modelOptions:
+            module === "PPT" ? pptModelOptionsToJson(modelOptions) : null,
+          enabled,
+        },
+      }),
+    {
+      action: "provider.update",
+      target: module,
+      detail: {
+        baseUrl,
+        model,
+        models,
+        modelMeta,
+        modelOptions,
+        enabled,
+        changedKey: Boolean(apiKey),
+      },
     },
-    create: {
-      module,
-      baseUrl,
-      apiKey: encryptedKey,
-      model,
-      models: modelListToJson(models ?? [], model),
-      modelMeta: modelMeta ? modelMetaToJson(modelMeta) : undefined,
-      modelOptions: module === "PPT" ? pptModelOptionsToJson(modelOptions) : null,
-      enabled,
-    },
-  });
-
-  await writeAuditLog({
-    action: "provider.update",
-    target: module,
-    detail: { baseUrl, model, models, modelMeta, modelOptions, enabled, changedKey: Boolean(apiKey) },
-  });
+  );
   revalidatePath("/admin/api-config");
   return { ok: true };
 }
@@ -86,7 +100,17 @@ export async function testProviderConfigAction(input: {
   }
 
   if (module === "PROMPT_OPTIMIZER" || module === "PPT") {
-    return testTextConnection({ baseUrl, apiKey: key, model });
+    return testTextConnection({
+      baseUrl,
+      apiKey: key,
+      model,
+      networkPolicy: "trusted",
+    });
   }
-  return testImageConnection({ baseUrl, apiKey: key, model });
+  return testImageConnection({
+    baseUrl,
+    apiKey: key,
+    model,
+    networkPolicy: "trusted",
+  });
 }

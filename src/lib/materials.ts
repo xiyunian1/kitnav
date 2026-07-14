@@ -1,6 +1,23 @@
-import { mkdir, readFile, writeFile, unlink } from "fs/promises";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  lstat,
+  writeFile,
+} from "fs/promises";
 import { randomUUID } from "crypto";
 import path from "path";
+import { fetchPublicResource } from "@/lib/safe-fetch";
+import { validateImageFile } from "@/lib/image-file-validation";
+import {
+  deleteStoredUploadFile,
+  findStoredUploadFile,
+  getUploadDirectory,
+  parseUploadStorageKey,
+  resolveUploadStoragePath,
+  uploadDirectories,
+} from "@/lib/upload-storage";
+import { withUploadStorageLock } from "@/lib/upload-storage-lock";
 import type {
   Material,
   MaterialFavorite,
@@ -53,12 +70,169 @@ export interface SerializedMaterial {
   updatedAt: string;
 }
 
-function uploadsDir() {
-  return path.join(process.cwd(), "public", "uploads", "materials");
+export interface MaterialStorageUsage {
+  usedBytes: number;
+  fileCount: number;
+  maxBytes: number;
+  maxFiles: number;
 }
 
-function publicUrlFor(filename: string) {
-  return `/uploads/materials/${filename}`;
+function assertOwnerId(ownerId: string) {
+  if (!/^[A-Za-z0-9_-]+$/.test(ownerId)) {
+    throw new Error("无效的素材所有者标识");
+  }
+}
+
+export function materialFileUrl(storageKey: string) {
+  parseUploadStorageKey(storageKey);
+  return `/api/files/materials/${storageKey
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/")}`;
+}
+
+export function materialStorageKeyFromUrl(url: string) {
+  let pathname: string;
+  try {
+    pathname = new URL(url, "http://local.invalid").pathname;
+  } catch {
+    return null;
+  }
+  const prefixes = ["/api/files/materials/", "/uploads/materials/"];
+  const prefix = prefixes.find((candidate) => pathname.startsWith(candidate));
+  if (!prefix) return null;
+  try {
+    const storageKey = pathname
+      .slice(prefix.length)
+      .split("/")
+      .map((part) => decodeURIComponent(part))
+      .join("/");
+    parseUploadStorageKey(storageKey);
+    return storageKey;
+  } catch {
+    return null;
+  }
+}
+
+export function normalizeStoredMaterialUrl(url: string | null | undefined) {
+  if (!url) return url ?? null;
+  const storageKey = materialStorageKeyFromUrl(url);
+  return storageKey ? materialFileUrl(storageKey) : url;
+}
+
+export function materialStorageKeyBelongsToUser(
+  storageKey: string,
+  userId: string,
+) {
+  try {
+    const segments = parseUploadStorageKey(storageKey);
+    return segments.length === 2
+      ? segments[0] === userId
+      : segments[0].startsWith(`${userId}-`);
+  } catch {
+    return false;
+  }
+}
+
+function positiveIntegerEnv(name: string, fallback: number) {
+  const value = Number(process.env[name]);
+  return Number.isSafeInteger(value) && value > 0 ? value : fallback;
+}
+
+async function assertMaterialStorageQuota(
+  ownerId: string,
+  incomingBytes: number,
+) {
+  assertOwnerId(ownerId);
+  const usage = await getMaterialStorageUsage(ownerId);
+  if (incomingBytes > usage.maxBytes) {
+    throw new Error(
+      `图片存储空间不足，每个用户最多 ${formatQuotaBytes(usage.maxBytes)}`,
+    );
+  }
+  if (usage.fileCount >= usage.maxFiles) {
+    throw new Error(`图片存储文件数已达上限（${usage.maxFiles} 个）`);
+  }
+  if (usage.usedBytes + incomingBytes > usage.maxBytes) {
+    throw new Error(
+      `图片存储空间不足（已用 ${formatQuotaBytes(usage.usedBytes)} / ${formatQuotaBytes(usage.maxBytes)}）`,
+    );
+  }
+}
+
+export async function getMaterialStorageUsage(
+  ownerId: string,
+): Promise<MaterialStorageUsage> {
+  assertOwnerId(ownerId);
+  const paths: string[] = [];
+  for (const root of uploadDirectories("materials")) {
+    const ownerDir = path.join(/* turbopackIgnore: true */ root, ownerId);
+    const ownerFiles = await readdir(ownerDir, { withFileTypes: true }).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return [];
+        throw error;
+      },
+    );
+    const legacyFiles = await readdir(root, { withFileTypes: true }).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return [];
+        throw error;
+      },
+    );
+    paths.push(
+      ...ownerFiles
+        .filter((entry) => entry.isFile())
+        .map((entry) =>
+          path.join(/* turbopackIgnore: true */ ownerDir, entry.name),
+        ),
+      ...legacyFiles
+        .filter(
+          (entry) => entry.isFile() && entry.name.startsWith(`${ownerId}-`),
+        )
+        .map((entry) =>
+          path.join(/* turbopackIgnore: true */ root, entry.name),
+        ),
+    );
+  }
+  let usedBytes = 0;
+  let fileCount = 0;
+  for (let index = 0; index < paths.length; index += 100) {
+    const infos = await Promise.all(
+      paths.slice(index, index + 100).map((filePath) =>
+        lstat(filePath).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return null;
+          throw error;
+        }),
+      ),
+    );
+    for (const info of infos) {
+      if (!info?.isFile() || info.isSymbolicLink()) continue;
+      fileCount += 1;
+      usedBytes += info.size;
+    }
+  }
+  return {
+    usedBytes,
+    fileCount,
+    maxBytes: positiveIntegerEnv(
+      "MATERIAL_USER_QUOTA_BYTES",
+      1024 * 1024 * 1024,
+    ),
+    maxFiles: positiveIntegerEnv("MATERIAL_USER_MAX_FILES", 2000),
+  };
+}
+
+function formatQuotaBytes(bytes: number) {
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(1)}GB`;
+  }
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+  }
+  if (bytes >= 1024) {
+    return `${(bytes / 1024).toFixed(1)}KB`;
+  }
+  return `${bytes}B`;
 }
 
 export function parseTags(value?: string | null): string[] {
@@ -100,6 +274,13 @@ export function parsePromptMeta(value?: string | null): Record<string, unknown> 
 }
 
 export function serializeMaterial(material: MaterialWithOwner, currentUserId?: string): SerializedMaterial {
+  const storedUrl = material.storageKey
+    ? materialFileUrl(material.storageKey)
+    : normalizeStoredMaterialUrl(material.url) ?? material.url;
+  const thumbnailUrl =
+    material.storageKey && material.thumbnailUrl
+      ? materialFileUrl(material.storageKey)
+      : normalizeStoredMaterialUrl(material.thumbnailUrl);
   return {
     id: material.id,
     ownerId: material.ownerId,
@@ -115,8 +296,8 @@ export function serializeMaterial(material: MaterialWithOwner, currentUserId?: s
     title: material.title,
     description: material.description,
     tags: parseTags(material.tags),
-    url: material.url,
-    thumbnailUrl: material.thumbnailUrl,
+    url: storedUrl,
+    thumbnailUrl,
     promptText: material.promptText,
     promptMeta: parsePromptMeta(material.promptMeta),
     rejectionReason: material.rejectionReason,
@@ -139,92 +320,111 @@ export function serializeMaterial(material: MaterialWithOwner, currentUserId?: s
   };
 }
 
-function extensionForMime(mimeType: string) {
-  switch (mimeType) {
-    case "image/jpeg":
-      return "jpg";
-    case "image/webp":
-      return "webp";
-    case "image/gif":
-      return "gif";
-    default:
-      return "png";
-  }
-}
-
-function detectImageMime(buffer: Buffer): string | undefined {
-  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
-    return "image/png";
-  }
-  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
-    return "image/jpeg";
-  }
-  if (
-    buffer.length >= 12 &&
-    buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
-    buffer.subarray(8, 12).toString("ascii") === "WEBP"
-  ) {
-    return "image/webp";
-  }
-  if (buffer.length >= 6) {
-    const head = buffer.subarray(0, 6).toString("ascii");
-    if (head === "GIF87a" || head === "GIF89a") return "image/gif";
-  }
-  return undefined;
-}
-
-async function ensureImageBuffer(buffer: Buffer, fallbackType?: string) {
+async function ensureImageBuffer(buffer: Buffer) {
   if (buffer.byteLength <= 0) throw new Error("图片内容为空");
   if (buffer.byteLength > MAX_IMAGE_BYTES) throw new Error("图片不能超过 8MB");
-
-  const detected = detectImageMime(buffer);
-  const mimeType = detected ?? fallbackType ?? "image/png";
-  if (!ALLOWED_IMAGE_TYPES.has(mimeType)) {
-    throw new Error("仅支持 PNG、JPG、WEBP、GIF 图片");
-  }
-
-  return { mimeType, ext: extensionForMime(mimeType) };
+  const validated = await validateImageFile(buffer, {
+    allowedMimeTypes: ALLOWED_IMAGE_TYPES,
+  });
+  return { mimeType: validated.mimeType, ext: validated.extension };
 }
 
-export async function saveImageBlob(blob: Blob, prefix: string) {
+export async function saveImageBlob(blob: Blob, ownerId: string) {
   const arrayBuffer = await blob.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
-  const { mimeType, ext } = await ensureImageBuffer(buffer, blob.type || undefined);
-  await mkdir(uploadsDir(), { recursive: true });
-  const filename = `${prefix}-${randomUUID()}.${ext}`;
-  const absolutePath = path.join(uploadsDir(), filename);
-  await writeFile(absolutePath, buffer);
-  return {
-    url: publicUrlFor(filename),
-    storageKey: filename,
-    mimeType,
-    sizeBytes: buffer.byteLength,
-  };
+  return saveImageBuffer(buffer, ownerId);
 }
 
-export async function saveImageFromUrl(url: string, prefix: string) {
-  let blob: Blob;
-  if (url.startsWith("data:")) {
-    const res = await fetch(url);
-    blob = await res.blob();
-  } else if (url.startsWith("/")) {
-    const relativePath = url.replace(/^\/+/, "").replace(/\?.*$/, "");
-    const absolutePath = path.join(process.cwd(), "public", relativePath);
-    const buffer = await readFile(absolutePath).catch(() => {
-      throw new Error("无法读取本地图片");
+async function saveImageBuffer(
+  buffer: Buffer,
+  ownerId: string,
+  namePrefix?: string,
+) {
+  assertOwnerId(ownerId);
+  const { mimeType, ext } = await ensureImageBuffer(buffer);
+  const safePrefix = (namePrefix || "asset")
+    .replace(/[^A-Za-z0-9_-]+/g, "-")
+    .slice(0, 80);
+  let writtenStorageKey: string | null = null;
+  try {
+    return await withUploadStorageLock("materials", ownerId, async () => {
+      await assertMaterialStorageQuota(ownerId, buffer.byteLength);
+      const root = getUploadDirectory("materials");
+      const ownerDir = path.join(/* turbopackIgnore: true */ root, ownerId);
+      await mkdir(ownerDir, { recursive: true, mode: 0o700 });
+      const filename = `${safePrefix || "asset"}-${randomUUID()}.${ext}`;
+      const storageKey = `${ownerId}/${filename}`;
+      const absolutePath = resolveUploadStoragePath(root, storageKey);
+      writtenStorageKey = storageKey;
+      try {
+        await writeFile(absolutePath, buffer, { mode: 0o600, flag: "wx" });
+      } catch (error) {
+        await deleteStoredUploadFile("materials", storageKey);
+        writtenStorageKey = null;
+        throw error;
+      }
+      return {
+        url: materialFileUrl(storageKey),
+        storageKey,
+        mimeType,
+        sizeBytes: buffer.byteLength,
+      };
     });
-    const { mimeType } = await ensureImageBuffer(buffer);
-    blob = new Blob([buffer], { type: mimeType });
-  } else {
-    const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
-    if (!res.ok) throw new Error("无法读取图片");
-    blob = await res.blob();
+  } catch (error) {
+    if (writtenStorageKey) {
+      await deleteStoredUploadFile("materials", writtenStorageKey);
+    }
+    throw error;
   }
-  return saveImageBlob(blob, prefix);
+}
+
+export async function saveImageFromUrl(
+  url: string,
+  ownerId: string,
+  options: {
+    namePrefix?: string;
+    allowedLocalStorageKey?: string | null;
+  } = {},
+) {
+  let buffer: Buffer;
+  if (url.startsWith("data:")) {
+    if (url.length > Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 1024) {
+      throw new Error("图片不能超过 8MB");
+    }
+    const res = await fetch(url);
+    const blob = await res.blob();
+    buffer = Buffer.from(await blob.arrayBuffer());
+  } else if (url.startsWith("/")) {
+    const storageKey = materialStorageKeyFromUrl(url);
+    if (!storageKey) throw new Error("本地图片路径不受支持");
+    if (
+      !materialStorageKeyBelongsToUser(storageKey, ownerId) &&
+      options.allowedLocalStorageKey !== storageKey
+    ) {
+      throw new Error("无权读取该本地图片");
+    }
+    const stored = await findStoredUploadFile("materials", storageKey);
+    if (!stored) throw new Error("无法读取本地图片");
+    buffer = await readFile(/* turbopackIgnore: true */ stored.path);
+  } else {
+    const resource = await fetchPublicResource(url, {
+      maxBytes: MAX_IMAGE_BYTES,
+      timeoutMs: 30_000,
+      maxRedirects: 3,
+    });
+    buffer = resource.buffer;
+  }
+  return saveImageBuffer(buffer, ownerId, options.namePrefix);
 }
 
 export async function deleteStoredMaterialFile(storageKey: string | null) {
   if (!storageKey) return;
-  const absolutePath = path.join(uploadsDir(), storageKey);
-  await unlink(absolutePath).catch(() => undefined);
+  await deleteStoredUploadFile("materials", storageKey);
+}
+
+export async function deleteStoredMaterialUrl(url: string | undefined) {
+  if (!url) return;
+  const storageKey = materialStorageKeyFromUrl(url);
+  if (!storageKey) return;
+  await deleteStoredMaterialFile(storageKey);
 }

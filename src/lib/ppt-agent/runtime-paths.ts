@@ -10,7 +10,11 @@ export interface PptMasterUpstreamVersion {
   syncedAt: string;
 }
 
-const defaultSkillDir = resolve(process.cwd(), "scripts", "ppt-master");
+const defaultSkillDir = resolve(
+  /* turbopackIgnore: true */ process.cwd(),
+  "scripts",
+  "ppt-master",
+);
 
 export function getPptMasterSkillDir() {
   const configured = process.env.PPT_MASTER_SKILL_DIR;
@@ -21,7 +25,11 @@ export function getPptMasterSkillDir() {
 
 export function getPptMasterUpstreamVersion() {
   if (process.env.PPT_MASTER_SKILL_DIR) return null;
-  const path = join(process.cwd(), "scripts", "ppt-master.upstream.json");
+  const path = join(
+    /* turbopackIgnore: true */ process.cwd(),
+    "scripts",
+    "ppt-master.upstream.json",
+  );
   if (!existsSync(path)) return null;
 
   try {

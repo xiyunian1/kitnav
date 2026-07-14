@@ -5,6 +5,9 @@ import { getSetting, getSettingNumber } from "@/lib/credits";
 import { SETTING_KEYS } from "@/lib/settings-config";
 import { prisma } from "@/lib/db";
 import { Card, CardContent } from "@/components/ui/card";
+import { redirect } from "next/navigation";
+
+export const dynamic = "force-dynamic";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const [session, maintenanceMode, maintenanceMessage, announcements] = await Promise.all([
@@ -17,6 +20,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       take: 2,
     }),
   ]);
+  if (!session?.user) redirect("/login");
   const blocked = maintenanceMode === 1 && session?.user?.role !== "ADMIN";
 
   return (

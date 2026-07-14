@@ -4,10 +4,11 @@ import { SETTING_KEYS } from "@/lib/settings-config";
 import { prisma } from "@/lib/db";
 import { getModuleModelOptions } from "@/lib/providers";
 import type { ModelSource } from "@/lib/module-model-options";
-import { serializeMaterial } from "@/lib/materials";
+import { getMaterialStorageUsage, serializeMaterial } from "@/lib/materials";
 import { requireModulePageAccess, getStaticModuleMeta } from "@/lib/module-controls";
 import { ModuleUnavailable } from "@/components/module-unavailable";
 import { ImageWorkbench } from "./components/workbench";
+import { MaterialStorageUsageView } from "@/components/materials/material-storage-usage";
 
 export const metadata = { title: "图片生成" };
 
@@ -116,10 +117,11 @@ export default async function ImagePage({
       ? rawInitialModelSource
       : undefined;
 
-  const [unitCost, user, modelOptions] = await Promise.all([
+  const [unitCost, user, modelOptions, storageUsage] = await Promise.all([
     getSettingNumber(SETTING_KEYS.IMAGE_CREDIT_COST),
     prisma.user.findUnique({ where: { id: userId }, select: { credits: true } }),
     getModuleModelOptions(userId, "IMAGE"),
+    getMaterialStorageUsage(userId),
   ]);
   const sourceSummary = [
     modelOptions.some((option) => option.source === "user") ? "我的 API" : "",
@@ -133,8 +135,11 @@ export default async function ImagePage({
           <h1 className="text-2xl font-bold">图片创作工作台</h1>
           <p className="text-muted-foreground">会话式创作，支持文生图与图生图</p>
         </div>
-        <div className="rounded-full border bg-background px-3 py-1 text-xs text-muted-foreground">
-          {sourceSummary || "暂无可用模型"}
+        <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
+          <MaterialStorageUsageView usage={storageUsage} compact />
+          <div className="border bg-background px-3 py-1 text-xs text-muted-foreground">
+            {sourceSummary || "暂无可用模型"}
+          </div>
         </div>
       </div>
       <ImageWorkbench

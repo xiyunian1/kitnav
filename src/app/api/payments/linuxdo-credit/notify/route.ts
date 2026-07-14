@@ -4,6 +4,8 @@ import {
   getLinuxDoCreditConfig,
   verifyLinuxDoCreditParams,
 } from "@/lib/linuxdo-credit";
+import { settleLinuxDoCreditOrder } from "@/lib/payment-settlement";
+import { isRequestIpAllowed } from "@/lib/ip-allowlist";
 
 function text(body: string, status = 200) {
   return new NextResponse(body, {
@@ -13,6 +15,15 @@ function text(body: string, status = 200) {
 }
 
 export async function GET(req: Request) {
+  const ipAllowlist = process.env.LINUX_DO_CREDIT_NOTIFY_IP_ALLOWLIST ?? "";
+  try {
+    if (!isRequestIpAllowed(req, ipAllowlist)) {
+      return text("source not allowed", 403);
+    }
+  } catch {
+    return text("invalid source allowlist", 500);
+  }
+
   const url = new URL(req.url);
   const params = Object.fromEntries(url.searchParams.entries());
   const config = getLinuxDoCreditConfig();
@@ -34,30 +45,8 @@ export async function GET(req: Request) {
 
   if (order.status === "PAID") return text("success");
 
-  await prisma.$transaction(async (tx) => {
-    const current = await tx.order.findUnique({ where: { id: order.id } });
-    if (!current || current.status === "PAID") return;
-
-    const updated = await tx.user.update({
-      where: { id: current.userId },
-      data: { credits: { increment: current.credits } },
-    });
-
-    await tx.order.update({
-      where: { id: current.id },
-      data: { status: "PAID", paidAt: new Date() },
-    });
-
-    await tx.creditTransaction.create({
-      data: {
-        userId: current.userId,
-        amount: current.credits,
-        type: "RECHARGE",
-        balanceAfter: updated.credits,
-        description: `Linux.do Credit 充值 ${current.credits} 积分`,
-      },
-    });
-  });
+  const settlement = await settleLinuxDoCreditOrder(order.id);
+  if (settlement === "invalid-state") return text("invalid order state", 409);
 
   return text("success");
 }

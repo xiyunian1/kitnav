@@ -1,7 +1,16 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { generateTurnSchema } from "@/lib/image-schema";
-import { runImageTurn, TurnError } from "@/lib/image-workbench";
+import { enqueueImageTurn, TurnError } from "@/lib/image-workbench";
+import {
+  enforceUserRequestLimit,
+  REQUEST_LIMITS,
+} from "@/lib/request-limits";
+import {
+  JSON_BODY_LIMITS,
+  jsonRequestErrorDetails,
+  readLimitedJsonBody,
+} from "@/lib/json-request";
 
 // POST /api/image/turns  文生图（JSON）
 export async function POST(req: Request) {
@@ -10,12 +19,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "请先登录" }, { status: 401 });
   }
   const userId = session.user.id;
+  const limited = await enforceUserRequestLimit(
+    userId,
+    REQUEST_LIMITS.imageGenerate,
+  );
+  if (limited) return limited;
 
   let raw: unknown;
   try {
-    raw = await req.json();
-  } catch {
-    return NextResponse.json({ error: "请求格式错误" }, { status: 400 });
+    raw = await readLimitedJsonBody(req, JSON_BODY_LIMITS.standard);
+  } catch (error) {
+    const bodyError = jsonRequestErrorDetails(error);
+    return NextResponse.json(
+      { error: bodyError.message },
+      { status: bodyError.status },
+    );
   }
 
   const parsed = generateTurnSchema.safeParse(raw);
@@ -28,7 +46,7 @@ export async function POST(req: Request) {
   const { conversationId, prompt, ratio, quality, count, model, modelSource } = parsed.data;
 
   try {
-    const turn = await runImageTurn({
+    const turn = await enqueueImageTurn({
       userId,
       conversationId,
       prompt,

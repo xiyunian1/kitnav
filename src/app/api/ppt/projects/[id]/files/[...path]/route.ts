@@ -1,11 +1,18 @@
-import { readFile } from "fs/promises";
+import { createReadStream } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { Readable } from "node:stream";
 import { extname } from "path";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
-import { assertInsidePptProject } from "@/lib/ppt-agent/paths";
+import { resolvePptProjectFile } from "@/lib/ppt-agent/paths";
+import {
+  sanitizeSvgForBrowser,
+  SVG_BROWSER_CONTENT_SECURITY_POLICY,
+} from "@/lib/ppt-agent/svg-browser-safety";
 
 const ALLOWED_PREFIXES = ["svg_output/", "svg_final/", "images/", "audio/", "templates/imported/svg/", "templates/imported/svg-flat/"];
+const MAX_BROWSER_SVG_BYTES = 10 * 1024 * 1024;
 export const runtime = "nodejs";
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -57,19 +64,34 @@ export async function GET(
   const contentType = CONTENT_TYPES[ext];
   if (!contentType) return Response.json({ error: "文件不存在" }, { status: 404 });
 
-  let filePath: string;
+  let file: Awaited<ReturnType<typeof resolvePptProjectFile>>;
   try {
-    filePath = assertInsidePptProject(id, relativePath);
+    file = await resolvePptProjectFile(id, relativePath);
   } catch {
     return Response.json({ error: "文件不存在" }, { status: 404 });
   }
 
   try {
-    const file = await readFile(filePath);
-    return new Response(file, {
+    if (ext === ".svg" && file.size > MAX_BROWSER_SVG_BYTES) {
+      return Response.json({ error: "文件过大" }, { status: 413 });
+    }
+    const body =
+      ext === ".svg"
+        ? sanitizeSvgForBrowser(
+            (await readFile(file.path)).toString("utf-8"),
+          )
+        : (Readable.toWeb(createReadStream(file.path)) as ReadableStream);
+    return new Response(body, {
       headers: {
         "Content-Type": contentType,
+        ...(ext === ".svg" ? {} : { "Content-Length": String(file.size) }),
         "Cache-Control": "private, max-age=60",
+        "X-Content-Type-Options": "nosniff",
+        "Cross-Origin-Resource-Policy": "same-origin",
+        "Referrer-Policy": "no-referrer",
+        ...(ext === ".svg"
+          ? { "Content-Security-Policy": SVG_BROWSER_CONTENT_SECURITY_POLICY }
+          : {}),
       },
     });
   } catch {

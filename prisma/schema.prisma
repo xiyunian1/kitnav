@@ -32,6 +32,7 @@ model User {
   role          Role       @default(USER)
   status        UserStatus @default(ACTIVE)
   credits       Int        @default(0)
+  sessionVersion Int        @default(0)
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
@@ -51,6 +52,8 @@ model User {
   registrationEvents RegistrationEvent[]
   dailyActivities    UserDailyActivity[]
   pptProjects        PptProject[]
+
+  @@index([createdAt])
 }
 
 // Auth.js 标准表（预留 OAuth；session 策略用 JWT，但保留表结构便于扩展）
@@ -71,6 +74,7 @@ model Account {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
+  @@index([userId])
 }
 
 model Session {
@@ -79,6 +83,8 @@ model Session {
   userId       String
   expires      DateTime
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model VerificationToken {
@@ -128,7 +134,7 @@ model Generation {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
-  @@index([module])
+  @@index([module, createdAt])
   @@index([status, createdAt])
 }
 
@@ -153,6 +159,7 @@ model CreditTransaction {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+  @@index([type, createdAt])
 }
 
 enum OrderStatus {
@@ -177,6 +184,8 @@ model Order {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+  @@index([createdAt])
+  @@index([status, paidAt])
 }
 
 model RechargePackage {
@@ -211,6 +220,7 @@ model AdminAuditLog {
 
   @@index([adminId, createdAt])
   @@index([action, createdAt])
+  @@index([createdAt])
 }
 
 model InviteCode {
@@ -238,6 +248,7 @@ model RegistrationEvent {
 
   @@index([ip, createdAt])
   @@index([provider, createdAt])
+  @@index([userId, createdAt])
 }
 
 model UserDailyActivity {
@@ -309,34 +320,35 @@ model Feedback {
   @@index([status, createdAt])
   @@index([userId, createdAt])
   @@index([type, createdAt])
+  @@index([createdAt])
 }
 
 // 平台上游 API 配置（管理员配置，每个模块一条）。用户走平台模型时使用。
 model ProviderConfig {
-  id        String     @id @default(cuid())
-  module    ModuleType @unique
-  baseUrl   String // 如 https://api.openai.com/v1
-  apiKey    String // AES-256-GCM 加密存储
-  model     String // 默认模型，如 dall-e-3 / gpt-image-1
-  models    String? // JSON 字符串数组：同一 API 下允许用户切换的模型列表
-  modelMeta String? // JSON：模型启用状态、单价、备注等运营配置
+  id           String     @id @default(cuid())
+  module       ModuleType @unique
+  baseUrl      String // 如 https://api.openai.com/v1
+  apiKey       String // AES-256-GCM 加密存储
+  model        String // 默认模型，如 dall-e-3 / gpt-image-1
+  models       String? // JSON 字符串数组：同一 API 下允许用户切换的模型列表
+  modelMeta    String? // JSON：模型启用状态、单价、备注等运营配置
   modelOptions String? // 保留字段：历史模型参数配置，当前不再使用
-  enabled   Boolean    @default(true)
-  updatedAt DateTime   @updatedAt
+  enabled      Boolean    @default(true)
+  updatedAt    DateTime   @updatedAt
 }
 
 // 用户自带 API 配置（BYOK，每用户每模块一条）。enabled 时走自己的 key、不扣积分。
 model UserApiConfig {
-  id        String     @id @default(cuid())
-  userId    String
-  module    ModuleType
-  baseUrl   String
-  apiKey    String // AES-256-GCM 加密存储
-  model     String // 默认模型
-  models    String? // JSON 字符串数组：同一 API 下允许切换的模型列表
+  id           String     @id @default(cuid())
+  userId       String
+  module       ModuleType
+  baseUrl      String
+  apiKey       String // AES-256-GCM 加密存储
+  model        String // 默认模型
+  models       String? // JSON 字符串数组：同一 API 下允许切换的模型列表
   modelOptions String? // 保留字段：历史模型参数配置，当前不再使用
-  enabled   Boolean    @default(false)
-  updatedAt DateTime   @updatedAt
+  enabled      Boolean    @default(false)
+  updatedAt    DateTime   @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -356,35 +368,47 @@ model ImageConversation {
   user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   turns ImageTurn[]
 
-  @@index([userId, updatedAt])
+  @@index([userId, updatedAt, id])
 }
 
 // 一轮生成（一次提交，含 1-N 张图）。images 是工作台状态源；
 // 成功时另写一条 Generation 作审计/历史兼容层。
 model ImageTurn {
-  id              String           @id @default(cuid())
-  conversationId  String
-  prompt          String
-  mode            String // "generate" | "edit"
-  model           String // 使用的上游模型名快照
-  ratio           String // UI 比例原值，如 "1:1"
-  pixelSize       String // 实际下发上游的像素，如 "1024x1024"
-  count           Int              @default(1)
-  status          GenerationStatus @default(PENDING)
-  images          String? // JSON 数组：[{id,status,url?,error?}]，与前端 StoredImage 对齐
-  referenceThumbs String? // JSON 数组：图生图参考图的压缩缩略 data URL（仅展示用，可空）
-  error           String?
-  creditsCost     Int              @default(0)
-  usedOwnKey      Boolean          @default(false)
-  providerSource  String?
-  upstreamStatus  Int?
-  durationMs      Int?
-  generationId    String? // 关联写入的 Generation id（便于回查）
-  createdAt       DateTime         @default(now())
+  id                String           @id @default(cuid())
+  conversationId    String
+  prompt            String
+  mode              String // "generate" | "edit"
+  model             String // 使用的上游模型名快照
+  ratio             String // UI 比例原值，如 "1:1"
+  quality           String           @default("standard") // standard | hd | ultra
+  pixelSize         String // 实际下发上游的像素，如 "1024x1024"
+  count             Int              @default(1)
+  status            GenerationStatus @default(PENDING)
+  images            String? // JSON 数组：[{id,status,url?,error?}]，与前端 StoredImage 对齐
+  referenceThumbs   String? // JSON 数组：图生图参考图的压缩缩略 data URL（仅展示用，可空）
+  editInputPath     String? // 图生图原始参考图的不透明私有文件 token
+  editInputName     String? // 上游 multipart 使用的原始文件名快照
+  error             String?
+  creditsCost       Int              @default(0)
+  usedOwnKey        Boolean          @default(false)
+  providerSource    String?
+  upstreamStatus    Int?
+  durationMs        Int?
+  generationId      String? // 关联写入的 Generation id（便于回查）
+  workerLease       String? // 独立 worker 抢占租约；为空表示等待消费
+  startedAt         DateTime?
+  heartbeatAt       DateTime?
+  cancelRequestedAt DateTime?
+  attemptCount      Int              @default(0)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @default(now()) @updatedAt
 
   conversation ImageConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId, createdAt])
+  @@index([status, createdAt])
+  @@index([status, workerLease, createdAt])
+  @@index([status, heartbeatAt])
 }
 
 // ---------- 素材库 / 素材广场 ----------
@@ -463,7 +487,9 @@ model Material {
 
   @@index([ownerId, createdAt])
   @@index([type, visibility, status, createdAt])
+  @@index([visibility, status, updatedAt])
   @@index([ownerType, createdAt])
+  @@index([storageKey])
 }
 
 model MaterialReport {
@@ -479,6 +505,7 @@ model MaterialReport {
   reporter User     @relation(fields: [reporterId], references: [id], onDelete: Cascade)
 
   @@index([materialId, createdAt])
+  @@index([reporterId])
   @@index([status, createdAt])
 }
 
@@ -532,9 +559,9 @@ enum PptSourceType {
 }
 
 model PptProject {
-  id             String        @id @default(cuid())
-  userId         String
-  title          String // 项目标题（用户输入或自动提取）
+  id     String @id @default(cuid())
+  userId String
+  title  String // 项目标题（用户输入或自动提取）
 
   // 旧版 PPT 模块字段：保留以兼容已存在的本地数据和过渡期迁移。
   topic        String?
@@ -565,9 +592,9 @@ model PptProject {
   style       String? // 风格（general/consultant/consultant-top）
 
   // 完整生成入参（JSON）：异步 worker 从此字段重建 GenerationParams。
-  // 包含 prompt、sourceUrls、sourceFileUrls、templateUrls、stylePrompt、styleLabel 等
+  // 包含 prompt、sourceFileUrls、templateFileUrls、stylePrompt、styleLabel 等
   // 未在单独列上冗余的字段。其他字段（sourceType/template/slideCount 等）从行字段取。
-  params       String?
+  params String?
 
   // 输出路径（相对 public/ 或绝对路径）
   projectPath   String? // projects/<cuid>/
@@ -580,20 +607,26 @@ model PptProject {
   logs  String? // 流式日志累积（换行分隔）
   error String?
 
+  workerLease String? // 独立 worker 抢占租约；终态和排队状态必须为空
+
   // 积分与计费
   creditsCost Int     @default(0)
   usedOwnKey  Boolean @default(false)
 
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  completedAt DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  completedAt        DateTime?
+  artifactsDeletedAt DateTime? // 生成文件按保留策略清理时间，项目元数据仍保留
 
   user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   slides PptSlide[]
 
   @@index([userId, createdAt])
   @@index([userId, updatedAt])
-  @@index([status])
+  @@index([status, createdAt])
+  @@index([status, workerLease, createdAt])
+  @@index([status, updatedAt])
+  @@index([status, completedAt])
   @@index([createdAt])
 }
 
@@ -621,5 +654,14 @@ model PptSlide {
   project PptProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, order])
-  @@index([projectId, order])
+}
+
+// 跨 Web 副本共享的原子限流桶。
+model RateLimitBucket {
+  key             String   @id
+  windowStartedAt DateTime
+  count           Int
+  expiresAt       DateTime
+
+  @@index([expiresAt])
 }

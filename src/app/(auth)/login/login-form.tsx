@@ -16,6 +16,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { AUTH_INPUT_LIMITS } from "@/lib/auth-inputs";
 
 interface LoginFormProps {
   linuxDoEnabled: boolean;
@@ -98,6 +99,7 @@ export function LoginForm({ linuxDoEnabled }: LoginFormProps) {
               placeholder="you@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              maxLength={AUTH_INPUT_LIMITS.emailCharacters}
               required
             />
           </div>
@@ -111,6 +113,7 @@ export function LoginForm({ linuxDoEnabled }: LoginFormProps) {
                 placeholder="••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                maxLength={AUTH_INPUT_LIMITS.loginPasswordCharacters}
                 required
                 className="pr-10"
               />

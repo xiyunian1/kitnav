@@ -1,5 +1,9 @@
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
+import { parseEnv } from "node:util";
+import { resolveAdminSeedCredentials } from "./admin-credentials";
+import { resolveDatabasePoolBudget } from "../src/lib/database-url";
+import { isIpAllowed } from "../src/lib/ip-allowlist";
 
 type Check = {
   name: string;
@@ -11,28 +15,7 @@ type Check = {
 const envPath = resolve(process.cwd(), process.argv[2] ?? ".env.production");
 
 function parseEnvFile(path: string) {
-  const values = new Map<string, string>();
-  const content = readFileSync(path, "utf8");
-
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-
-    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
-    if (!match) continue;
-
-    const key = match[1];
-    let value = match[2].trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    values.set(key, value);
-  }
-
-  return values;
+  return new Map(Object.entries(parseEnv(readFileSync(path, "utf8"))));
 }
 
 function isPlaceholder(value: string) {
@@ -67,8 +50,65 @@ if (!existsSync(envPath)) {
 
 const env = parseEnvFile(envPath);
 const get = (key: string) => env.get(key) ?? "";
-const provider = get("RECHARGE_PROVIDER") || "mock";
+const provider = get("RECHARGE_PROVIDER") || "disabled";
 const appUrl = get("APP_URL") || get("AUTH_URL") || get("NEXTAUTH_URL");
+let adminSeedCheck: Check;
+let databasePoolCheck: Check;
+let paymentNotifyAllowlistCheck: Check;
+try {
+  const credentials = resolveAdminSeedCredentials({
+    ADMIN_EMAIL: get("ADMIN_EMAIL"),
+    ADMIN_PASSWORD: get("ADMIN_PASSWORD"),
+    ADMIN_NAME: get("ADMIN_NAME"),
+  });
+  adminSeedCheck = {
+    name: "Admin seed credentials",
+    ok: true,
+    message: credentials
+      ? "configured for explicit administrator seeding"
+      : "not stored in the production environment",
+  };
+} catch (error) {
+  adminSeedCheck = {
+    name: "Admin seed credentials",
+    ok: false,
+    message: error instanceof Error ? error.message : "invalid administrator credentials",
+  };
+}
+try {
+  isIpAllowed("127.0.0.1", get("LINUX_DO_CREDIT_NOTIFY_IP_ALLOWLIST"));
+  paymentNotifyAllowlistCheck = {
+    name: "Linux.do Credit callback IP allowlist",
+    ok: true,
+    message: get("LINUX_DO_CREDIT_NOTIFY_IP_ALLOWLIST")
+      ? "configured with valid IP/CIDR entries"
+      : "not configured; callback authentication relies on the payment signature",
+  };
+} catch (error) {
+  paymentNotifyAllowlistCheck = {
+    name: "Linux.do Credit callback IP allowlist",
+    ok: false,
+    message:
+      error instanceof Error ? error.message : "invalid IP allowlist",
+  };
+}
+try {
+  const budget = resolveDatabasePoolBudget(Object.fromEntries(env));
+  databasePoolCheck = {
+    name: "Database connection budget",
+    ok: true,
+    message:
+      `${budget.total}/${budget.postgresMaxConnections} connections ` +
+      `(web ${budget.app}, image worker ${budget.imageWorker}, PPT worker ${budget.pptWorker}, reserve ${budget.reservedConnections}, timeout ${budget.poolTimeoutSeconds}s, source ${budget.source})`,
+  };
+} catch (error) {
+  databasePoolCheck = {
+    name: "Database connection budget",
+    ok: false,
+    message:
+      error instanceof Error ? error.message : "invalid database pool settings",
+  };
+}
 
 const checks: Check[] = [
   {
@@ -78,6 +118,7 @@ const checks: Check[] = [
       ? "uses PostgreSQL"
       : "should point to the production PostgreSQL database",
   },
+  databasePoolCheck,
   {
     name: "POSTGRES_PASSWORD",
     ok: get("POSTGRES_PASSWORD").length >= 24 && !isPlaceholder(get("POSTGRES_PASSWORD")),
@@ -94,15 +135,16 @@ const checks: Check[] = [
     message: "must be 64 hex characters and must not change after user keys are stored",
   },
   {
+    name: "METRICS_TOKEN",
+    ok: get("METRICS_TOKEN").length >= 32 && !isPlaceholder(get("METRICS_TOKEN")),
+    message: "must be a strong bearer token for the private metrics endpoint",
+  },
+  {
     name: "APP_URL",
     ok: hasHttpUrl(appUrl) && appUrl.startsWith("https://"),
     message: "should be the public https domain used by auth and payment callbacks",
   },
-  {
-    name: "ADMIN_PASSWORD",
-    ok: !isPlaceholder(get("ADMIN_PASSWORD")) && get("ADMIN_PASSWORD").length >= 12,
-    message: "must not use the default admin password",
-  },
+  adminSeedCheck,
   {
     name: "Linux.do auth",
     ok: Boolean(get("LINUX_DO_CLIENT_ID") && get("LINUX_DO_CLIENT_SECRET")),
@@ -111,12 +153,13 @@ const checks: Check[] = [
   },
   {
     name: "Recharge provider",
-    ok: provider === "linuxdo_credit",
-    level: "warn",
+    ok: provider === "linuxdo_credit" || provider === "disabled",
     message:
       provider === "linuxdo_credit"
         ? "real Linux.do Credit payment is enabled"
-        : "mock recharge is enabled; disable recharge or switch to linuxdo_credit before paid launch",
+        : provider === "disabled"
+          ? "recharge is disabled"
+          : "mock recharge must not be enabled in production",
   },
   {
     name: "Linux.do Credit",
@@ -125,6 +168,7 @@ const checks: Check[] = [
       Boolean(get("LINUX_DO_CREDIT_PID") && get("LINUX_DO_CREDIT_KEY")),
     message: "pid and key are required when RECHARGE_PROVIDER=linuxdo_credit",
   },
+  paymentNotifyAllowlistCheck,
 ];
 
 for (const check of checks) printResult(check);

@@ -3,6 +3,11 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { MODULE_TYPES } from "@/lib/api-config-schema";
 import { getCurrentUserOrUnauthorized } from "@/lib/current-user";
+import {
+  JSON_BODY_LIMITS,
+  jsonRequestErrorDetails,
+  readLimitedJsonBody,
+} from "@/lib/json-request";
 
 const schema = z.object({
   module: z.enum(MODULE_TYPES),
@@ -17,9 +22,13 @@ export async function POST(req: Request) {
 
   let raw: unknown;
   try {
-    raw = await req.json();
-  } catch {
-    return NextResponse.json({ error: "请求格式错误" }, { status: 400 });
+    raw = await readLimitedJsonBody(req, JSON_BODY_LIMITS.small);
+  } catch (error) {
+    const bodyError = jsonRequestErrorDetails(error);
+    return NextResponse.json(
+      { error: bodyError.message },
+      { status: bodyError.status },
+    );
   }
 
   const parsed = schema.safeParse(raw);

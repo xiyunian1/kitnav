@@ -1,7 +1,13 @@
+import { rm } from "node:fs/promises";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
-import { PPT_USER_FAILURE_MESSAGE } from "@/lib/ppt-agent/status";
+import { getPptProjectDir } from "@/lib/ppt-agent/paths";
+import {
+	getPptUserFailureMessage,
+	PPT_PROCESSING_STATUSES,
+} from "@/lib/ppt-agent/status";
+import { hasPptxArtifact } from "@/lib/ppt-agent/project-public";
 
 export const runtime = "nodejs";
 
@@ -36,12 +42,14 @@ export async function GET(
 			status: true,
 			progress: true,
 			currentPhase: true,
+			error: true,
 			pptxPath: true,
 			slideCount: true,
 			aspectRatio: true,
 			creditsCost: true,
 			createdAt: true,
 			completedAt: true,
+			artifactsDeletedAt: true,
 			updatedAt: true,
 		},
 	});
@@ -56,13 +64,61 @@ export async function GET(
 		status: project.status,
 		progress: project.progress,
 		currentPhase: project.currentPhase,
-		error: project.status === "FAILED" ? PPT_USER_FAILURE_MESSAGE : null,
-		pptxPath: project.pptxPath,
+		error:
+			project.status === "FAILED"
+				? getPptUserFailureMessage(project.error)
+				: null,
+		hasPptx: hasPptxArtifact(project),
 		slideCount: project.slideCount,
 		aspectRatio: project.aspectRatio,
 		creditsCost: project.creditsCost,
 		createdAt: project.createdAt,
 		completedAt: project.completedAt,
+		artifactsDeletedAt: project.artifactsDeletedAt,
 		updatedAt: project.updatedAt,
 	});
+}
+
+export async function DELETE(
+	_req: Request,
+	{ params }: { params: Promise<{ id: string }> },
+) {
+	const session = await auth();
+	if (!session?.user?.id) {
+		return Response.json({ error: "Unauthorized" }, { status: 401 });
+	}
+
+	const { id } = await params;
+	const project = await prisma.pptProject.findFirst({
+		where: { id, userId: session.user.id },
+		select: { id: true, status: true },
+	});
+	if (!project) {
+		return Response.json({ error: "PPT 项目不存在" }, { status: 404 });
+	}
+	if ((PPT_PROCESSING_STATUSES as readonly string[]).includes(project.status)) {
+		return Response.json(
+			{ error: "请先停止生成，再删除该项目。" },
+			{ status: 409 },
+		);
+	}
+
+	const deleted = await prisma.pptProject.deleteMany({
+		where: {
+			id,
+			userId: session.user.id,
+			status: { notIn: [...PPT_PROCESSING_STATUSES] },
+		},
+	});
+	if (deleted.count !== 1) {
+		return Response.json(
+			{ error: "项目状态已更新，请刷新后重试。" },
+			{ status: 409 },
+		);
+	}
+
+	await rm(getPptProjectDir(id), { recursive: true, force: true }).catch(
+		() => undefined,
+	);
+	return Response.json({ ok: true });
 }

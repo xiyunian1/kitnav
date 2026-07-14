@@ -7,11 +7,13 @@ import {
 	writeFileSync,
 } from "fs";
 import { dirname, join, relative, resolve, sep } from "path";
-import { spawn } from "child_process";
 import { getPptMasterSkillDir } from "./runtime-paths";
+import { runBoundedProcess } from "./bounded-process";
 import type { ToolDefinition } from "@/lib/providers/text-openai";
 
 const PYTHON_CMD = process.platform === "win32" ? "python" : "python3";
+const MAX_TOOL_WRITE_CHARS = 2_000_000;
+const MAX_TOOL_WRITE_BYTES = 4 * 1024 * 1024;
 const ALLOWED_SCRIPT_NAMES = new Set([
 	"analyze_images.py",
 	"animation_config.py",
@@ -288,6 +290,12 @@ export class PptToolRuntime {
 	}
 
 	writeFile(path: string, content: string) {
+		if (
+			content.length > MAX_TOOL_WRITE_CHARS ||
+			Buffer.byteLength(content, "utf-8") > MAX_TOOL_WRITE_BYTES
+		) {
+			throw new Error(`File too large to write through tool: ${path}`);
+		}
 		this.assertTemplateBaseReadBeforeSlideWrite(path);
 		const resolved = this.resolveProjectPath(path);
 		mkdirSync(dirname(resolved), { recursive: true });
@@ -439,55 +447,26 @@ async function executePython(
 	args: string[],
 	signal?: AbortSignal,
 ) {
-	return new Promise<string>((resolvePromise, reject) => {
-		const proc = spawn(PYTHON_CMD, [scriptPath, ...args], {
+	const result = await runBoundedProcess(PYTHON_CMD, [scriptPath, ...args], {
+		timeoutMs: 300_000,
+		signal,
+		spawnOptions: {
 			cwd: getPptMasterSkillDir(),
 			windowsHide: true,
 			env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-		});
-		let stdout = "";
-		let stderr = "";
-		const timer = setTimeout(() => {
-			proc.kill();
-			reject(new Error(`PPT script timed out: ${scriptPath}`));
-		}, 300_000);
-		const abort = () => {
-			clearTimeout(timer);
-			proc.kill();
-			reject(
-				signal?.reason instanceof Error
-					? signal.reason
-					: new Error("PPT generation was cancelled"),
-			);
-		};
-		if (signal?.aborted) {
-			abort();
-			return;
-		}
-		signal?.addEventListener("abort", abort, { once: true });
-		proc.stdout.on("data", (chunk) => {
-			stdout += chunk.toString("utf-8");
-		});
-		proc.stderr.on("data", (chunk) => {
-			stderr += chunk.toString("utf-8");
-		});
-		proc.on("error", (error) => {
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", abort);
-			reject(error);
-		});
-		proc.on("close", (code) => {
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", abort);
-			if (code === 0) {
-				resolvePromise((stdout || stderr || "OK").slice(0, 10_000));
-				return;
-			}
-			reject(
-				new Error(
-					`PPT script exited with ${code}: ${(stderr || stdout).slice(0, 4000)}`,
-				),
-			);
-		});
+		},
+		timeoutError: () => new Error(`PPT script timed out: ${scriptPath}`),
+		abortError: (reason) =>
+			reason instanceof Error
+				? reason
+				: new Error("PPT generation was cancelled"),
+		outputLimitError: () =>
+			new Error(`PPT script produced too much output: ${scriptPath}`),
 	});
+	if (result.exitCode === 0) {
+		return (result.stdout || result.stderr || "OK").slice(0, 10_000);
+	}
+	throw new Error(
+		`PPT script exited with ${result.exitCode}: ${(result.stderr || result.stdout).slice(0, 4000)}`,
+	);
 }

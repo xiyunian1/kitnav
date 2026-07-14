@@ -2,6 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { DEFAULT_SETTINGS } from "../src/lib/settings-config";
 import { DEFAULT_CREDIT_PACKAGES } from "../src/lib/recharge-packages";
+import { resolveAdminSeedCredentials } from "../scripts/admin-credentials";
 
 const prisma = new PrismaClient();
 
@@ -25,26 +26,28 @@ async function main() {
   }
   console.log(`✓ 已初始化 ${DEFAULT_CREDIT_PACKAGES.length} 个充值套餐`);
 
-  // 2. 创建默认管理员账号
-  const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
-  const adminPassword = process.env.ADMIN_PASSWORD || "admin123456";
-  const adminName = process.env.ADMIN_NAME || "管理员";
+  // 2. 仅在显式配置安全凭据时创建管理员账号
+  const admin = resolveAdminSeedCredentials(process.env);
+  if (!admin) {
+    console.log("未配置 ADMIN_EMAIL/ADMIN_PASSWORD，跳过管理员初始化");
+    return;
+  }
 
-  const existing = await prisma.user.findUnique({ where: { email: adminEmail } });
+  const existing = await prisma.user.findUnique({ where: { email: admin.email } });
   if (existing) {
-    console.log(`✓ 管理员已存在：${adminEmail}（跳过）`);
+    console.log(`✓ 管理员已存在：${admin.email}（跳过）`);
   } else {
-    const passwordHash = await bcrypt.hash(adminPassword, 10);
+    const passwordHash = await bcrypt.hash(admin.password, 10);
     await prisma.user.create({
       data: {
-        email: adminEmail,
-        name: adminName,
+        email: admin.email,
+        name: admin.name,
         passwordHash,
         role: "ADMIN",
         credits: 100000,
       },
     });
-    console.log(`✓ 已创建管理员：${adminEmail} / ${adminPassword}`);
+    console.log(`✓ 已创建管理员：${admin.email}`);
   }
 }
 

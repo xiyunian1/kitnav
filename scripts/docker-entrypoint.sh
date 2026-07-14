@@ -1,48 +1,73 @@
 #!/bin/sh
 set -eu
 
-setup_pi_agent() {
+drop_runtime_privileges() {
+	if [ "$(id -u)" -ne 0 ]; then
+		return
+	fi
+
+	mode="${1:-web}"
+	paths="/app/data/uploads /app/data/ppt-uploads /app/data/ppt-projects /app/data/image-inputs"
+	if [ "$mode" = "worker" ]; then
+		paths="/app/data/ppt-uploads /app/data/ppt-projects"
+	elif [ "$mode" = "image-worker" ]; then
+		paths="/app/data/uploads /app/data/image-inputs"
+	fi
+	node_owner="$(id -u node):$(id -g node)"
+	for path in $paths; do
+		mkdir -p "$path"
+		if [ "$(stat -c '%u:%g' "$path")" != "$node_owner" ]; then
+			chown -hR node:node "$path"
+		fi
+	done
+	exec gosu node sh "$0" "$@"
+}
+
+check_image_worker_runtime() {
+	if [ "${1:-web}" != "image-worker" ]; then
+		return
+	fi
+	if [ ! -f ./scripts/image-worker.cjs ]; then
+		echo "Image worker bundle is missing."
+		exit 1
+	fi
+}
+
+check_ppt_worker_runtime() {
+	if [ "${1:-web}" != "worker" ]; then
+		return
+	fi
+
   if ! command -v pi >/dev/null 2>&1; then
     echo "PPT generation requires pi, but pi is not installed."
     exit 1
   fi
-
-  export PI_CODING_AGENT_DIR="${PI_CODING_AGENT_DIR:-/app/data/pi-agent}"
-  mkdir -p "$PI_CODING_AGENT_DIR"
-
-  if [ -n "${PPT_PI_PROVIDER:-}" ] && [ -n "${PPT_PI_MODEL:-${PPT_AGENT_MODEL:-}}" ] && [ -n "${PPT_PI_BASE_URL:-}" ] && [ -n "${PPT_PI_API_KEY:-}" ]; then
-    node scripts/setup-pi-agent.mjs
-    # shellcheck disable=SC1091
-    . "$PI_CODING_AGENT_DIR/env.sh"
-    return
-  fi
-
-  if [ "${PPT_PI_USE_PLATFORM_CONFIG:-true}" = "true" ]; then
-    node scripts/setup-pi-agent.mjs --from-platform || {
-      echo "Unable to prepare pi config from platform PPT provider config."
-      echo "Set PPT_PI_PROVIDER, PPT_PI_MODEL, PPT_PI_BASE_URL and PPT_PI_API_KEY, or enable/configure platform PPT provider."
-      exit 1
-    }
-    # shellcheck disable=SC1091
-    . "$PI_CODING_AGENT_DIR/env.sh"
-    return
-  fi
-
-  echo "PPT generation requires pi config."
-  echo "Set PPT_PI_PROVIDER, PPT_PI_MODEL, PPT_PI_BASE_URL and PPT_PI_API_KEY, or set PPT_PI_USE_PLATFORM_CONFIG=true."
-  exit 1
+	if [ ! -f ./scripts/ppt-worker.cjs ]; then
+		echo "PPT worker bundle is missing."
+		exit 1
+	fi
 }
 
-for i in $(seq 1 60); do
-  if node node_modules/prisma/build/index.js db push --skip-generate; then
-    setup_pi_agent
-    exec node server.js
-  fi
+sync_database_schema() {
+	if [ "${DB_SCHEMA_SYNC:-true}" != "true" ]; then
+		return
+	fi
 
-  echo "Waiting for database... ($i/60)"
-  sleep 2
-done
+	sh ./scripts/migrate-production-db.sh
+}
 
-node node_modules/prisma/build/index.js db push --skip-generate
-setup_pi_agent
+mode="${1:-web}"
+drop_runtime_privileges "$@"
+sync_database_schema
+check_ppt_worker_runtime "$mode"
+check_image_worker_runtime "$mode"
+
+if [ "$mode" = "worker" ]; then
+	exec node scripts/ppt-worker.cjs
+fi
+
+if [ "$mode" = "image-worker" ]; then
+	exec node scripts/image-worker.cjs
+fi
+
 exec node server.js

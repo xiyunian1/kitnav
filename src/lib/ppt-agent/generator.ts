@@ -9,11 +9,18 @@ import {
 	resolveSourceMarkdown,
 } from "./project-utils";
 import { buildPptStyleInstruction, getPptStyleLabel } from "./styles";
-import { isPptGenerationCancelled, throwIfPptCancelled } from "./cancellation";
+import {
+	isPptGenerationCancelled,
+	isPptWorkerShutdown,
+	throwIfPptCancelled,
+} from "./cancellation";
 import { collectPptArtifactPaths } from "./artifacts";
 import { preparePptTemplateSelection } from "./templates";
-import { importExternalPptTemplateUrls } from "./external-templates";
-import { emitProjectLog, updateProject } from "./project-log";
+import {
+	emitProjectLog,
+	isPptLeaseLostError,
+	updateProject,
+} from "./project-log";
 import { assertPptPythonRuntime } from "./python-tools";
 import {
 	resolvePptGenerationWorkflow,
@@ -26,20 +33,19 @@ import type {
 	PptTextVolume,
 	PptTone,
 } from "./content-options";
+import { getPptInternalErrorMessage } from "./status";
 
 export interface GenerationParams {
 	projectId: string;
 	userId: string;
-	sourceType: "topic" | "document" | "url" | "markdown";
+	workerLease: string;
+	sourceType: "topic" | "document" | "markdown";
 	sourceTopic?: string;
 	sourceFileUrl?: string;
-	sourceUrl?: string;
 	sourceMarkdown?: string;
 	prompt?: string;
-	sourceUrls?: string[];
 	sourceFileUrls?: string[];
 	templateFileUrls?: string[];
-	templateUrls?: string[];
 	template?: string;
 	slideCount?: number;
 	aspectRatio?: string;
@@ -80,13 +86,22 @@ export async function generatePPT(
 	try {
 		throwIfPptCancelled(params.signal);
 		await assertPptPythonRuntime();
-		await emitProjectLog(params.projectId, emit, "初始化 PPT Master 项目目录");
+		await emitProjectLog(
+			params.projectId,
+			emit,
+			"初始化 PPT Master 项目目录",
+			params.workerLease,
+		);
 		emit({ type: "phase", data: { phase: "PENDING", progress: 0 } });
-		await updateProject(params.projectId, {
-			status: "PENDING",
-			currentPhase: "初始化项目",
-			progress: 0,
-		});
+		await updateProject(
+			params.projectId,
+			{
+				status: "PENDING",
+				currentPhase: "初始化项目",
+				progress: 0,
+			},
+			params.workerLease,
+		);
 
 		ensureProjectStructure(projectDir, params.projectId, canvasFormat);
 		throwIfPptCancelled(params.signal);
@@ -100,7 +115,12 @@ export async function generatePPT(
 		);
 		let nativeTemplatePath = "";
 		if (workflow === "template-fill") {
-			await emitProjectLog(params.projectId, emit, "正在准备原生 PPTX 模板");
+			await emitProjectLog(
+				params.projectId,
+				emit,
+				"正在准备原生 PPTX 模板",
+				params.workerLease,
+			);
 			const stagedTemplate = stageNativePptTemplate(
 				projectDir,
 				params.templateFileUrls || [],
@@ -110,22 +130,9 @@ export async function generatePPT(
 				params.projectId,
 				emit,
 				"模板将通过原生 PPTX 填充流程处理，不转换为 SVG",
+				params.workerLease,
 			);
 		}
-		let externalTemplateInstruction = "";
-		if (params.templateUrls?.length) {
-			await emitProjectLog(params.projectId, emit, "正在导入外部 PPT 模板");
-			externalTemplateInstruction = await importExternalPptTemplateUrls(
-				projectDir,
-				params.templateUrls,
-				requestedSlideCount,
-				params.signal,
-			);
-			if (externalTemplateInstruction) {
-				await emitProjectLog(params.projectId, emit, "外部 PPT 模板已导入");
-			}
-		}
-
 		const runnerOptions: {
 			projectDir: string;
 			sourceMd: string;
@@ -135,7 +142,8 @@ export async function generatePPT(
 			style: string;
 			stylePrompt: string;
 			styleLabel: string;
-			workflow: PptGenerationWorkflow;
+				workflow: PptGenerationWorkflow;
+				workerLease: string;
 			nativeTemplatePath?: string;
 			signal?: AbortSignal;
 			visualReview: boolean;
@@ -152,7 +160,6 @@ export async function generatePPT(
 					? "视觉样式完全继承上传的原生 PPTX 模板，不应用站内风格预设覆盖模板。"
 					: [
 							templateInstruction,
-							externalTemplateInstruction,
 							buildPptStyleInstruction({
 								style: params.style,
 								stylePrompt: params.stylePrompt,
@@ -160,7 +167,7 @@ export async function generatePPT(
 								projectId: params.projectId,
 								sourceText: sourceMd,
 								hasTemplate: Boolean(
-									templateInstruction || externalTemplateInstruction,
+									templateInstruction,
 								),
 							}),
 						]
@@ -171,6 +178,7 @@ export async function generatePPT(
 					? "上传模板原生样式"
 					: getPptStyleLabel(params.style, params.styleLabel),
 			workflow,
+			workerLease: params.workerLease,
 			nativeTemplatePath: nativeTemplatePath || undefined,
 			signal: params.signal,
 			visualReview: Boolean(params.visualReview && workflow === "svg"),
@@ -183,32 +191,41 @@ export async function generatePPT(
 			workflow === "template-fill"
 				? "交给 PPT Master pi agent 执行原生模板填充工作流"
 				: "交给 PPT Master pi agent 执行完整工作流",
+			params.workerLease,
 		);
 		const result = await runPptMasterAgent(params, runnerOptions);
 		const pptxUrl = publicProjectUrl(params.projectId, result.pptxPath);
 
-		await updateProject(params.projectId, {
-			status: "COMPLETED",
-			currentPhase: "生成完成",
-			...collectPptArtifactPaths(projectDir, result.pptxPath),
-			slideCount: result.slideCount,
-			progress: 100,
-			completedAt: new Date(),
-		});
+		await updateProject(
+			params.projectId,
+			{
+				status: "COMPLETED",
+				workerLease: null,
+				currentPhase: "生成完成",
+				...collectPptArtifactPaths(projectDir, result.pptxPath),
+				slideCount: result.slideCount,
+				progress: 100,
+				completedAt: new Date(),
+			},
+			params.workerLease,
+		);
 
 		emit({ type: "complete", data: { projectId: params.projectId, pptxUrl } });
 	} catch (error) {
+		if (isPptWorkerShutdown(error) || isPptLeaseLostError(error)) throw error;
 		const cancelled = isPptGenerationCancelled(error);
 		const message = cancelled
 			? "用户已停止生成"
-			: error instanceof Error
-				? error.message
-				: "PPT 生成失败";
-		await updateProject(params.projectId, {
-			status: "FAILED",
-			currentPhase: cancelled ? "已停止生成" : "生成失败",
-			error: message,
-		});
+			: getPptInternalErrorMessage(error);
+		await updateProject(
+			params.projectId,
+			{
+				status: "FAILED",
+				currentPhase: cancelled ? "已停止生成" : "生成失败",
+				error: message,
+			},
+			params.workerLease,
+		);
 		throw error;
 	} finally {
 		pptSemaphore.release();

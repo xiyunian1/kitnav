@@ -13,10 +13,16 @@ import {
 } from "node:fs";
 import type { ImageProvider } from "@/lib/providers/types";
 import { RATIO_TO_PIXEL, type AspectRatio } from "@/lib/providers/types";
-import { assertSafePublicUrl } from "./source-converters";
+import { fetchPublicResource } from "@/lib/safe-fetch";
+import { validateImageFile } from "@/lib/image-file-validation";
 
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const ALLOWED_IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
+const ALLOWED_GENERATED_IMAGE_TYPES = new Set([
+	"image/png",
+	"image/jpeg",
+	"image/webp",
+]);
 const IMAGE_ANALYSIS_CSV_HEADER =
 	"No,Filename,Width,Height,AspectRatio,PixelAspectRatio,RatioSource,UsageCount,DisplayRatioVariants,AssetKind,SvgRenderable,PptxNativeSupported,SizeKB,Category,ImageArea_SxS,TextArea_SxS";
 
@@ -245,62 +251,33 @@ function normalizedOutputFilename(filename: string, extension: string) {
 }
 
 async function readGeneratedImage(url: string, signal?: AbortSignal) {
-	let response: Response;
+	let buffer: Buffer;
 	if (url.startsWith("data:")) {
-		response = await fetch(url, { signal });
+		if (url.length > Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 1024) {
+			throw new Error("上游生成的图片过大");
+		}
+		const response = await fetch(url, { signal });
+		if (!response.ok) throw new Error("无法读取上游生成的图片");
+		buffer = Buffer.from(await response.arrayBuffer());
 	} else {
-		response = await fetchPublicImage(url, signal);
+		const resource = await fetchPublicResource(url, {
+			maxBytes: MAX_IMAGE_BYTES,
+			timeoutMs: 30_000,
+			maxRedirects: 3,
+			signal,
+		});
+		buffer = resource.buffer;
 	}
-	if (!response.ok) throw new Error("无法读取上游生成的图片");
-	const contentLength = Number(response.headers.get("content-length"));
-	if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_BYTES) {
-		throw new Error("上游生成的图片过大");
-	}
-	const buffer = Buffer.from(await response.arrayBuffer());
 	if (buffer.length < 8 || buffer.length > MAX_IMAGE_BYTES) {
 		throw new Error("上游生成的图片为空或过大");
 	}
-	const extension = detectImageExtension(buffer);
-	if (!extension) throw new Error("上游返回的内容不是支持的图片格式");
-	return { buffer, extension };
-}
-
-async function fetchPublicImage(url: string, signal?: AbortSignal) {
-	let current = url;
-	for (let redirects = 0; redirects <= 3; redirects += 1) {
-		await assertSafePublicUrl(current);
-		const timeout = AbortSignal.timeout(30_000);
-		const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
-		const response = await fetch(current, {
-			signal: requestSignal,
-			redirect: "manual",
-		});
-		if (![301, 302, 303, 307, 308].includes(response.status)) return response;
-		const location = response.headers.get("location");
-		if (!location) throw new Error("图片下载重定向无效");
-		current = new URL(location, current).toString();
-	}
-	throw new Error("图片下载重定向次数过多");
-}
-
-function detectImageExtension(buffer: Buffer) {
-	if (
-		buffer.subarray(0, 8).equals(
-			Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-		)
-	) {
-		return "png";
-	}
-	if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
-		return "jpg";
-	}
-	if (
-		buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
-		buffer.subarray(8, 12).toString("ascii") === "WEBP"
-	) {
-		return "webp";
-	}
-	return "";
+	const image = await validateImageFile(buffer, {
+		allowedMimeTypes: ALLOWED_GENERATED_IMAGE_TYPES,
+		invalidMessage: "上游返回的图片无效或已损坏",
+		unsupportedMessage: "上游返回的内容不是支持的图片格式",
+		limitMessage: "上游返回的图片像素尺寸过大",
+	});
+	return { buffer, extension: image.extension };
 }
 
 function writeManifestAtomically(path: string, manifest: PptImageManifest) {

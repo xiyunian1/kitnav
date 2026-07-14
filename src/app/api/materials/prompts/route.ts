@@ -8,8 +8,18 @@ import {
   serializeMaterial,
   tagsToJson,
 } from "@/lib/materials";
+import { deleteUnreferencedMaterialFile } from "@/lib/material-storage-references";
 import { resolveMaterialSubmissionState } from "@/lib/material-review";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
+import {
+  enforceUserRequestLimit,
+  REQUEST_LIMITS,
+} from "@/lib/request-limits";
+import {
+  JSON_BODY_LIMITS,
+  jsonRequestErrorDetails,
+  readLimitedJsonBody,
+} from "@/lib/json-request";
 
 export const runtime = "nodejs";
 
@@ -59,7 +69,7 @@ async function readPromptInput(req: Request) {
     };
   }
 
-  const raw = await req.json();
+  const raw = await readLimitedJsonBody(req, JSON_BODY_LIMITS.standard);
   return { raw, image: null };
 }
 
@@ -137,6 +147,11 @@ export async function POST(req: Request) {
   if (!session?.user) {
     return NextResponse.json({ error: "请先登录" }, { status: 401 });
   }
+  const limited = await enforceUserRequestLimit(
+    session.user.id,
+    REQUEST_LIMITS.materialUpload,
+  );
+  if (limited) return limited;
   try {
     await assertControlledModuleAvailableForUser("library", session.user.id);
   } catch (error) {
@@ -149,8 +164,12 @@ export async function POST(req: Request) {
   let input: Awaited<ReturnType<typeof readPromptInput>>;
   try {
     input = await readPromptInput(req);
-  } catch {
-    return NextResponse.json({ error: "请求格式错误" }, { status: 400 });
+  } catch (error) {
+    const bodyError = jsonRequestErrorDetails(error);
+    return NextResponse.json(
+      { error: bodyError.message },
+      { status: bodyError.status },
+    );
   }
 
   const parsed = createPromptSchema.safeParse(input.raw);
@@ -175,41 +194,49 @@ export async function POST(req: Request) {
     }
   }
 
-  const submission = await resolveMaterialSubmissionState(parsed.data.visibility, {
-    type: "PROMPT",
-    title: parsed.data.title,
-    description: parsed.data.description,
-    tags: normalizePromptTags(parsed.data.tags, parsed.data.meta),
-    promptText: parsed.data.promptText,
-    mimeType: cover?.mimeType || "text/plain",
-    sizeBytes: cover?.sizeBytes,
-  });
-
-  const material = await prisma.material.create({
-    data: {
-      ownerId: session.user.id,
-      ownerType: "USER",
+  try {
+    const submission = await resolveMaterialSubmissionState(parsed.data.visibility, {
       type: "PROMPT",
-      source: "UPLOAD",
-      visibility: submission.visibility,
-      status: submission.status,
-      rejectionReason: submission.rejectionReason,
-      reviewedAt: submission.reviewedAt,
       title: parsed.data.title,
-      description: parsed.data.description || null,
-      tags: tagsToJson(normalizePromptTags(parsed.data.tags, parsed.data.meta)),
-      url: "",
-      storageKey: cover?.storageKey,
-      thumbnailUrl: cover?.url,
+      description: parsed.data.description,
+      tags: normalizePromptTags(parsed.data.tags, parsed.data.meta),
       promptText: parsed.data.promptText,
-      promptMeta: parsed.data.meta ? JSON.stringify(parsed.data.meta) : null,
       mimeType: cover?.mimeType || "text/plain",
       sizeBytes: cover?.sizeBytes,
-    },
-    select: { id: true, status: true },
-  });
+    });
 
-  return NextResponse.json({ ok: true, id: material.id, status: material.status });
+    const material = await prisma.material.create({
+      data: {
+        ownerId: session.user.id,
+        ownerType: "USER",
+        type: "PROMPT",
+        source: "UPLOAD",
+        visibility: submission.visibility,
+        status: submission.status,
+        rejectionReason: submission.rejectionReason,
+        reviewedAt: submission.reviewedAt,
+        title: parsed.data.title,
+        description: parsed.data.description || null,
+        tags: tagsToJson(normalizePromptTags(parsed.data.tags, parsed.data.meta)),
+        url: "",
+        storageKey: cover?.storageKey,
+        thumbnailUrl: cover?.url,
+        promptText: parsed.data.promptText,
+        promptMeta: parsed.data.meta ? JSON.stringify(parsed.data.meta) : null,
+        mimeType: cover?.mimeType || "text/plain",
+        sizeBytes: cover?.sizeBytes,
+      },
+      select: { id: true, status: true },
+    });
+
+    return NextResponse.json({ ok: true, id: material.id, status: material.status });
+  } catch (error) {
+    await deleteStoredMaterialFile(cover?.storageKey ?? null);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "提示词保存失败" },
+      { status: 400 },
+    );
+  }
 }
 
 export async function PATCH(req: Request) {
@@ -217,6 +244,11 @@ export async function PATCH(req: Request) {
   if (!session?.user) {
     return NextResponse.json({ error: "请先登录" }, { status: 401 });
   }
+  const limited = await enforceUserRequestLimit(
+    session.user.id,
+    REQUEST_LIMITS.materialUpload,
+  );
+  if (limited) return limited;
   try {
     await assertControlledModuleAvailableForUser("library", session.user.id);
   } catch (error) {
@@ -229,8 +261,12 @@ export async function PATCH(req: Request) {
   let input: Awaited<ReturnType<typeof readPromptInput>>;
   try {
     input = await readPromptInput(req);
-  } catch {
-    return NextResponse.json({ error: "请求格式错误" }, { status: 400 });
+  } catch (error) {
+    const bodyError = jsonRequestErrorDetails(error);
+    return NextResponse.json(
+      { error: bodyError.message },
+      { status: bodyError.status },
+    );
   }
 
   const parsed = createPromptSchema.extend({ id: z.string().min(1) }).safeParse(input.raw);
@@ -273,42 +309,50 @@ export async function PATCH(req: Request) {
     }
   }
 
-  const submission = await resolveMaterialSubmissionState(parsed.data.visibility, {
-    type: "PROMPT",
-    title: parsed.data.title,
-    description: parsed.data.description,
-    tags: normalizePromptTags(parsed.data.tags, parsed.data.meta),
-    promptText: parsed.data.promptText,
-    mimeType: cover?.mimeType || "text/plain",
-    sizeBytes: cover?.sizeBytes,
-  });
-
-  const updated = await prisma.material.update({
-    where: { id: parsed.data.id },
-    data: {
+  try {
+    const submission = await resolveMaterialSubmissionState(parsed.data.visibility, {
+      type: "PROMPT",
       title: parsed.data.title,
-      description: parsed.data.description || null,
-      tags: tagsToJson(normalizePromptTags(parsed.data.tags, parsed.data.meta)),
-      visibility: submission.visibility,
-      status: submission.status,
-      rejectionReason: submission.rejectionReason,
-      reviewedAt: submission.reviewedAt,
+      description: parsed.data.description,
+      tags: normalizePromptTags(parsed.data.tags, parsed.data.meta),
       promptText: parsed.data.promptText,
-      promptMeta: parsed.data.meta ? JSON.stringify(parsed.data.meta) : null,
-      ...(cover
-        ? {
-            storageKey: cover.storageKey,
-            thumbnailUrl: cover.url,
-            mimeType: cover.mimeType,
-            sizeBytes: cover.sizeBytes,
-          }
-        : {}),
-    },
-    select: { id: true, status: true },
-  });
-  if (cover) await deleteStoredMaterialFile(existing.storageKey);
+      mimeType: cover?.mimeType || "text/plain",
+      sizeBytes: cover?.sizeBytes,
+    });
 
-  return NextResponse.json({ ok: true, id: updated.id, status: updated.status });
+    const updated = await prisma.material.update({
+      where: { id: parsed.data.id },
+      data: {
+        title: parsed.data.title,
+        description: parsed.data.description || null,
+        tags: tagsToJson(normalizePromptTags(parsed.data.tags, parsed.data.meta)),
+        visibility: submission.visibility,
+        status: submission.status,
+        rejectionReason: submission.rejectionReason,
+        reviewedAt: submission.reviewedAt,
+        promptText: parsed.data.promptText,
+        promptMeta: parsed.data.meta ? JSON.stringify(parsed.data.meta) : null,
+        ...(cover
+          ? {
+              storageKey: cover.storageKey,
+              thumbnailUrl: cover.url,
+              mimeType: cover.mimeType,
+              sizeBytes: cover.sizeBytes,
+            }
+          : {}),
+      },
+      select: { id: true, status: true },
+    });
+    if (cover) await deleteUnreferencedMaterialFile(existing.storageKey);
+
+    return NextResponse.json({ ok: true, id: updated.id, status: updated.status });
+  } catch (error) {
+    await deleteStoredMaterialFile(cover?.storageKey ?? null);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "提示词更新失败" },
+      { status: 400 },
+    );
+  }
 }
 
 function normalizePromptTags(

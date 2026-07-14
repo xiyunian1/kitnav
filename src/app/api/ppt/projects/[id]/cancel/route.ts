@@ -1,13 +1,13 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
-import { cancelPptGeneration } from "@/lib/ppt-agent/cancellation";
+import {
+	cancelPptGeneration,
+	markPptProjectCancelled,
+} from "@/lib/ppt-agent/cancellation";
 import { appendProjectLog } from "@/lib/ppt-agent/project-log";
 import { refundPptProjectCredits } from "@/lib/ppt-agent/refund";
-import {
-	isPptProcessingStatus,
-	PPT_PROCESSING_STATUSES,
-} from "@/lib/ppt-agent/status";
+import { isPptProcessingStatus } from "@/lib/ppt-agent/status";
 
 export async function POST(
 	_req: Request,
@@ -48,16 +48,9 @@ export async function POST(
 		});
 	}
 
-	const aborted = cancelPptGeneration(project.id);
-	const claimed = await prisma.pptProject.updateMany({
-		where: { id: project.id, status: { in: [...PPT_PROCESSING_STATUSES] } },
-		data: {
-			status: "FAILED",
-			currentPhase: "已停止生成",
-			error: "用户已停止生成",
-		},
-	});
-	if (claimed.count !== 1) {
+	const claimed = await markPptProjectCancelled(project.id, session.user.id);
+	const aborted = claimed && cancelPptGeneration(project.id);
+	if (!claimed) {
 		const latest = await prisma.pptProject.findUnique({
 			where: { id: project.id },
 			select: { status: true },

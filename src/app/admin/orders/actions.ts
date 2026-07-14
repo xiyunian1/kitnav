@@ -1,56 +1,75 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { isAdmin } from "@/lib/admin-guard";
-import { prisma } from "@/lib/db";
-import { writeAuditLog } from "@/lib/audit";
+import { z } from "zod";
+import { getActiveAdminId } from "@/lib/admin-guard";
+import { runAuditedAdminTransaction } from "@/lib/audit";
+import { fulfillOrderByAdminInTransaction } from "@/lib/payment-settlement";
 
 async function guard() {
-  if (!(await isAdmin())) throw new Error("无权限");
+  const adminId = await getActiveAdminId();
+  if (!adminId) throw new Error("无权限");
+  return adminId;
 }
 
+const orderIdSchema = z.string().min(1).max(100);
+
 export async function markOrderFailedAction(orderId: string) {
-  await guard();
-  await prisma.order.update({ where: { id: orderId }, data: { status: "FAILED" } });
-  await writeAuditLog({ action: "order.failed", target: orderId });
+  const adminId = await guard();
+  const parsed = orderIdSchema.safeParse(orderId);
+  if (!parsed.success) return { error: "参数错误" };
+  const updated = await runAuditedAdminTransaction(
+    adminId,
+    (tx) =>
+      tx.order.updateMany({
+        where: { id: parsed.data, status: { not: "PAID" } },
+        data: { status: "FAILED" },
+      }),
+    (result) =>
+      result.count === 1
+        ? { action: "order.failed", target: parsed.data }
+        : null,
+  );
+  if (updated.count !== 1) return { error: "已支付订单不能标记为失败" };
   revalidatePath("/admin/orders");
   return { ok: true };
 }
 
 export async function cancelOrderAction(orderId: string) {
-  await guard();
-  await prisma.order.update({ where: { id: orderId }, data: { status: "CANCELED" } });
-  await writeAuditLog({ action: "order.canceled", target: orderId });
+  const adminId = await guard();
+  const parsed = orderIdSchema.safeParse(orderId);
+  if (!parsed.success) return { error: "参数错误" };
+  const updated = await runAuditedAdminTransaction(
+    adminId,
+    (tx) =>
+      tx.order.updateMany({
+        where: { id: parsed.data, status: { not: "PAID" } },
+        data: { status: "CANCELED" },
+      }),
+    (result) =>
+      result.count === 1
+        ? { action: "order.canceled", target: parsed.data }
+        : null,
+  );
+  if (updated.count !== 1) return { error: "已支付订单不能取消" };
   revalidatePath("/admin/orders");
   return { ok: true };
 }
 
 export async function fulfillOrderAction(orderId: string) {
-  await guard();
-  await prisma.$transaction(async (tx) => {
-    const order = await tx.order.findUnique({ where: { id: orderId } });
-    if (!order) throw new Error("订单不存在");
-    if (order.status === "PAID") return;
-    const user = await tx.user.update({
-      where: { id: order.userId },
-      data: { credits: { increment: order.credits } },
-    });
-    await tx.order.update({
-      where: { id: order.id },
-      data: { status: "PAID", paidAt: new Date() },
-    });
-    await tx.creditTransaction.create({
-      data: {
-        userId: order.userId,
-        amount: order.credits,
-        type: "RECHARGE",
-        balanceAfter: user.credits,
-        description: `管理员补发订单 ${order.id.slice(0, 8)}`,
-      },
-    });
-  });
-  await writeAuditLog({ action: "order.fulfill", target: orderId });
+  const adminId = await guard();
+  const parsed = orderIdSchema.safeParse(orderId);
+  if (!parsed.success) return { error: "参数错误" };
+  const result = await runAuditedAdminTransaction(
+    adminId,
+    (tx) => fulfillOrderByAdminInTransaction(parsed.data, tx),
+    (settlement) => ({
+      action: "order.fulfill",
+      target: parsed.data,
+      detail: { result: settlement },
+    }),
+  );
   revalidatePath("/admin/orders");
   revalidatePath("/admin/users");
-  return { ok: true };
+  return { ok: true, settled: result === "settled" };
 }

@@ -1,29 +1,58 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { prisma } from "@/lib/db";
-import { addCredits, getSettingNumber } from "@/lib/credits";
-import { SETTING_KEYS } from "@/lib/settings-config";
 import {
   assertRegistrationAllowed,
+  createRegisteredUser,
   getRequestIp,
   OperationBlockedError,
-  recordRegistration,
 } from "@/lib/operations";
+import {
+  enforceIpRequestLimit,
+  enforceOpaqueValueLimit,
+  REQUEST_LIMITS,
+} from "@/lib/request-limits";
+import {
+  AUTH_INPUT_LIMITS,
+  fitsBcryptPasswordLimit,
+} from "@/lib/auth-inputs";
+import {
+  JSON_BODY_LIMITS,
+  jsonRequestErrorDetails,
+  readLimitedJsonBody,
+} from "@/lib/json-request";
 
 const registerSchema = z.object({
-  email: z.string().email("邮箱格式不正确"),
-  password: z.string().min(6, "密码至少 6 位"),
+  email: z
+    .string()
+    .trim()
+    .max(AUTH_INPUT_LIMITS.emailCharacters, "邮箱地址过长")
+    .email("邮箱格式不正确")
+    .transform((value) => value.toLowerCase()),
+  password: z
+    .string()
+    .min(6, "密码至少 6 位")
+    .max(AUTH_INPUT_LIMITS.newPasswordCharacters, "密码过长")
+    .refine(
+      fitsBcryptPasswordLimit,
+      `密码不能超过 ${AUTH_INPUT_LIMITS.bcryptPasswordBytes} 个 UTF-8 字节`,
+    ),
   name: z.string().trim().max(30).optional(),
   inviteCode: z.string().trim().max(64).optional(),
 });
 
 export async function POST(req: Request) {
+  const ipLimited = await enforceIpRequestLimit(req, REQUEST_LIMITS.register);
+  if (ipLimited) return ipLimited;
   let body: unknown;
   try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "请求格式错误" }, { status: 400 });
+    body = await readLimitedJsonBody(req, JSON_BODY_LIMITS.small);
+  } catch (error) {
+    const bodyError = jsonRequestErrorDetails(error);
+    return NextResponse.json(
+      { error: bodyError.message },
+      { status: bodyError.status },
+    );
   }
 
   const parsed = registerSchema.safeParse(body);
@@ -35,6 +64,11 @@ export async function POST(req: Request) {
   }
 
   const { email, password, name, inviteCode } = parsed.data;
+  const emailLimited = await enforceOpaqueValueLimit(
+    email.trim().toLowerCase(),
+    { ...REQUEST_LIMITS.register, prefix: "register-email" },
+  );
+  if (emailLimited) return emailLimited;
   const ip = getRequestIp(req);
 
   try {
@@ -45,41 +79,27 @@ export async function POST(req: Request) {
       inviteCode,
     });
   } catch (error) {
-    const status = error instanceof OperationBlockedError ? error.status : 400;
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "暂不允许注册" },
-      { status }
-    );
-  }
-
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) {
-    return NextResponse.json({ error: "该邮箱已注册" }, { status: 409 });
+    if (error instanceof OperationBlockedError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    throw error;
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
-  const user = await prisma.user.create({
-    data: {
+  try {
+    const user = await createRegisteredUser({
+      provider: "credentials",
       email,
-      name: name || email.split("@")[0],
+      ip,
+      inviteCode,
       passwordHash,
-      role: "USER",
-    },
-  });
-
-  // 发放注册赠送积分
-  const bonus = await getSettingNumber(SETTING_KEYS.SIGNUP_BONUS);
-  if (bonus > 0) {
-    await addCredits(user.id, bonus, "SIGNUP_BONUS", "注册赠送");
+      name: name || email.split("@")[0],
+    });
+    return NextResponse.json({ ok: true, email: user.email });
+  } catch (error) {
+    if (error instanceof OperationBlockedError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    throw error;
   }
-
-  await recordRegistration({
-    userId: user.id,
-    email: user.email,
-    provider: "credentials",
-    ip,
-    inviteCode,
-  });
-
-  return NextResponse.json({ ok: true, email: user.email });
 }

@@ -1,13 +1,28 @@
+x-worker-common-environment: &worker-common-environment
+  DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required}"
+  DATABASE_POOL_TIMEOUT_SECONDS: "${DATABASE_POOL_TIMEOUT_SECONDS:-10}"
+  ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
+  LOG_LEVEL: "${LOG_LEVEL:-info}"
+  HTTP_PROXY: "${HTTP_PROXY:-}"
+  HTTPS_PROXY: "${HTTPS_PROXY:-}"
+  NO_PROXY: "${NO_PROXY:-127.0.0.1,localhost,postgres}"
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "${DOCKER_LOG_MAX_SIZE:-10m}"
+    max-file: "${DOCKER_LOG_MAX_FILES:-5}"
+
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     container_name: ai-aggregator-postgres
     restart: unless-stopped
-    env_file:
-      - .env.production
     environment:
       POSTGRES_DB: ai_aggregator
       POSTGRES_USER: ai_aggregator
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+    command: ["postgres", "-c", "max_connections=${POSTGRES_MAX_CONNECTIONS:-100}"]
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
     healthcheck:
@@ -15,31 +30,311 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
+      - /var/run/postgresql:rw,nosuid,nodev,size=16m,uid=70,gid=70,mode=0775
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    mem_limit: ${POSTGRES_MEMORY_LIMIT:-1g}
+    cpus: ${POSTGRES_CPU_LIMIT:-1.0}
+    pids_limit: 256
+    stop_grace_period: 60s
+    logging: *default-logging
+    networks:
+      - backend
 
   app:
+    image: ai-aggregator-web:local
     build:
       context: .
+      target: web-runner
       args:
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://ai.kitnav.com}
     container_name: ai-aggregator
     restart: unless-stopped
+    init: true
+    environment:
+      DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required}"
+      DATABASE_CONNECTION_LIMIT: "${APP_DATABASE_CONNECTION_LIMIT:-10}"
+      DATABASE_POOL_TIMEOUT_SECONDS: "${DATABASE_POOL_TIMEOUT_SECONDS:-10}"
+      AUTH_SECRET: "${AUTH_SECRET:?AUTH_SECRET is required}"
+      AUTH_TRUST_HOST: "${AUTH_TRUST_HOST:-true}"
+      AUTH_URL: "${AUTH_URL:?AUTH_URL is required}"
+      APP_URL: "${APP_URL:?APP_URL is required}"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
+      METRICS_TOKEN: "${METRICS_TOKEN:?METRICS_TOKEN is required}"
+      NEXT_PUBLIC_SITE_URL: "${NEXT_PUBLIC_SITE_URL:-https://ai.kitnav.com}"
+      NEXT_PUBLIC_ICP: "${NEXT_PUBLIC_ICP:-}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      HTTP_PROXY: "${HTTP_PROXY:-}"
+      HTTPS_PROXY: "${HTTPS_PROXY:-}"
+      NO_PROXY: "${NO_PROXY:-127.0.0.1,localhost,postgres}"
+      LINUX_DO_CLIENT_ID: "${LINUX_DO_CLIENT_ID:-}"
+      LINUX_DO_CLIENT_SECRET: "${LINUX_DO_CLIENT_SECRET:-}"
+      LINUX_DO_ISSUER: "${LINUX_DO_ISSUER:-https://connect.linux.do}"
+      LINUX_DO_AUTHORIZATION_ENDPOINT: "${LINUX_DO_AUTHORIZATION_ENDPOINT:-https://connect.linux.do/oauth2/authorize}"
+      LINUX_DO_TOKEN_ENDPOINT: "${LINUX_DO_TOKEN_ENDPOINT:-https://connect.linux.do/oauth2/token}"
+      LINUX_DO_USER_ENDPOINT: "${LINUX_DO_USER_ENDPOINT:-https://connect.linux.do/api/user}"
+      RECHARGE_PROVIDER: "${RECHARGE_PROVIDER:-disabled}"
+      LINUX_DO_CREDIT_PID: "${LINUX_DO_CREDIT_PID:-}"
+      LINUX_DO_CREDIT_KEY: "${LINUX_DO_CREDIT_KEY:-}"
+      LINUX_DO_CREDIT_GATEWAY: "${LINUX_DO_CREDIT_GATEWAY:-https://credit.linux.do/epay}"
+      LINUX_DO_CREDIT_NOTIFY_IP_ALLOWLIST: "${LINUX_DO_CREDIT_NOTIFY_IP_ALLOWLIST:-}"
+      IMAGE_INPUT_ROOT: /app/data/image-inputs
+      UPLOAD_STORAGE_ROOT: /app/data/uploads
+      MATERIAL_UPLOAD_ROOT: "${MATERIAL_UPLOAD_ROOT:-}"
+      FEEDBACK_UPLOAD_ROOT: "${FEEDBACK_UPLOAD_ROOT:-}"
+      MATERIAL_USER_QUOTA_BYTES: "${MATERIAL_USER_QUOTA_BYTES:-1073741824}"
+      MATERIAL_USER_MAX_FILES: "${MATERIAL_USER_MAX_FILES:-2000}"
+      FEEDBACK_USER_QUOTA_BYTES: "${FEEDBACK_USER_QUOTA_BYTES:-104857600}"
+      FEEDBACK_USER_MAX_FILES: "${FEEDBACK_USER_MAX_FILES:-100}"
+      PPT_UPLOAD_ROOT: /app/data/ppt-uploads
+      PPT_PROJECTS_ROOT: /app/data/ppt-projects
+      PPT_UPLOAD_USER_QUOTA_BYTES: "${PPT_UPLOAD_USER_QUOTA_BYTES:-209715200}"
+      PPT_UPLOAD_USER_MAX_FILES: "${PPT_UPLOAD_USER_MAX_FILES:-50}"
+      PPT_CREDITS_PER_SLIDE: "${PPT_CREDITS_PER_SLIDE:-10}"
+      AUTH_LOGIN_RATE_MAX: "${AUTH_LOGIN_RATE_MAX:-10}"
+      AUTH_LOGIN_RATE_WINDOW_MS: "${AUTH_LOGIN_RATE_WINDOW_MS:-300000}"
+      AUTH_LOGIN_ACCOUNT_RATE_MAX: "${AUTH_LOGIN_ACCOUNT_RATE_MAX:-30}"
+      AUTH_LOGIN_ACCOUNT_RATE_WINDOW_MS: "${AUTH_LOGIN_ACCOUNT_RATE_WINDOW_MS:-900000}"
+      REGISTER_RATE_MAX: "${REGISTER_RATE_MAX:-5}"
+      REGISTER_RATE_WINDOW_MS: "${REGISTER_RATE_WINDOW_MS:-3600000}"
+      PASSWORD_CHANGE_RATE_MAX: "${PASSWORD_CHANGE_RATE_MAX:-5}"
+      PASSWORD_CHANGE_RATE_WINDOW_MS: "${PASSWORD_CHANGE_RATE_WINDOW_MS:-900000}"
+      RECHARGE_RATE_MAX: "${RECHARGE_RATE_MAX:-10}"
+      RECHARGE_RATE_WINDOW_MS: "${RECHARGE_RATE_WINDOW_MS:-600000}"
+      API_TEST_RATE_MAX: "${API_TEST_RATE_MAX:-10}"
+      API_TEST_RATE_WINDOW_MS: "${API_TEST_RATE_WINDOW_MS:-60000}"
+      IMAGE_GENERATE_RATE_MAX: "${IMAGE_GENERATE_RATE_MAX:-10}"
+      IMAGE_GENERATE_RATE_WINDOW_MS: "${IMAGE_GENERATE_RATE_WINDOW_MS:-60000}"
+      IMAGE_GLOBAL_MAX_PENDING: "${IMAGE_GLOBAL_MAX_PENDING:-100}"
+      IMAGE_CANCEL_RATE_MAX: "${IMAGE_CANCEL_RATE_MAX:-30}"
+      IMAGE_CANCEL_RATE_WINDOW_MS: "${IMAGE_CANCEL_RATE_WINDOW_MS:-60000}"
+      IMAGE_CONVERSATION_WRITE_RATE_MAX: "${IMAGE_CONVERSATION_WRITE_RATE_MAX:-60}"
+      IMAGE_CONVERSATION_WRITE_RATE_WINDOW_MS: "${IMAGE_CONVERSATION_WRITE_RATE_WINDOW_MS:-60000}"
+      PROMPT_OPTIMIZE_RATE_MAX: "${PROMPT_OPTIMIZE_RATE_MAX:-20}"
+      PROMPT_OPTIMIZE_RATE_WINDOW_MS: "${PROMPT_OPTIMIZE_RATE_WINDOW_MS:-60000}"
+      MATERIAL_UPLOAD_RATE_MAX: "${MATERIAL_UPLOAD_RATE_MAX:-20}"
+      MATERIAL_UPLOAD_RATE_WINDOW_MS: "${MATERIAL_UPLOAD_RATE_WINDOW_MS:-60000}"
+      MATERIAL_SAVE_RATE_MAX: "${MATERIAL_SAVE_RATE_MAX:-30}"
+      MATERIAL_SAVE_RATE_WINDOW_MS: "${MATERIAL_SAVE_RATE_WINDOW_MS:-60000}"
+      MATERIAL_REPORT_RATE_MAX: "${MATERIAL_REPORT_RATE_MAX:-10}"
+      MATERIAL_REPORT_RATE_WINDOW_MS: "${MATERIAL_REPORT_RATE_WINDOW_MS:-3600000}"
+      PPT_GENERATE_RATE_MAX: "${PPT_GENERATE_RATE_MAX:-10}"
+      PPT_GENERATE_RATE_WINDOW_MS: "${PPT_GENERATE_RATE_WINDOW_MS:-60000}"
+      PPT_GLOBAL_MAX_PENDING: "${PPT_GLOBAL_MAX_PENDING:-30}"
+      PPT_UPLOAD_RATE_MAX: "${PPT_UPLOAD_RATE_MAX:-20}"
+      PPT_UPLOAD_RATE_WINDOW_MS: "${PPT_UPLOAD_RATE_WINDOW_MS:-60000}"
+      PPT_UPLOAD_MAX_BYTES: "${PPT_UPLOAD_MAX_BYTES:-}"
+      DB_SCHEMA_SYNC: "true"
+      XDG_CACHE_HOME: /tmp/cache
     depends_on:
       postgres:
         condition: service_healthy
-    env_file:
-      - .env.production
     volumes:
-      - ./data/uploads:/app/public/uploads
+      - ./data/uploads:/app/data/uploads
+      - ./data/image-inputs:/app/data/image-inputs
       - ./data/ppt-uploads:/app/data/ppt-uploads
       - ./data/ppt-projects:/app/data/ppt-projects
-      - ./data/pi-agent:/app/data/pi-agent
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777
+      - /app/.next/cache:rw,nosuid,nodev,size=256m,uid=1000,gid=1000,mode=0750
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3001/api/health/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - KILL
+      - SETGID
+      - SETUID
+    pids_limit: 256
+    mem_limit: ${APP_MEMORY_LIMIT:-1g}
+    cpus: ${APP_CPU_LIMIT:-1.5}
+    logging: *default-logging
+    networks:
+      - backend
+      - edge
+
+  ppt-worker:
+    image: ai-aggregator-ppt-worker:local
+    build:
+      context: .
+      target: ppt-worker-runner
+      args:
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://ai.kitnav.com}
+    container_name: ai-aggregator-ppt-worker
+    restart: unless-stopped
+    init: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    environment:
+      <<: *worker-common-environment
+      DATABASE_CONNECTION_LIMIT: "${PPT_WORKER_DATABASE_CONNECTION_LIMIT:-5}"
+      DB_SCHEMA_SYNC: "false"
+      PPT_WORKER_READY_FILE: /tmp/ppt-worker-health.json
+      PPT_WORKER_HEARTBEAT_MS: "${PPT_WORKER_HEARTBEAT_MS:-10000}"
+      PPT_WORKER_HEALTH_MAX_AGE_MS: "${PPT_WORKER_HEALTH_MAX_AGE_MS:-45000}"
+      PPT_WORKER_POLL_MS: "${PPT_WORKER_POLL_MS:-2000}"
+      PPT_WORKER_SWEEP_MS: "${PPT_WORKER_SWEEP_MS:-30000}"
+      PPT_AGENT_MAX_CONCURRENT: "${PPT_AGENT_MAX_CONCURRENT:-3}"
+      PPT_AGENT_TIMEOUT_MS: "${PPT_AGENT_TIMEOUT_MS:-7200000}"
+      PPT_AGENT_MAX_TURNS: "${PPT_AGENT_MAX_TURNS:-}"
+      PPT_AGENT_KEEP_LIVE_PREVIEW: "${PPT_AGENT_KEEP_LIVE_PREVIEW:-false}"
+      PPT_STALE_ACTIVE_PROJECT_MS: "${PPT_STALE_ACTIVE_PROJECT_MS:-}"
+      PPT_UPLOAD_ROOT: /app/data/ppt-uploads
+      PPT_PROJECTS_ROOT: /app/data/ppt-projects
+      PPT_UPLOAD_RETENTION_HOURS: "${PPT_UPLOAD_RETENTION_HOURS:-24}"
+      PPT_ORPHAN_PROJECT_RETENTION_HOURS: "${PPT_ORPHAN_PROJECT_RETENTION_HOURS:-24}"
+      PPT_COMPLETED_RETENTION_DAYS: "${PPT_COMPLETED_RETENTION_DAYS:-90}"
+      PPT_FAILED_RETENTION_DAYS: "${PPT_FAILED_RETENTION_DAYS:-14}"
+      PPT_STORAGE_SWEEP_ENABLED: "${PPT_STORAGE_SWEEP_ENABLED:-true}"
+      PPT_STORAGE_SWEEP_MS: "${PPT_STORAGE_SWEEP_MS:-21600000}"
+      PPT_STORAGE_SWEEP_TIMEOUT_MS: "${PPT_STORAGE_SWEEP_TIMEOUT_MS:-600000}"
+      PPT_EXTERNAL_TEMPLATE_MAX_BYTES: "${PPT_EXTERNAL_TEMPLATE_MAX_BYTES:-}"
+      PPT_ARCHIVE_EXTRACTOR: "${PPT_ARCHIVE_EXTRACTOR:-}"
+      PPT_PYTHON_CMD: /opt/ppt-venv/bin/python3
+      PPT_PI_PROVIDER: "${PPT_PI_PROVIDER:-ppt-platform}"
+      PPT_PI_API_TYPE: "${PPT_PI_API_TYPE:-openai-completions}"
+      PPT_PI_CONTEXT_WINDOW: "${PPT_PI_CONTEXT_WINDOW:-128000}"
+      PPT_PI_MAX_TOKENS: "${PPT_PI_MAX_TOKENS:-16384}"
+      PPT_PI_THINKING: "${PPT_PI_THINKING:-}"
+      PPT_PI_REASONING: "${PPT_PI_REASONING:-true}"
+      PPT_PI_USER_AGENT: "${PPT_PI_USER_AGENT:-node}"
+      PPT_PI_SUPPORTS_STORE: "${PPT_PI_SUPPORTS_STORE:-false}"
+      PPT_PI_SUPPORTS_DEVELOPER_ROLE: "${PPT_PI_SUPPORTS_DEVELOPER_ROLE:-false}"
+      PPT_PI_SUPPORTS_REASONING_EFFORT: "${PPT_PI_SUPPORTS_REASONING_EFFORT:-true}"
+      PPT_PI_SUPPORTS_USAGE_IN_STREAMING: "${PPT_PI_SUPPORTS_USAGE_IN_STREAMING:-false}"
+      PPT_PI_MAX_TOKENS_FIELD: "${PPT_PI_MAX_TOKENS_FIELD:-max_tokens}"
+      PPT_PI_THINKING_VALUE: "${PPT_PI_THINKING_VALUE:-xhigh}"
+      XDG_CACHE_HOME: /tmp/cache
+      MPLCONFIGDIR: /tmp/matplotlib
+    command: ["sh", "./scripts/docker-entrypoint.sh", "worker"]
+    volumes:
+      - ./data/ppt-uploads:/app/data/ppt-uploads
+      - ./data/ppt-projects:/app/data/ppt-projects
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=768m,mode=1777
+    healthcheck:
+      test: ["CMD", "gosu", "node", "node", "./scripts/check-ppt-worker-health.mjs"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - KILL
+      - SETGID
+      - SETUID
+    pids_limit: 512
+    mem_limit: ${PPT_WORKER_MEMORY_LIMIT:-2g}
+    cpus: ${PPT_WORKER_CPU_LIMIT:-2.0}
+    stop_grace_period: 30s
+    logging: *default-logging
+    networks:
+      - backend
+
+  image-worker:
+    image: ai-aggregator-image-worker:local
+    build:
+      context: .
+      target: image-worker-runner
+      args:
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://ai.kitnav.com}
+    container_name: ai-aggregator-image-worker
+    restart: unless-stopped
+    init: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    environment:
+      <<: *worker-common-environment
+      DATABASE_CONNECTION_LIMIT: "${IMAGE_WORKER_DATABASE_CONNECTION_LIMIT:-5}"
+      DB_SCHEMA_SYNC: "false"
+      IMAGE_WORKER_READY_FILE: /tmp/image-worker-health.json
+      IMAGE_WORKER_HEARTBEAT_MS: "${IMAGE_WORKER_HEARTBEAT_MS:-10000}"
+      IMAGE_WORKER_HEALTH_MAX_AGE_MS: "${IMAGE_WORKER_HEALTH_MAX_AGE_MS:-45000}"
+      IMAGE_WORKER_CONCURRENCY: "${IMAGE_WORKER_CONCURRENCY:-2}"
+      IMAGE_WORKER_POLL_MS: "${IMAGE_WORKER_POLL_MS:-1500}"
+      IMAGE_WORKER_SWEEP_MS: "${IMAGE_WORKER_SWEEP_MS:-30000}"
+      IMAGE_WORKER_MAX_ATTEMPTS: "${IMAGE_WORKER_MAX_ATTEMPTS:-3}"
+      IMAGE_UPSTREAM_MAX_ATTEMPTS: "${IMAGE_UPSTREAM_MAX_ATTEMPTS:-2}"
+      IMAGE_USER_MAX_PENDING: "${IMAGE_USER_MAX_PENDING:-3}"
+      IMAGE_INPUT_ROOT: /app/data/image-inputs
+      IMAGE_INPUT_RETENTION_HOURS: "${IMAGE_INPUT_RETENTION_HOURS:-24}"
+      IMAGE_INPUT_SWEEP_MS: "${IMAGE_INPUT_SWEEP_MS:-21600000}"
+      UPLOAD_STORAGE_ROOT: /app/data/uploads
+      MATERIAL_UPLOAD_ROOT: "${MATERIAL_UPLOAD_ROOT:-}"
+      FEEDBACK_UPLOAD_ROOT: "${FEEDBACK_UPLOAD_ROOT:-}"
+      MATERIAL_USER_QUOTA_BYTES: "${MATERIAL_USER_QUOTA_BYTES:-1073741824}"
+      MATERIAL_USER_MAX_FILES: "${MATERIAL_USER_MAX_FILES:-2000}"
+      UPLOAD_ORPHAN_RETENTION_HOURS: "${UPLOAD_ORPHAN_RETENTION_HOURS:-24}"
+      UPLOAD_STORAGE_SWEEP_MS: "${UPLOAD_STORAGE_SWEEP_MS:-21600000}"
+      UPLOAD_STORAGE_SWEEP_TIMEOUT_MS: "${UPLOAD_STORAGE_SWEEP_TIMEOUT_MS:-600000}"
+      XDG_CACHE_HOME: /tmp/cache
+    command: ["sh", "./scripts/docker-entrypoint.sh", "image-worker"]
+    volumes:
+      - ./data/uploads:/app/data/uploads
+      - ./data/image-inputs:/app/data/image-inputs
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777
+    healthcheck:
+      test: ["CMD", "gosu", "node", "node", "./scripts/check-image-worker-health.mjs"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - KILL
+      - SETGID
+      - SETUID
+    pids_limit: 256
+    mem_limit: ${IMAGE_WORKER_MEMORY_LIMIT:-1g}
+    cpus: ${IMAGE_WORKER_CPU_LIMIT:-1.5}
+    stop_grace_period: 30s
+    logging: *default-logging
+    networks:
+      - backend
 
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     container_name: ai-aggregator-caddy
     restart: unless-stopped
     depends_on:
-      - app
+      app:
+        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"
@@ -47,3 +342,22 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./data/caddy:/data
       - ./data/caddy-config:/config
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    pids_limit: 128
+    mem_limit: ${CADDY_MEMORY_LIMIT:-256m}
+    cpus: ${CADDY_CPU_LIMIT:-0.5}
+    logging: *default-logging
+    networks:
+      - edge
+
+networks:
+  backend:
+  edge:

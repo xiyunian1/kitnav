@@ -2,9 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { addCredits, getSettingNumber } from "@/lib/credits";
+import { getSettingNumber } from "@/lib/credits";
 import { SETTING_KEYS } from "@/lib/settings-config";
 import { getRechargePackage } from "@/lib/recharge-packages";
 import {
@@ -12,6 +13,11 @@ import {
   getRechargeProvider,
 } from "@/lib/linuxdo-credit";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
+import { createSettledMockOrder } from "@/lib/payment-settlement";
+import {
+  enforceUserRequestLimit,
+  REQUEST_LIMITS,
+} from "@/lib/request-limits";
 
 async function getRequestOrigin() {
   const configured = process.env.APP_URL || process.env.NEXTAUTH_URL || process.env.AUTH_URL;
@@ -25,8 +31,6 @@ async function getRequestOrigin() {
   return `${proto}://${host}`;
 }
 
-// Mock 充值：直接创建已支付订单并发放积分。
-// 真实接入时，这里应改为创建 PENDING 订单 → 跳支付网关 → 回调中发放积分。
 export async function loadMoreTransactions(cursor: string, take = 20) {
   const session = await auth();
   if (!session?.user) return { items: [], hasMore: false };
@@ -79,16 +83,26 @@ export async function rechargeAction(packageId: string) {
     return { error: error instanceof Error ? error.message : "积分充值已暂停" };
   }
 
+  const parsedPackageId = z.string().trim().min(1).max(100).safeParse(packageId);
+  if (!parsedPackageId.success) return { error: "套餐不存在" };
+
   const enabled = await getSettingNumber(SETTING_KEYS.CREDITS_RECHARGE_ENABLED);
   if (enabled !== 1) return { error: "积分充值已暂停" };
 
-  const pkg = await getRechargePackage(packageId);
+  const pkg = await getRechargePackage(parsedPackageId.data);
   if (!pkg) {
     return { error: "套餐不存在" };
   }
 
   const userId = session.user.id;
   const provider = getRechargeProvider();
+
+  if (provider === "disabled") {
+    return { error: "积分充值暂未配置，请联系管理员" };
+  }
+
+  const limited = await enforceUserRequestLimit(userId, REQUEST_LIMITS.recharge);
+  if (limited) return { error: REQUEST_LIMITS.recharge.message };
 
   if (provider === "linuxdo_credit") {
     const order = await prisma.order.create({
@@ -124,20 +138,12 @@ export async function rechargeAction(packageId: string) {
     }
   }
 
-  // 创建订单（Mock：直接标记为已支付）
-  await prisma.order.create({
-    data: {
-      userId,
-      credits: pkg.credits,
-      amount: pkg.amount,
-      status: "PAID",
-      provider: "mock",
-      paidAt: new Date(),
-    },
+  await createSettledMockOrder({
+    userId,
+    credits: pkg.credits,
+    amount: pkg.amount,
+    description: `充值 ${pkg.label}`,
   });
-
-  // 发放积分
-  await addCredits(userId, pkg.credits, "RECHARGE", `充值 ${pkg.label}`);
 
   revalidatePath("/credits");
   return { ok: true, credits: pkg.credits };

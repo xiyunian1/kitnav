@@ -1,10 +1,12 @@
-import { mkdirSync, writeFileSync } from "fs";
-import { join } from "path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join, resolve } from "path";
 import { decrypt } from "@/lib/crypto";
 import { prisma } from "@/lib/db";
 import { parseModelList } from "@/lib/model-options";
 import { isModelEnabled, parseModelMeta } from "@/lib/model-meta";
 import type { ModelSource } from "@/lib/module-model-options";
+import { assertSafePublicApiUrl } from "@/lib/safe-fetch";
 import {
 	normalizePptThinkingLevel,
 	isPptVisionModel,
@@ -16,6 +18,7 @@ export interface PreparedPiAgentConfig {
 	configDir: string;
 	provider: string;
 	model: string;
+	apiKey: string;
 	thinkingLevel: PptThinkingLevel;
 	source: "user" | "platform";
 	supportsVision: boolean;
@@ -33,7 +36,6 @@ interface StoredPptProviderConfig {
 export async function preparePptPiAgentConfig(input: {
 	projectId: string;
 	userId: string;
-	projectDir: string;
 	model?: string;
 	modelSource?: ModelSource;
 }): Promise<PreparedPiAgentConfig> {
@@ -53,6 +55,8 @@ export async function preparePptPiAgentConfig(input: {
 		},
 	});
 
+	// New jobs persist the selected source explicitly. `usedOwnKey` is only a
+	// compatibility fallback for legacy rows that predate modelSource.
 	const requestedSource =
 		input.modelSource ?? (project?.usedOwnKey ? "user" : undefined);
 
@@ -63,19 +67,14 @@ export async function preparePptPiAgentConfig(input: {
 	}
 
 	if (requestedSource !== "platform" && userCfg?.enabled) {
-		return writePiConfig(input.projectDir, "user", {
+		await assertSafePublicApiUrl(userCfg.baseUrl);
+		return writePiConfig("user", {
 			baseUrl: userCfg.baseUrl,
 			apiKey: userCfg.apiKey,
 			model: userCfg.model,
 			models: userCfg.models,
 			modelOptions: userCfg.modelOptions,
 		}, input.model);
-	}
-
-	if (project?.usedOwnKey) {
-		throw new Error(
-			"你的 PPT API 配置已关闭或不可用，请在「API 设置」里重新启用后再生成。",
-		);
 	}
 
 	const platformCfg = await prisma.providerConfig.findUnique({
@@ -94,7 +93,7 @@ export async function preparePptPiAgentConfig(input: {
 		throw new Error("PPT 平台 API 配置不可用，请配置自己的 PPT API 后再生成。");
 	}
 
-	return writePiConfig(input.projectDir, "platform", {
+	return writePiConfig("platform", {
 		baseUrl: platformCfg.baseUrl,
 		apiKey: platformCfg.apiKey,
 		model: platformCfg.model,
@@ -105,12 +104,10 @@ export async function preparePptPiAgentConfig(input: {
 }
 
 function writePiConfig(
-	projectDir: string,
 	source: "user" | "platform",
 	stored: StoredPptProviderConfig,
 	requestedModel?: string,
 ): PreparedPiAgentConfig {
-	const configDir = join(projectDir, ".pi-agent");
 	const provider =
 		source === "user" ? "ppt-user" : process.env.PPT_PI_PROVIDER || "ppt-platform";
 	const modelIds = resolveConfiguredModels(source, stored);
@@ -128,75 +125,82 @@ function writePiConfig(
 	const modelOptions = parsePptModelOptions(stored.modelOptions);
 	const thinkingLevel = resolvePiThinkingLevel(stored.modelOptions);
 	const supportsVision = isPptVisionModel(modelOptions, model);
+	const tempRoot = resolve(process.env.PPT_PI_CONFIG_TMP_DIR || tmpdir());
+	mkdirSync(tempRoot, { recursive: true, mode: 0o700 });
+	const configDir = mkdtempSync(join(tempRoot, "ppt-pi-"));
 
-	mkdirSync(configDir, { recursive: true });
-	writeFileSync(
-		join(configDir, "settings.json"),
-		`${JSON.stringify(
-			{
-				defaultProvider: provider,
-				defaultModel: model,
-				defaultThinkingLevel: thinkingLevel,
-				packages: [],
-			},
-			null,
-			2,
-		)}\n`,
-		{ encoding: "utf8", mode: 0o600 },
-	);
+	try {
+		writeFileSync(
+			join(configDir, "settings.json"),
+			`${JSON.stringify(
+				{
+					defaultProvider: provider,
+					defaultModel: model,
+					defaultThinkingLevel: thinkingLevel,
+					packages: [],
+				},
+				null,
+				2,
+			)}\n`,
+			{ encoding: "utf8", mode: 0o600 },
+		);
 
-	writeFileSync(
-		join(configDir, "models.json"),
-		`${JSON.stringify(
-			{
-				providers: {
-					[provider]: {
-						name: source === "user" ? "User PPT API" : "PPT Platform",
-						baseUrl: stored.baseUrl,
-						apiKey: "$PPT_PI_API_KEY",
-						api: process.env.PPT_PI_API_TYPE || "openai-completions",
-						headers: buildPiProviderHeaders(),
-						compat: buildOpenAiCompatibleCompat(),
-						models: modelIds.map((id) => ({
-							id,
-							name: id,
-							reasoning: resolvePiReasoningEnabled(),
-							input: isPptVisionModel(modelOptions, id)
-								? ["text", "image"]
-								: ["text"],
-							contextWindow: numberEnv("PPT_PI_CONTEXT_WINDOW", 128000),
-							maxTokens: numberEnv("PPT_PI_MAX_TOKENS", 16384),
-							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-							thinkingLevelMap: buildThinkingLevelMap(),
-						})),
+		writeFileSync(
+			join(configDir, "models.json"),
+			`${JSON.stringify(
+				{
+					providers: {
+						[provider]: {
+							name: source === "user" ? "User PPT API" : "PPT Platform",
+							baseUrl: stored.baseUrl,
+							apiKey: "$PPT_PI_API_KEY",
+							api: process.env.PPT_PI_API_TYPE || "openai-completions",
+							headers: buildPiProviderHeaders(),
+							compat: buildOpenAiCompatibleCompat(),
+							models: modelIds.map((id) => ({
+								id,
+								name: id,
+								reasoning: resolvePiReasoningEnabled(),
+								input: isPptVisionModel(modelOptions, id)
+									? ["text", "image"]
+									: ["text"],
+								contextWindow: numberEnv("PPT_PI_CONTEXT_WINDOW", 128000),
+								maxTokens: numberEnv("PPT_PI_MAX_TOKENS", 16384),
+								cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+								thinkingLevelMap: buildThinkingLevelMap(),
+							})),
+						},
 					},
 				},
-			},
-			null,
-			2,
-		)}\n`,
-		{ encoding: "utf8", mode: 0o600 },
-	);
+				null,
+				2,
+			)}\n`,
+			{ encoding: "utf8", mode: 0o600 },
+		);
 
-	writeFileSync(
-		join(configDir, "auth.json"),
-		`${JSON.stringify(
-			{
-				[provider]: {
-					type: "api_key",
-					key: "$PPT_PI_API_KEY",
-					env: {
-						PPT_PI_API_KEY: apiKey,
-					},
-				},
-			},
-			null,
-			2,
-		)}\n`,
-		{ encoding: "utf8", mode: 0o600 },
-	);
+		writeFileSync(
+			join(configDir, "auth.json"),
+			"{}\n",
+			{ encoding: "utf8", mode: 0o600 },
+		);
+	} catch (error) {
+		rmSync(configDir, { recursive: true, force: true });
+		throw error;
+	}
 
-	return { configDir, provider, model, thinkingLevel, source, supportsVision };
+	return {
+		configDir,
+		provider,
+		model,
+		apiKey,
+		thinkingLevel,
+		source,
+		supportsVision,
+	};
+}
+
+export function cleanupPptPiAgentConfig(config: PreparedPiAgentConfig) {
+	rmSync(config.configDir, { recursive: true, force: true });
 }
 
 function resolveConfiguredModels(

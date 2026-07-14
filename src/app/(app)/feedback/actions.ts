@@ -5,8 +5,12 @@ import { z } from "zod";
 import type { FeedbackModule, FeedbackType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { saveFeedbackScreenshots } from "@/lib/feedback";
+import {
+  deleteFeedbackScreenshots,
+  saveFeedbackScreenshots,
+} from "@/lib/feedback";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
+import { rateLimitCheck } from "@/lib/rate-limit";
 
 const TYPE_VALUES = ["FEATURE", "BUG", "EXPERIENCE", "BILLING", "OTHER"] as const;
 const MODULE_VALUES = ["IMAGE", "MATERIALS", "CREDITS", "AUTH", "PROFILE", "OTHER"] as const;
@@ -44,8 +48,16 @@ export async function submitFeedbackAction(formData: FormData) {
     .getAll("screenshots")
     .filter((item): item is File => item instanceof File && item.size > 0);
 
+  const limit = await rateLimitCheck(
+    `feedback-submit:u:${session.user.id}`,
+    10,
+    60 * 60 * 1000,
+  );
+  if (!limit.allowed) return { error: "反馈提交过于频繁，请稍后再试" };
+
+  let screenshotUrls: string[] = [];
   try {
-    const screenshotUrls = await saveFeedbackScreenshots(screenshots, session.user.id);
+    screenshotUrls = await saveFeedbackScreenshots(screenshots, session.user.id);
     await prisma.feedback.create({
       data: {
         userId: session.user.id,
@@ -58,6 +70,7 @@ export async function submitFeedbackAction(formData: FormData) {
       },
     });
   } catch (error) {
+    await deleteFeedbackScreenshots(screenshotUrls);
     return { error: error instanceof Error ? error.message : "提交失败" };
   }
 

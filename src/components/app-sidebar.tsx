@@ -7,7 +7,7 @@ export async function AppSidebar() {
   const controls = await getSidebarControlState(session?.user?.role);
 
   return (
-    <aside className="hidden w-60 shrink-0 border-r border-sidebar-border bg-sidebar/95 p-3 lg:sticky lg:top-16 lg:block lg:h-[calc(100dvh-4rem)] lg:overflow-y-auto">
+    <aside className="hidden w-60 shrink-0 border-r border-sidebar-border bg-sidebar/95 p-3 xl:sticky xl:top-16 xl:block xl:h-[calc(100dvh-4rem)] xl:overflow-y-auto">
       <SidebarNavClient controls={controls} />
     </aside>
   );

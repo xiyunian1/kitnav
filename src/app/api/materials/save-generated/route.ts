@@ -2,8 +2,21 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { saveImageFromUrl, tagsToJson } from "@/lib/materials";
+import {
+  deleteStoredMaterialFile,
+  saveImageFromUrl,
+  tagsToJson,
+} from "@/lib/materials";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
+import {
+  enforceUserRequestLimit,
+  REQUEST_LIMITS,
+} from "@/lib/request-limits";
+import {
+  JSON_BODY_LIMITS,
+  jsonRequestErrorDetails,
+  readLimitedJsonBody,
+} from "@/lib/json-request";
 
 export const runtime = "nodejs";
 
@@ -30,6 +43,11 @@ export async function POST(req: Request) {
   if (!session?.user) {
     return NextResponse.json({ error: "请先登录" }, { status: 401 });
   }
+  const limited = await enforceUserRequestLimit(
+    session.user.id,
+    REQUEST_LIMITS.materialSave,
+  );
+  if (limited) return limited;
   try {
     await assertControlledModuleAvailableForUser("library", session.user.id);
   } catch (error) {
@@ -41,9 +59,13 @@ export async function POST(req: Request) {
 
   let raw: unknown;
   try {
-    raw = await req.json();
-  } catch {
-    return NextResponse.json({ error: "请求格式错误" }, { status: 400 });
+    raw = await readLimitedJsonBody(req, JSON_BODY_LIMITS.generatedImage);
+  } catch (error) {
+    const bodyError = jsonRequestErrorDetails(error);
+    return NextResponse.json(
+      { error: bodyError.message },
+      { status: bodyError.status },
+    );
   }
 
   const parsed = schema.safeParse(raw);
@@ -54,8 +76,9 @@ export async function POST(req: Request) {
     );
   }
 
+  let stored: Awaited<ReturnType<typeof saveImageFromUrl>> | null = null;
   try {
-    const stored = await saveImageFromUrl(parsed.data.url, session.user.id);
+    stored = await saveImageFromUrl(parsed.data.url, session.user.id);
     await prisma.material.create({
       data: {
         ownerId: session.user.id,
@@ -78,6 +101,7 @@ export async function POST(req: Request) {
       },
     });
   } catch (e) {
+    await deleteStoredMaterialFile(stored?.storageKey ?? null);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "保存失败" },
       { status: 400 }

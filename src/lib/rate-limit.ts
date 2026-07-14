@@ -1,20 +1,4 @@
-/**
- * 进程内滑动窗口限流。
- *
- * 用于保护易被滥用的写接口（PPT 生成、API 配置连通性测试、文件上传）。
- * 单进程实现：在 next start 进程内维护每个 key（用户 id 或 IP）的请求时间戳，
- * 滑动窗口内超过上限即拒绝。与 PPT 生成的进程内信号量一致，多副本时每副本各自计数
- * （如需跨副本硬限流，后续可改为 Postgres 计数表）。
- *
- * key 空间有限（用户数 + IP），但仍定期清理空桶以防内存缓慢增长。
- */
-
-interface Bucket {
-	timestamps: number[];
-}
-
-const buckets = new Map<string, Bucket>();
-const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+import { prisma } from "@/lib/db";
 
 export interface RateLimitResult {
 	allowed: boolean;
@@ -23,43 +7,73 @@ export interface RateLimitResult {
 	remaining: number;
 }
 
+let checksSinceCleanup = 0;
+
 /**
- * 检查某个 key 在窗口内是否仍允许请求。
- * @param max   窗口内最大允许次数
- * @param windowMs 窗口长度（毫秒）
+ * 使用 PostgreSQL UPSERT 的跨进程固定窗口限流。
+ * 同一 key 的并发请求由数据库行锁串行计数，Web 重启和多副本不会绕过限制。
  */
-export function rateLimitCheck(
+export async function rateLimitCheck(
 	key: string,
 	max: number,
 	windowMs: number,
-): RateLimitResult {
-	const now = Date.now();
-	const cutoff = now - windowMs;
-	const bucket = buckets.get(key);
-	if (!bucket) {
-		buckets.set(key, { timestamps: [now] });
-		return { allowed: true, retryAfterMs: 0, remaining: max - 1 };
+): Promise<RateLimitResult> {
+	if (!key || key.length > 300) throw new Error("无效的限流标识。");
+	if (!Number.isSafeInteger(max) || max < 1) {
+		throw new Error("限流次数必须是正整数。");
 	}
-	bucket.timestamps = bucket.timestamps.filter((t) => t > cutoff);
-	if (bucket.timestamps.length >= max) {
-		const oldest = bucket.timestamps[0];
-		return {
-			allowed: false,
-			retryAfterMs: Math.max(1, oldest + windowMs - now),
-			remaining: 0,
-		};
+	if (!Number.isSafeInteger(windowMs) || windowMs < 1_000) {
+		throw new Error("限流窗口必须至少为 1000ms。");
 	}
-	bucket.timestamps.push(now);
+
+	const now = new Date();
+	const nextExpiry = new Date(now.getTime() + windowMs);
+	const [bucket] = await prisma.$queryRaw<
+		Array<{ count: number; expiresAt: Date }>
+	>`
+    INSERT INTO "RateLimitBucket" (
+      "key", "windowStartedAt", "count", "expiresAt"
+    )
+    VALUES (${key}, ${now}, 1, ${nextExpiry})
+    ON CONFLICT ("key") DO UPDATE SET
+      "windowStartedAt" = CASE
+        WHEN "RateLimitBucket"."expiresAt" <= ${now}
+          THEN ${now}
+        ELSE "RateLimitBucket"."windowStartedAt"
+      END,
+      "count" = CASE
+        WHEN "RateLimitBucket"."expiresAt" <= ${now}
+          THEN 1
+        ELSE "RateLimitBucket"."count" + 1
+      END,
+      "expiresAt" = CASE
+        WHEN "RateLimitBucket"."expiresAt" <= ${now}
+          THEN ${nextExpiry}
+        ELSE "RateLimitBucket"."expiresAt"
+      END
+    RETURNING "count", "expiresAt"
+  `;
+	if (!bucket) throw new Error("限流计数失败。");
+
+	checksSinceCleanup += 1;
+	if (checksSinceCleanup >= 100) {
+		checksSinceCleanup = 0;
+		void prisma.rateLimitBucket
+			.deleteMany({ where: { expiresAt: { lt: now } } })
+			.catch(() => undefined);
+	}
+
+	const allowed = bucket.count <= max;
 	return {
-		allowed: true,
-		retryAfterMs: 0,
-		remaining: max - bucket.timestamps.length,
+		allowed,
+		retryAfterMs: allowed
+			? 0
+			: Math.max(1, bucket.expiresAt.getTime() - Date.now()),
+		remaining: Math.max(0, max - bucket.count),
 	};
 }
 
-/**
- * 构造 429 响应。带 Retry-After（秒）与 RFC 草案的 RateLimit-* 头。
- */
+/** 构造 429 响应，并告知客户端最早重试时间。 */
 export function rateLimitResponse(
 	result: RateLimitResult,
 	message = "请求过于频繁，请稍后再试",
@@ -90,12 +104,3 @@ export function getRequestIp(req: Request): string | null {
 	if (forwarded) return forwarded.split(",")[0]?.trim() || null;
 	return req.headers.get("x-real-ip") || null;
 }
-
-// 定期清理空桶，防止 key 空间缓慢膨胀。
-setInterval(() => {
-	const cutoff = Date.now() - SWEEP_INTERVAL_MS;
-	for (const [key, bucket] of buckets) {
-		bucket.timestamps = bucket.timestamps.filter((t) => t > cutoff);
-		if (bucket.timestamps.length === 0) buckets.delete(key);
-	}
-}, SWEEP_INTERVAL_MS).unref();

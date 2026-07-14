@@ -17,7 +17,9 @@ import {
   XCircle,
 } from "lucide-react";
 import { CancelProjectButton } from "./cancel-project-button";
+import { DeleteProjectButton } from "./delete-project-button";
 import {
+  isPptCompletedStatus,
   isPptProcessingStatus,
   PPT_USER_FAILURE_MESSAGE,
 } from "@/lib/ppt-agent/status";
@@ -34,7 +36,7 @@ export interface ProjectListItem {
   createdAt: Date | string;
   completedAt: Date | string | null;
   updatedAt?: Date | string;
-  pptxPath: string | null;
+  hasPptx: boolean;
   coverUrl?: string | null;
   error?: string | null;
 }
@@ -48,8 +50,10 @@ const STATUS_MAP = {
   QUEUED: { label: "排队中", icon: Clock, className: "border-blue-200 bg-white/90 text-blue-700" },
   STRATEGIZING: { label: "规划中", icon: Loader2, className: "border-violet-200 bg-white/90 text-violet-700" },
   ACQUIRING_IMAGES: { label: "采集素材", icon: Loader2, className: "border-amber-200 bg-white/90 text-amber-700" },
+  GENERATING: { label: "生成中", icon: Loader2, className: "border-indigo-200 bg-white/90 text-indigo-700" },
   EXECUTING: { label: "生成中", icon: Loader2, className: "border-indigo-200 bg-white/90 text-indigo-700" },
   EXPORTING: { label: "导出中", icon: Loader2, className: "border-cyan-200 bg-white/90 text-cyan-700" },
+  READY: { label: "已完成", icon: CheckCircle2, className: "border-emerald-200 bg-white/90 text-emerald-700" },
   COMPLETED: { label: "已完成", icon: CheckCircle2, className: "border-emerald-200 bg-white/90 text-emerald-700" },
   FAILED: { label: "失败", icon: XCircle, className: "border-red-200 bg-white/90 text-red-700" },
 } as const;
@@ -97,7 +101,7 @@ function sourceTypeLabel(value: string) {
 function matchesFilter(project: ProjectListItem, filter: ProjectFilter) {
   if (filter === "all") return true;
   if (filter === "processing") return isPptProcessingStatus(project.status);
-  if (filter === "completed") return project.status === "COMPLETED";
+  if (filter === "completed") return isPptCompletedStatus(project.status);
   return project.status === "FAILED";
 }
 
@@ -116,6 +120,11 @@ export function ProjectList({ projects }: Props) {
     () => items.filter((project) => matchesFilter(project, filter)),
     [filter, items],
   );
+  const handleDeleted = (projectId: string) => {
+    setPolledItems((current) =>
+      (current ?? projects).filter((project) => project.id !== projectId),
+    );
+  };
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setNow(Date.now()), 0);
@@ -299,12 +308,19 @@ export function ProjectList({ projects }: Props) {
                       </Link>
                     </Button>
                     {isProcessing && <CancelProjectButton projectId={project.id} />}
-                    {project.status === "COMPLETED" && project.pptxPath && (
+                    {isPptCompletedStatus(project.status) && project.hasPptx && (
                       <Button asChild variant="outline" size="icon" className="size-8" title="下载 PPTX">
                         <a href={`/api/ppt/projects/${project.id}/export`} aria-label="下载 PPTX">
                           <Download className="size-4" />
                         </a>
                       </Button>
+                    )}
+                    {!isProcessing && (
+                      <DeleteProjectButton
+                        projectId={project.id}
+                        projectTitle={project.title}
+                        onDeleted={handleDeleted}
+                      />
                     )}
                   </div>
                 </div>

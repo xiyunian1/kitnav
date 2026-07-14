@@ -5,6 +5,15 @@ import { prisma } from "@/lib/db";
 import { decrypt } from "@/lib/crypto";
 import { parseModelList } from "@/lib/model-options";
 import { OpenAITextProvider } from "@/lib/providers/text-openai";
+import {
+  enforceUserRequestLimit,
+  REQUEST_LIMITS,
+} from "@/lib/request-limits";
+import {
+  JSON_BODY_LIMITS,
+  jsonRequestErrorDetails,
+  readLimitedJsonBody,
+} from "@/lib/json-request";
 
 export const runtime = "nodejs";
 
@@ -116,6 +125,7 @@ async function resolvePromptOptimizerConfig(userId: string) {
       baseUrl: userCfg.baseUrl,
       apiKey: decrypt(userCfg.apiKey),
       model,
+      networkPolicy: "public" as const,
     };
   }
 
@@ -129,6 +139,7 @@ async function resolvePromptOptimizerConfig(userId: string) {
       baseUrl: platformCfg.baseUrl,
       apiKey: decrypt(platformCfg.apiKey),
       model,
+      networkPolicy: "trusted" as const,
     };
   }
 
@@ -247,12 +258,21 @@ export async function POST(req: Request) {
   if (!session?.user) {
     return NextResponse.json({ error: "请先登录" }, { status: 401 });
   }
+  const limited = await enforceUserRequestLimit(
+    session.user.id,
+    REQUEST_LIMITS.promptOptimize,
+  );
+  if (limited) return limited;
 
   let raw: unknown;
   try {
-    raw = await req.json();
-  } catch {
-    return NextResponse.json({ error: "请求格式错误" }, { status: 400 });
+    raw = await readLimitedJsonBody(req, JSON_BODY_LIMITS.standard);
+  } catch (error) {
+    const bodyError = jsonRequestErrorDetails(error);
+    return NextResponse.json(
+      { error: bodyError.message },
+      { status: bodyError.status },
+    );
   }
 
   const parsed = schema.safeParse(raw);

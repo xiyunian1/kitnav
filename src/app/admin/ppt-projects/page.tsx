@@ -14,6 +14,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  PPT_COMPLETED_STATUSES,
+  PPT_PROCESSING_STATUSES,
+} from "@/lib/ppt-agent/status";
 
 export const metadata = { title: "PPT 记录" };
 
@@ -24,20 +28,14 @@ const STATUS_FILTERS = [
   ["QUEUED", "排队中"],
   ["PENDING", "等待中"],
   ["STRATEGIZING", "规划中"],
+  ["ACQUIRING_IMAGES", "采集素材"],
   ["EXECUTING", "生成中"],
   ["EXPORTING", "导出中"],
   ["COMPLETED", "已完成"],
   ["FAILED", "失败"],
 ] as const;
 
-const ACTIVE_STATUSES: PptProjectStatus[] = [
-  "PENDING",
-  "QUEUED",
-  "STRATEGIZING",
-  "ACQUIRING_IMAGES",
-  "EXECUTING",
-  "EXPORTING",
-];
+const ACTIVE_STATUSES: PptProjectStatus[] = [...PPT_PROCESSING_STATUSES];
 
 const STATUS_META: Record<
   string,
@@ -117,7 +115,13 @@ export default async function AdminPptProjectsPage({
           ],
         }
       : {}),
-    ...(status === "ALL" ? {} : { status: status as PptProjectStatus }),
+    ...(status === "ALL"
+      ? {}
+      : status === "COMPLETED"
+        ? { status: { in: [...PPT_COMPLETED_STATUSES] } }
+        : status === "EXECUTING"
+          ? { status: { in: ["EXECUTING", "GENERATING"] } }
+          : { status: status as PptProjectStatus }),
   };
 
   const since = new Date();
@@ -139,7 +143,10 @@ export default async function AdminPptProjectsPage({
       where: { status: "FAILED", createdAt: { gte: since } },
     }),
     prisma.pptProject.count({
-      where: { status: "COMPLETED", createdAt: { gte: since } },
+      where: {
+        status: { in: [...PPT_COMPLETED_STATUSES] },
+        createdAt: { gte: since },
+      },
     }),
   ]);
 

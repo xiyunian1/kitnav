@@ -5,6 +5,12 @@ import { apiConfigSchema } from "@/lib/api-config-schema";
 import { modelListToJson } from "@/lib/model-options";
 import { getCurrentUserOrUnauthorized } from "@/lib/current-user";
 import { pptModelOptionsToJson } from "@/lib/ppt-agent/model-options";
+import { assertSafePublicApiUrl } from "@/lib/safe-fetch";
+import {
+  JSON_BODY_LIMITS,
+  jsonRequestErrorDetails,
+  readLimitedJsonBody,
+} from "@/lib/json-request";
 
 // 用户保存自己某模块的 API 配置（BYOK）。apiKey 留空表示沿用已存的 key。
 export async function POST(req: Request) {
@@ -16,9 +22,13 @@ export async function POST(req: Request) {
 
   let raw: unknown;
   try {
-    raw = await req.json();
-  } catch {
-    return NextResponse.json({ error: "请求格式错误" }, { status: 400 });
+    raw = await readLimitedJsonBody(req, JSON_BODY_LIMITS.standard);
+  } catch (error) {
+    const bodyError = jsonRequestErrorDetails(error);
+    return NextResponse.json(
+      { error: bodyError.message },
+      { status: bodyError.status },
+    );
   }
 
   const parsed = apiConfigSchema.safeParse(raw);
@@ -29,6 +39,15 @@ export async function POST(req: Request) {
     );
   }
   const { module, baseUrl, apiKey, model, models, modelOptions, enabled } = parsed.data;
+
+  try {
+    await assertSafePublicApiUrl(baseUrl);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "API Base URL 不安全" },
+      { status: 400 },
+    );
+  }
 
   const existing = await prisma.userApiConfig.findUnique({
     where: { userId_module: { userId, module } },

@@ -15,10 +15,11 @@ export async function refundPptProjectCredits(projectId: string, reason: string)
     const claimed = await tx.pptProject.updateMany({
       where: {
         id: projectId,
+        status: "FAILED",
         creditsCost: project.creditsCost,
         usedOwnKey: false,
       },
-      data: { creditsCost: 0 },
+      data: { creditsCost: 0, workerLease: null },
     });
     if (claimed.count !== 1) return false;
 
@@ -45,6 +46,7 @@ export async function refundPptProjectCreditsAmount(
   projectId: string,
   amount: number,
   reason: string,
+  expectedLease?: string,
 ) {
   const normalizedAmount = Math.max(0, Math.floor(amount));
   if (normalizedAmount <= 0) return 0;
@@ -57,7 +59,11 @@ export async function refundPptProjectCreditsAmount(
     if (!project || project.creditsCost < normalizedAmount) return 0;
 
     const claimed = await tx.pptProject.updateMany({
-      where: { id: projectId, creditsCost: project.creditsCost },
+      where: {
+        id: projectId,
+        creditsCost: project.creditsCost,
+        ...(expectedLease ? { workerLease: expectedLease } : {}),
+      },
       data: { creditsCost: { decrement: normalizedAmount } },
     });
     if (claimed.count !== 1) return 0;
@@ -77,4 +83,35 @@ export async function refundPptProjectCreditsAmount(
     });
     return normalizedAmount;
   });
+}
+
+export async function sweepPendingPptRefunds(limit = 20) {
+  const normalizedLimit = Math.max(1, Math.min(100, Math.floor(limit)));
+  const projects = await prisma.pptProject.findMany({
+    where: {
+      status: "FAILED",
+      usedOwnKey: false,
+      creditsCost: { gt: 0 },
+    },
+    orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
+    select: { id: true },
+    take: normalizedLimit,
+  });
+  let refunded = 0;
+  let failed = 0;
+  for (const project of projects) {
+    try {
+      if (
+        await refundPptProjectCredits(
+          project.id,
+          `PPT 失败任务补偿退款（${project.id}）`,
+        )
+      ) {
+        refunded += 1;
+      }
+    } catch {
+      failed += 1;
+    }
+  }
+  return { scanned: projects.length, refunded, failed };
 }

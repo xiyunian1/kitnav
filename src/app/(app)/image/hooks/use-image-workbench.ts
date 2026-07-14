@@ -15,6 +15,10 @@ import {
 } from "../api";
 import type { ConversationSummary, ConversationDetail, Turn } from "../types";
 import type { ModelSource } from "@/lib/module-model-options";
+import {
+  mergeConversationSnapshot,
+  replaceConversationTurn,
+} from "../image-workbench-state";
 
 function getTurnErrorMessage(turn: Turn, fallback = "生成失败") {
   return turn.images.find((img) => img.status === "error" && img.error)?.error || turn.error || fallback;
@@ -30,30 +34,6 @@ function cacheDetail(cache: Map<string, ConversationDetail>, detail: Conversatio
     const oldest = cache.keys().next().value;
     if (oldest !== undefined) cache.delete(oldest);
   }
-}
-
-// 把刷新前残留的 PENDING（queued/loading）轮次标记为失败展示
-function recoverStaleTurns(detail: ConversationDetail): ConversationDetail {
-  const FIVE_MIN = 5 * 60 * 1000;
-  const now = Date.now();
-  return {
-    ...detail,
-    turns: detail.turns.map((turn) => {
-      if (turn.status !== "PENDING") return turn;
-      if (now - new Date(turn.createdAt).getTime() < FIVE_MIN) return turn;
-      const error = getTurnErrorMessage(turn, "任务已中断");
-      return {
-        ...turn,
-        status: "FAILED" as const,
-        error,
-        images: turn.images.map((img) =>
-          img.status === "queued" || img.status === "loading"
-            ? { ...img, status: "error" as const, error }
-            : img
-        ),
-      };
-    }),
-  };
 }
 
 export interface SubmitInput {
@@ -74,10 +54,16 @@ export function useImageWorkbench(initialBalance: number) {
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
   const [search, setSearch] = useState("");
   const [loadingList, setLoadingList] = useState(true);
+  const [loadingMoreConversations, setLoadingMoreConversations] = useState(false);
+  const [hasMoreConversations, setHasMoreConversations] = useState(false);
+  const [nextConversationCursor, setNextConversationCursor] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [loadingMoreTurns, setLoadingMoreTurns] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [stoppingTurnIds, setStoppingTurnIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [balance, setBalance] = useState(initialBalance);
 
   const activeIdRef = useRef<string | null>(null);
@@ -89,6 +75,8 @@ export function useImageWorkbench(initialBalance: number) {
   const searchRef = useRef("");
   const submittingRef = useRef(false);
   const loadingMoreRef = useRef(false);
+  const conversationListRequestRef = useRef(0);
+  const stoppingTurnIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     detailRef.current = detail;
   }, [detail]);
@@ -101,15 +89,63 @@ export function useImageWorkbench(initialBalance: number) {
   }, []);
 
   const refreshList = useCallback(async (q = "") => {
+    const requestId = ++conversationListRequestRef.current;
+    setLoadingList(true);
+    setLoadingMoreConversations(false);
     try {
-      const items = await listConversations(q);
-      setConversations(items);
+      const page = await listConversations(q);
+      if (requestId !== conversationListRequestRef.current) return;
+      setConversations(page.conversations);
+      setHasMoreConversations(page.hasMore);
+      setNextConversationCursor(page.nextCursor);
     } catch (e) {
+      if (requestId !== conversationListRequestRef.current) return;
       toast.error(e instanceof Error ? e.message : "读取会话失败");
     } finally {
-      setLoadingList(false);
+      if (requestId === conversationListRequestRef.current) {
+        setLoadingList(false);
+      }
     }
   }, []);
+
+  const loadMoreConversations = useCallback(async () => {
+    if (
+      loadingMoreConversations ||
+      !hasMoreConversations ||
+      !nextConversationCursor
+    ) {
+      return;
+    }
+    const requestId = conversationListRequestRef.current;
+    const query = searchRef.current;
+    setLoadingMoreConversations(true);
+    try {
+      const page = await listConversations(query, nextConversationCursor);
+      if (
+        requestId !== conversationListRequestRef.current ||
+        query !== searchRef.current
+      ) {
+        return;
+      }
+      setConversations((previous) => {
+        const existing = new Set(previous.map((item) => item.id));
+        return [
+          ...previous,
+          ...page.conversations.filter((item) => !existing.has(item.id)),
+        ];
+      });
+      setHasMoreConversations(page.hasMore);
+      setNextConversationCursor(page.nextCursor);
+    } catch (error) {
+      if (requestId === conversationListRequestRef.current) {
+        toast.error(error instanceof Error ? error.message : "读取更多会话失败");
+      }
+    } finally {
+      if (requestId === conversationListRequestRef.current) {
+        setLoadingMoreConversations(false);
+      }
+    }
+  }, [hasMoreConversations, loadingMoreConversations, nextConversationCursor]);
 
   const mergeTurn = useCallback((turn: Turn, fallbackTitle: string) => {
     setCurrentActiveId(turn.conversationId);
@@ -160,6 +196,39 @@ export function useImageWorkbench(initialBalance: number) {
     });
   }, []);
 
+  const setTurnStopping = useCallback((turnId: string, value: boolean) => {
+    const next = new Set(stoppingTurnIdsRef.current);
+    if (value) next.add(turnId);
+    else next.delete(turnId);
+    stoppingTurnIdsRef.current = next;
+    setStoppingTurnIds(next);
+  }, []);
+
+  const clearSettledStoppingTurns = useCallback((turns: Turn[]) => {
+    const next = new Set(stoppingTurnIdsRef.current);
+    let changed = false;
+    for (const turn of turns) {
+      if (turn.status !== "PENDING" && next.delete(turn.id)) changed = true;
+    }
+    if (!changed) return;
+    stoppingTurnIdsRef.current = next;
+    setStoppingTurnIds(next);
+  }, []);
+
+  const reconcileTurn = useCallback((turn: Turn) => {
+    const cached = detailCacheRef.current.get(turn.conversationId);
+    if (cached) {
+      const next = replaceConversationTurn(cached, turn);
+      if (next !== cached) cacheDetail(detailCacheRef.current, next);
+    }
+    setDetail((previous) => {
+      if (!previous || previous.id !== turn.conversationId) return previous;
+      const next = replaceConversationTurn(previous, turn);
+      if (next !== previous) cacheDetail(detailCacheRef.current, next);
+      return next;
+    });
+  }, []);
+
   // 搜索（防抖）
   useEffect(() => {
     const t = setTimeout(() => void refreshList(search), 300);
@@ -176,25 +245,27 @@ export function useImageWorkbench(initialBalance: number) {
 
     const cached = detailCacheRef.current.get(id);
     if (cached) {
-      setDetail(recoverStaleTurns(cached));
+      setDetail(cached);
       setLoadingDetail(false);
     } else {
       setLoadingDetail(true);
     }
 
     try {
-      const d = await getConversation(id);
+      const snapshot = await getConversation(id);
       if (activeIdRef.current === id) {
-        const recovered = recoverStaleTurns(d);
-        cacheDetail(detailCacheRef.current, recovered);
-        setDetail(recovered);
+        const d = snapshot.conversation;
+        setBalance(snapshot.balance);
+        clearSettledStoppingTurns(d.turns);
+        cacheDetail(detailCacheRef.current, d);
+        setDetail(d);
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "读取会话失败");
     } finally {
       if (activeIdRef.current === id) setLoadingDetail(false);
     }
-  }, [setCurrentActiveId]);
+  }, [clearSettledStoppingTurns, setCurrentActiveId]);
 
   const loadMoreTurns = useCallback(async () => {
     const current = detailRef.current;
@@ -202,20 +273,26 @@ export function useImageWorkbench(initialBalance: number) {
     loadingMoreRef.current = true;
     setLoadingMoreTurns(true);
     try {
-      const older = await getConversation(current.id, { before: current.nextBefore, take: 20 });
+      const snapshot = await getConversation(current.id, {
+        before: current.nextBefore,
+        take: 20,
+      });
       if (activeIdRef.current !== current.id) return;
+      const older = snapshot.conversation;
+      setBalance(snapshot.balance);
+      clearSettledStoppingTurns(older.turns);
 
       setDetail((prev) => {
         if (!prev || prev.id !== current.id) return prev;
         const existing = new Set(prev.turns.map((turn) => turn.id));
         const olderTurns = older.turns.filter((turn) => !existing.has(turn.id));
-        const next = recoverStaleTurns({
+        const next = {
           ...prev,
           turns: [...olderTurns, ...prev.turns],
           totalTurns: older.totalTurns,
           hasMore: olderTurns.length === 0 ? false : older.hasMore,
           nextBefore: olderTurns.length === 0 ? null : older.nextBefore,
-        });
+        };
         cacheDetail(detailCacheRef.current, next);
         return next;
       });
@@ -225,50 +302,101 @@ export function useImageWorkbench(initialBalance: number) {
       loadingMoreRef.current = false;
       setLoadingMoreTurns(false);
     }
-  }, []);
+  }, [clearSettledStoppingTurns]);
+
+  const hasPendingTurn = Boolean(
+    detail?.turns.some((turn) => turn.status === "PENDING"),
+  );
+  useEffect(() => {
+    if (!activeId || submitting || !hasPendingTurn) return;
+    let disposed = false;
+    let polling = false;
+    const poll = async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const snapshot = await getConversation(activeId);
+        if (disposed || activeIdRef.current !== activeId) return;
+        const current = snapshot.conversation;
+        setBalance(snapshot.balance);
+        clearSettledStoppingTurns(current.turns);
+        setDetail((previous) => {
+          if (!previous || previous.id !== activeId) return current;
+          const next = mergeConversationSnapshot(previous, current);
+          cacheDetail(detailCacheRef.current, next);
+          return next;
+        });
+      } catch {
+        // The active stream reports errors; background refresh retries quietly.
+      } finally {
+        polling = false;
+      }
+    };
+    void poll();
+    const interval = window.setInterval(() => void poll(), 2_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+    };
+  }, [activeId, clearSettledStoppingTurns, hasPendingTurn, submitting]);
 
   const startNewDraft = useCallback(() => {
     setCurrentActiveId(null);
     setDetail(null);
   }, [setCurrentActiveId]);
 
+  const requestTurnCancellation = useCallback(
+    async (turnId: string, controller?: AbortController) => {
+      if (stoppingTurnIdsRef.current.has(turnId)) return;
+      setTurnStopping(turnId, true);
+      if (controller) setStopping(true);
+      let keepStopping = false;
+      try {
+        const result = await cancelTurn(turnId);
+        reconcileTurn(result.turn);
+        setBalance(result.balance);
+        keepStopping = result.turn.status === "PENDING";
+        const message = keepStopping ? "停止请求已提交" : "已停止生成";
+        if (
+          controller &&
+          abortControllerRef.current === controller &&
+          !controller.signal.aborted
+        ) {
+          controller.abort(message);
+        } else {
+          toast.info(message);
+        }
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "停止生成失败");
+      } finally {
+        if (!keepStopping) setTurnStopping(turnId, false);
+        if (controller && !controller.signal.aborted) setStopping(false);
+      }
+    },
+    [reconcileTurn, setTurnStopping],
+  );
+
   const stopGeneration = useCallback(() => {
     const controller = abortControllerRef.current;
     if (!controller || controller.signal.aborted) return;
-    setStopping(true);
     const turnId = activeTurnIdRef.current;
-    if (turnId) {
-      void cancelTurn(turnId)
-        .then((turn) => {
-          mergeTurn(turn, turn.prompt.slice(0, 12) || "新会话");
-        })
-        .catch((e) => {
-          toast.error(e instanceof Error ? e.message : "停止生成失败");
-        });
+    if (!turnId) {
+      toast.info("任务正在创建，请稍后再停止");
+      return;
     }
-    setDetail((prev) => {
-      if (!prev) return prev;
-      const next = {
-        ...prev,
-        turns: prev.turns.map((turn) => {
-          if (turn.status !== "PENDING") return turn;
-          return {
-            ...turn,
-            status: "FAILED" as const,
-            error: "用户已停止生成",
-            images: turn.images.map((image) =>
-              image.status === "queued" || image.status === "loading"
-                ? { ...image, status: "error" as const, error: "用户已停止生成" }
-                : image
-            ),
-          };
-        }),
-      };
-      cacheDetail(detailCacheRef.current, next);
-      return next;
-    });
-    controller.abort("用户已停止生成");
-  }, [mergeTurn]);
+    void requestTurnCancellation(turnId, controller);
+  }, [requestTurnCancellation]);
+
+  const stopTurn = useCallback(
+    (turnId: string) => {
+      const controller =
+        activeTurnIdRef.current === turnId
+          ? abortControllerRef.current ?? undefined
+          : undefined;
+      void requestTurnCancellation(turnId, controller);
+    },
+    [requestTurnCancellation],
+  );
 
   // 提交一轮生成
   const submit = useCallback(
@@ -353,7 +481,11 @@ export function useImageWorkbench(initialBalance: number) {
         return true;
       } catch (e) {
         if (controller.signal.aborted) {
-          toast.info("已停止生成");
+          toast.info(
+            controller.signal.reason === "停止请求已提交"
+              ? "停止请求已提交"
+              : "已停止生成",
+          );
         } else {
           toast.error(e instanceof Error ? e.message : "生成失败");
         }
@@ -404,10 +536,17 @@ export function useImageWorkbench(initialBalance: number) {
   const clearAll = useCallback(async () => {
     try {
       await clearConversations();
+      conversationListRequestRef.current += 1;
       setConversations([]);
+      setHasMoreConversations(false);
+      setNextConversationCursor(null);
+      setLoadingList(false);
+      setLoadingMoreConversations(false);
       setCurrentActiveId(null);
       setDetail(null);
       detailCacheRef.current.clear();
+      stoppingTurnIdsRef.current = new Set();
+      setStoppingTurnIds(new Set());
       toast.success("已清空全部会话");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "清空失败");
@@ -421,16 +560,21 @@ export function useImageWorkbench(initialBalance: number) {
     search,
     setSearch,
     loadingList,
+    loadingMoreConversations,
+    hasMoreConversations,
     loadingDetail,
     loadingMoreTurns,
     submitting,
     stopping,
+    stoppingTurnIds,
     balance,
     selectConversation,
+    loadMoreConversations,
     loadMoreTurns,
     startNewDraft,
     submit,
     stopGeneration,
+    stopTurn,
     rename,
     remove,
     clearAll,

@@ -37,6 +37,7 @@ import {
 import { getPptMasterStyleContract, getPptStyleLabel } from "./styles";
 import { throwIfPptCancelled } from "./cancellation";
 import {
+	cleanupPptPiAgentConfig,
 	preparePptPiAgentConfig,
 	type PreparedPiAgentConfig,
 } from "./pi-agent-config";
@@ -67,6 +68,8 @@ import {
 	restorePptVisualReviewSlides,
 	type PptVisualReviewSlide,
 } from "./visual-review";
+import { terminateProcessTree } from "./bounded-process";
+import { getPptAgentTimeoutMs } from "./timings";
 
 export interface AgentRunResult {
 	pptxPath: string;
@@ -75,6 +78,7 @@ export interface AgentRunResult {
 
 interface RunnerOptions {
 	projectDir: string;
+	workerLease: string;
 	sourceMd: string;
 	slideCount: number;
 	aspectRatio: "16:9" | "4:3";
@@ -108,8 +112,9 @@ interface CommandResult {
 	errorMessage: string;
 }
 
-const DEFAULT_TIMEOUT_MS = 1000 * 60 * 60 * 2;
 const MAX_AGENT_OUTPUT_TAIL_CHARS = 500_000;
+const MAX_AGENT_PENDING_LINE_CHARS = 128_000;
+const MAX_AGENT_LOG_BYTES = 2 * 1024 * 1024;
 
 export async function runPptMasterAgent(
 	params: GenerationParams,
@@ -139,22 +144,40 @@ async function runPptMasterAgentInner(
 			params.projectId,
 			options.emit,
 			`PPT Master 上游版本：${upstreamVersion.ref} / ${upstreamVersion.commit.slice(0, 12)}`,
+			options.workerLease,
 		);
 	}
 	const skillDir = prepareProjectSkillDir(options.projectDir, sourceSkillDir);
 	const piConfig = await preparePptPiAgentConfig({
 		projectId: params.projectId,
 		userId: params.userId,
-		projectDir: options.projectDir,
 		model: params.model,
 		modelSource: params.modelSource,
 	});
 	await emitProjectLog(
 		params.projectId,
 		options.emit,
-		`已准备项目专属 pi 配置：${piConfig.source === "user" ? "使用我的 API" : "平台配置"} / ${piConfig.model}`,
+		`已准备任务专属 pi 配置：${piConfig.source === "user" ? "使用我的 API" : "平台配置"} / ${piConfig.model}`,
+		options.workerLease,
 	);
+	try {
+		return await runConfiguredPptMasterAgent(
+			params,
+			options,
+			skillDir,
+			piConfig,
+		);
+	} finally {
+		cleanupPptPiAgentConfig(piConfig);
+	}
+}
 
+async function runConfiguredPptMasterAgent(
+	params: GenerationParams,
+	options: RunnerOptions,
+	skillDir: string,
+	piConfig: PreparedPiAgentConfig,
+): Promise<AgentRunResult> {
 	const promptPath = writeAgentPrompt(params, options, skillDir);
 	const prompt = readFileSync(promptPath, "utf-8");
 	const command = resolveAgentCommand(
@@ -171,22 +194,28 @@ async function runPptMasterAgentInner(
 		params.projectId,
 		options.emit,
 		`启动 PPT Master CLI agent：${command.display}`,
+		options.workerLease,
 	);
 	options.emit({
 		type: "phase",
 		data: { phase: "STRATEGIZING", progress: 12 },
 	});
-	await updateProject(params.projectId, {
-		status: "STRATEGIZING",
-		currentPhase: "PPT Master agent 正在规划与生成",
-		progress: 12,
-	});
+	await updateProject(
+		params.projectId,
+		{
+			status: "STRATEGIZING",
+			currentPhase: "PPT Master agent 正在规划与生成",
+			progress: 12,
+		},
+		options.workerLease,
+	);
 
 	const maxTurns = resolveMaxTurns(options);
 	await emitProjectLog(
 		params.projectId,
 		options.emit,
 		`PPT Master agent 最大续跑轮次：${maxTurns}`,
+		options.workerLease,
 	);
 
 	let currentTurn = 1;
@@ -211,6 +240,7 @@ async function runPptMasterAgentInner(
 				params.projectId,
 				options.emit,
 				`agent 第 ${currentTurn} 轮继续完成图片规划清单`,
+				options.workerLease,
 			);
 			result = await runCommand(
 				params.projectId,
@@ -245,6 +275,7 @@ async function runPptMasterAgentInner(
 			params.projectId,
 			options.emit,
 			`图片已由服务器生成，恢复 agent 第 ${currentTurn} 轮继续制作 PPT`,
+			options.workerLease,
 		);
 		result = await runCommand(
 			params.projectId,
@@ -285,6 +316,7 @@ async function runPptMasterAgentInner(
 			params.projectId,
 			options.emit,
 			`agent 第 ${turn} 轮继续执行：${describeContinueState(options.projectDir, options)}`,
+			options.workerLease,
 		);
 		result = await runCommand(params.projectId, continueCommand, options, turn);
 	}
@@ -303,6 +335,7 @@ async function runPptMasterAgentInner(
 			params.projectId,
 			options.emit,
 			`agent 达到最大续跑轮次 ${maxTurns} 后仍未完成，当前 SVG ${svgCount}/${options.slideCount}。`,
+			options.workerLease,
 		);
 		if (svgCount < options.slideCount) {
 			throw new Error(
@@ -332,11 +365,15 @@ async function runPptMasterAgentInner(
 
 	options.emit({ type: "phase", data: { phase: "EXPORTING", progress: 90 } });
 	throwIfPptCancelled(options.signal);
-	await updateProject(params.projectId, {
-		status: "EXPORTING",
-		currentPhase: "校验并收集 PPTX 输出",
-		progress: 90,
-	});
+	await updateProject(
+		params.projectId,
+		{
+			status: "EXPORTING",
+			currentPhase: "校验并收集 PPTX 输出",
+			progress: 90,
+		},
+		options.workerLease,
+	);
 
 	let pptxPath = findLatestPptx(options.projectDir);
 	if (options.workflow === "svg" && options.visualReview) {
@@ -344,6 +381,7 @@ async function runPptMasterAgentInner(
 			params.projectId,
 			options.emit,
 			"视觉复核已结束，服务器重新执行 Step 7 导出 PPTX",
+			options.workerLease,
 		);
 		await runServerSideExport(options.projectDir, skillDir);
 		pptxPath = findLatestPptx(options.projectDir);
@@ -357,6 +395,7 @@ async function runPptMasterAgentInner(
 			params.projectId,
 			options.emit,
 			"agent 已生成 SVG，服务器接管 Step 7 导出 PPTX",
+			options.workerLease,
 		);
 		await runServerSideExport(options.projectDir, skillDir);
 		pptxPath = findLatestPptx(options.projectDir);
@@ -439,7 +478,7 @@ function buildSvgGenerationPrompt(
 		"- 质量检查必须通过；如果 `svg_quality_checker.py` 报 error，修复后重跑。",
 		finalizationRequirement,
 		"- 不要修改项目目录以外的任何文件。只允许写入当前 PPT 项目目录。",
-		"- 如果需要临时修复 PPT Master 工具脚本，只能修改 `Project path` 下的 `.ppt-master-skill/` 私有副本，禁止编辑仓库源码的 `scripts/ppt-master/`。",
+		"- `.ppt-master-skill/` 是服务器提供的只读工具副本；不得修改其中任何文件。如果工具脚本失败，记录原因并终止，不要尝试绕过。",
 		"- Hosted-mode override: 本站前端会直接预览 `svg_output/`，不要启动长期运行的 `svg_editor/server.py` live preview 服务；这一步视为由站内 SSE 预览替代。",
 		"- 如果缺少 API key、依赖或 agent 权限，明确写入失败原因，不要生成假文件。",
 		...imageInstructions,
@@ -558,6 +597,7 @@ async function runHostedVisualReview(input: {
 		params.projectId,
 		options.emit,
 		`开始服务器托管视觉复核：${slides.length} 页，共 ${batches.length} 批`,
+		options.workerLease,
 	);
 
 	for (const [batchIndex, batch] of batches.entries()) {
@@ -571,11 +611,15 @@ async function runHostedVisualReview(input: {
 			88,
 			82 + Math.floor(((batchIndex + 1) / batches.length) * 6),
 		);
-		await updateProject(params.projectId, {
-			status: "EXECUTING",
-			currentPhase: `AI 视觉复核（${batchIndex + 1}/${batches.length}）`,
-			progress,
-		});
+		await updateProject(
+			params.projectId,
+			{
+				status: "EXECUTING",
+				currentPhase: `AI 视觉复核（${batchIndex + 1}/${batches.length}）`,
+				progress,
+			},
+			options.workerLease,
+		);
 		options.emit({ type: "progress", data: { progress } });
 
 		const command = resolveAgentCommand(
@@ -610,6 +654,7 @@ async function runHostedVisualReview(input: {
 				params.projectId,
 				options.emit,
 				`视觉复核第 ${batchIndex + 1}/${batches.length} 批完成`,
+				options.workerLease,
 			);
 		} catch (error) {
 			throwIfPptCancelled(options.signal);
@@ -638,6 +683,7 @@ async function runHostedVisualReview(input: {
 				params.projectId,
 				options.emit,
 				`视觉复核第 ${batchIndex + 1}/${batches.length} 批未通过，已恢复原稿：${failureReason}`,
+				options.workerLease,
 			);
 		}
 	}
@@ -731,11 +777,15 @@ async function runSelectedImageGeneration(
 	}
 	const maxImages = Math.max(1, Math.min(8, params.imageCountLimit || 1));
 	throwIfPptCancelled(options.signal);
-	await updateProject(params.projectId, {
-		status: "ACQUIRING_IMAGES",
-		currentPhase: "正在生成 PPT 配图",
-		progress: 35,
-	});
+	await updateProject(
+		params.projectId,
+		{
+			status: "ACQUIRING_IMAGES",
+			currentPhase: "正在生成 PPT 配图",
+			progress: 35,
+		},
+		options.workerLease,
+	);
 	options.emit({
 		type: "phase",
 		data: { phase: "ACQUIRING_IMAGES", progress: 35 },
@@ -751,6 +801,7 @@ async function runSelectedImageGeneration(
 		params.projectId,
 		options.emit,
 		`服务器开始生成 PPT 配图：${resolved.source === "user" ? "我的 API" : "平台"} / ${resolved.model}`,
+		options.workerLease,
 	);
 	const timeoutSeconds = await getSettingNumber(
 		SETTING_KEYS.IMAGE_REQUEST_TIMEOUT_SECONDS,
@@ -789,6 +840,7 @@ async function runSelectedImageGeneration(
 			params.projectId,
 			unusedReservation,
 			`PPT 配图未生成额度退款（${maxImages - generated.generatedCount} 张）`,
+			options.workerLease,
 		);
 	}
 	await emitProjectLog(
@@ -797,6 +849,7 @@ async function runSelectedImageGeneration(
 		generated.failedCount > 0
 			? `PPT 配图生成完成：成功 ${generated.generatedCount} 张，重试后仍失败 ${generated.failedCount} 张；已自动降级继续`
 			: `PPT 配图生成完成：${generated.generatedCount} 张`,
+		options.workerLease,
 	);
 }
 
@@ -892,12 +945,20 @@ function resolveAgentCommand(
 	const sessionId = sanitizeAgentSessionId(resumeSessionId || projectId);
 	const sessionDir = join(projectDir, ".pi-sessions");
 	mkdirSync(sessionDir, { recursive: true });
-	const tools = resolvePiTools();
+	const extensionPath = join(process.cwd(), "scripts", "ppt-agent-extension.mjs");
+	if (!existsSync(extensionPath)) {
+		throw new Error(`PPT agent 安全工具扩展不存在：${extensionPath}`);
+	}
 	const args = [
 		"-p",
 		"--mode",
 		"json",
 		"--approve",
+		"--no-builtin-tools",
+		"--no-extensions",
+		"--no-context-files",
+		"--extension",
+		extensionPath,
 		"--provider",
 		piConfig.provider,
 		"--model",
@@ -907,7 +968,7 @@ function resolveAgentCommand(
 		"--skill",
 		skillDir,
 		"--tools",
-		tools,
+		"read,write,edit,bash,grep,find,ls",
 		"--session-dir",
 		sessionDir,
 		"--session-id",
@@ -1050,30 +1111,6 @@ function sanitizeAgentSessionId(value: string) {
 	return sanitized || `ppt-${Date.now()}`;
 }
 
-function resolvePiTools() {
-	const configured =
-		process.env.PPT_PI_AGENT_TOOLS?.trim() ||
-		process.env.PPT_AGENT_TOOLS?.trim() ||
-		"";
-	if (!configured) return "read,write,bash,grep,find,ls";
-
-	const aliases: Record<string, string> = {
-		read: "read",
-		write: "write",
-		edit: "edit",
-		bash: "bash",
-		grep: "grep",
-		find: "find",
-		ls: "ls",
-		glob: "find",
-	};
-	const tools = configured
-		.split(",")
-		.map((tool) => aliases[tool.trim().toLowerCase()])
-		.filter((tool): tool is string => Boolean(tool));
-	return [...new Set(tools)].join(",") || "read,write,bash,grep,find,ls";
-}
-
 function buildAgentPathEnv() {
 	const pythonCmd = process.env.PPT_PYTHON_CMD?.trim();
 	if (!pythonCmd || process.platform === "win32") return process.env.PATH;
@@ -1091,9 +1128,12 @@ function buildAgentProcessEnv(command: AgentCommand): NodeJS.ProcessEnv {
 		NODE_ENV: process.env.NODE_ENV,
 		PATH: buildAgentPathEnv(),
 		PI_CODING_AGENT_DIR: command.piConfig.configDir,
+		PPT_PI_API_KEY: command.piConfig.apiKey,
 		PPT_PI_PROVIDER: command.piConfig.provider,
 		PPT_PI_MODEL: command.piConfig.model,
 		PPT_MASTER_SKILL_DIR: command.skillDir,
+		PPT_AGENT_PROJECT_DIR: command.cwd,
+		PPT_PYTHON_CMD: process.env.PPT_PYTHON_CMD,
 		PYTHONIOENCODING: "utf-8",
 	};
 }
@@ -1115,9 +1155,7 @@ async function runCommand(
 	mkdirSync(options.projectDir, { recursive: true });
 	throwIfPptCancelled(options.signal);
 	const logPath = join(options.projectDir, "agent-output.log");
-	const timeoutMs = Number(
-		process.env.PPT_AGENT_TIMEOUT_MS || DEFAULT_TIMEOUT_MS,
-	);
+		const timeoutMs = getPptAgentTimeoutMs();
 
 	return new Promise<CommandResult>((resolvePromise, reject) => {
 		const spawnTarget = resolveExecutable(command.command);
@@ -1129,14 +1167,33 @@ async function runCommand(
 				cwd: command.cwd,
 				windowsHide: true,
 				env: buildAgentProcessEnv(command),
+				detached: process.platform !== "win32",
 			} satisfies SpawnOptionsWithoutStdio,
 		);
 
 		let output = "";
 		let settled = false;
 		const startedAt = Date.now();
-		appendFileSync(
-			logPath,
+		let logBytes = existsSync(logPath) ? statSync(logPath).size : 0;
+		let logLimitReached = logBytes >= MAX_AGENT_LOG_BYTES;
+		const appendAgentLog = (text: string) => {
+			if (logLimitReached) return;
+			const bytes = Buffer.byteLength(text);
+			if (logBytes + bytes <= MAX_AGENT_LOG_BYTES) {
+				appendFileSync(logPath, text, "utf-8");
+				logBytes += bytes;
+				return;
+			}
+			const marker =
+				"\n[server] agent-output.log 已达到 2 MiB 上限，后续原始日志不再写入。\n";
+			const markerBytes = Buffer.byteLength(marker);
+			if (logBytes + markerBytes <= MAX_AGENT_LOG_BYTES) {
+				appendFileSync(logPath, marker, "utf-8");
+				logBytes += markerBytes;
+			}
+			logLimitReached = true;
+		};
+		appendAgentLog(
 			[
 				"",
 				`\n===== PPT Master agent turn ${turn} started ${new Date().toISOString()} =====`,
@@ -1144,7 +1201,6 @@ async function runCommand(
 				`command: ${command.display}`,
 				"",
 			].join("\n"),
-			"utf-8",
 		);
 
 		const timer = setInterval(() => {
@@ -1154,7 +1210,7 @@ async function runCommand(
 				12 + Math.floor((elapsed / timeoutMs) * 72),
 			);
 			options.emit({ type: "progress", data: { progress } });
-			updateProject(projectId, { progress }).catch(
+			updateProject(projectId, { progress }, options.workerLease).catch(
 				onError("agent-runner", "更新进度失败"),
 			);
 			emitPreviews(projectId, options);
@@ -1164,7 +1220,8 @@ async function runCommand(
 			if (settled) return;
 			settled = true;
 			clearInterval(timer);
-			proc.kill();
+			options.signal?.removeEventListener("abort", abort);
+			terminateProcessTree(proc);
 			reject(
 				new Error(
 					`PPT Master agent 执行超时（${Math.round(timeoutMs / 60000)} 分钟）。`,
@@ -1176,7 +1233,7 @@ async function runCommand(
 			settled = true;
 			clearInterval(timer);
 			clearTimeout(timeout);
-			proc.kill();
+			terminateProcessTree(proc);
 			reject(
 				options.signal?.reason instanceof Error
 					? options.signal.reason
@@ -1184,13 +1241,18 @@ async function runCommand(
 			);
 		};
 		if (options.signal?.aborted) abort();
-		options.signal?.addEventListener("abort", abort, { once: true });
+		else options.signal?.addEventListener("abort", abort, { once: true });
 
 		const processLine = (line: string) => {
 			const message = normalizeAgentLine(line.trim());
 			if (message) {
-				appendFileSync(logPath, `${message}\n`, "utf-8");
-				emitProjectLog(projectId, options.emit, message).catch(
+				appendAgentLog(`${message}\n`);
+				emitProjectLog(
+					projectId,
+					options.emit,
+					message,
+					options.workerLease,
+				).catch(
 					onError("agent-runner", "写入项目日志失败"),
 				);
 				updatePhaseFromLine(projectId, options, message).catch(
@@ -1200,19 +1262,31 @@ async function runCommand(
 		};
 		let stdoutPending = "";
 		let stderrPending = "";
+		const longLineReported = { stdout: false, stderr: false };
+		const boundLine = (stream: "stdout" | "stderr", line: string) => {
+			if (line.length <= MAX_AGENT_PENDING_LINE_CHARS) return line;
+			if (!longLineReported[stream]) {
+				longLineReported[stream] = true;
+				appendAgentLog(
+					`[server] ${stream} 单行超过 ${MAX_AGENT_PENDING_LINE_CHARS} 字符，日志解析仅保留尾部。\n`,
+				);
+			}
+			return line.slice(-MAX_AGENT_PENDING_LINE_CHARS);
+		};
 		const onChunk = (stream: "stdout" | "stderr", chunk: Buffer) => {
 			const text = chunk.toString("utf-8");
 			output = (output + text).slice(-MAX_AGENT_OUTPUT_TAIL_CHARS);
 			const pending = stream === "stdout" ? stdoutPending : stderrPending;
 			const lines = (pending + text).split(/\r?\n/);
-			const nextPending = lines.pop() || "";
+			const nextPending = boundLine(stream, lines.pop() || "");
 			if (stream === "stdout") {
 				stdoutPending = nextPending;
 			} else {
 				stderrPending = nextPending;
 			}
 			for (const line of lines) {
-				if (line.trim()) processLine(line);
+				const boundedLine = boundLine(stream, line);
+				if (boundedLine.trim()) processLine(boundedLine);
 			}
 		};
 		const flushPendingLines = () => {
@@ -1255,6 +1329,7 @@ async function runCommand(
 							projectId,
 							options.emit,
 							`pi provider error: ${metadata.errorMessage}`,
+							options.workerLease,
 						).catch(onError("agent-runner", "发出项目日志失败"));
 						reject(
 							new Error(`PPT Master agent 调用模型失败：${metadata.errorMessage}`),
@@ -1265,7 +1340,8 @@ async function runCommand(
 						projectId,
 						options.emit,
 						`agent 第 ${turn} 轮结束：stop_reason=${metadata.stopReason || "unknown"}，num_turns=${metadata.numTurns || 0}`,
-				).catch(onError("agent-runner", "发出项目日志失败"));
+						options.workerLease,
+					).catch(onError("agent-runner", "发出项目日志失败"));
 				resolvePromise({ output, ...metadata });
 				return;
 			}
@@ -1274,6 +1350,7 @@ async function runCommand(
 					projectId,
 					options.emit,
 					"agent 在最后阶段退出，检测到可恢复输出，继续由服务器完成导出。",
+					options.workerLease,
 				).catch(onError("agent-runner", "发出项目日志失败"));
 				const metadata = extractResultMetadata(output);
 				resolvePromise({ output, ...metadata });
@@ -1587,10 +1664,14 @@ async function updatePhaseFromLine(
 		line.includes("图像") ||
 		line.includes("素材")
 	) {
-		await updateProject(projectId, {
-			status: "ACQUIRING_IMAGES",
-			currentPhase: "采集或生成素材",
-		});
+		await updateProject(
+			projectId,
+			{
+				status: "ACQUIRING_IMAGES",
+				currentPhase: "采集或生成素材",
+			},
+			options.workerLease,
+		);
 		options.emit({
 			type: "phase",
 			data: { phase: "ACQUIRING_IMAGES", progress: 35 },
@@ -1602,10 +1683,14 @@ async function updatePhaseFromLine(
 		line.includes("executor") ||
 		line.includes("生成第")
 	) {
-		await updateProject(projectId, {
-			status: "EXECUTING",
-			currentPhase: "逐页生成 SVG",
-		});
+		await updateProject(
+			projectId,
+			{
+				status: "EXECUTING",
+				currentPhase: "逐页生成 SVG",
+			},
+			options.workerLease,
+		);
 		options.emit({ type: "phase", data: { phase: "EXECUTING", progress: 45 } });
 		return;
 	}
@@ -1614,10 +1699,14 @@ async function updatePhaseFromLine(
 		lower.includes("export") ||
 		line.includes("导出")
 	) {
-		await updateProject(projectId, {
-			status: "EXPORTING",
-			currentPhase: "导出 PPTX",
-		});
+		await updateProject(
+			projectId,
+			{
+				status: "EXPORTING",
+				currentPhase: "导出 PPTX",
+			},
+			options.workerLease,
+		);
 		options.emit({ type: "phase", data: { phase: "EXPORTING", progress: 88 } });
 	}
 }
@@ -1649,16 +1738,20 @@ async function verifyAgentOutput(
 		throw new Error("PPT Master agent 没有生成任何 SVG 页面。");
 	}
 
-	await updateProject(projectId, {
-		svgOutputPath: join(options.projectDir, "svg_output"),
-		specPath: existsSync(join(options.projectDir, "design_spec.md"))
-			? join(options.projectDir, "design_spec.md")
-			: undefined,
-		specLockPath: existsSync(join(options.projectDir, "spec_lock.md"))
-			? join(options.projectDir, "spec_lock.md")
-			: undefined,
-		slideCount: svgCount,
-	});
+	await updateProject(
+		projectId,
+		{
+			svgOutputPath: join(options.projectDir, "svg_output"),
+			specPath: existsSync(join(options.projectDir, "design_spec.md"))
+				? join(options.projectDir, "design_spec.md")
+				: undefined,
+			specLockPath: existsSync(join(options.projectDir, "spec_lock.md"))
+				? join(options.projectDir, "spec_lock.md")
+				: undefined,
+			slideCount: svgCount,
+		},
+		options.workerLease,
+	);
 
 	const quality = await checkSvgQuality(options.projectDir, skillDir);
 	if (quality.errors.length > 0) {
@@ -1735,7 +1828,11 @@ async function verifyNativeTemplateFillOutput(
 		throw new Error("原生模板填充 PPTX 回读验证没有产生有效内容。");
 	}
 
-	await updateProject(projectId, { slideCount, pptxPath });
+	await updateProject(
+		projectId,
+		{ slideCount, pptxPath },
+		options.workerLease,
+	);
 }
 
 function readTemplateFillSlideCount(projectDir: string) {

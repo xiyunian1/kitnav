@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { editTurnFieldsSchema } from "@/lib/image-schema";
-import { runImageTurn, TurnError } from "@/lib/image-workbench";
+import { enqueueImageTurn, TurnError } from "@/lib/image-workbench";
+import {
+  enforceUserRequestLimit,
+  REQUEST_LIMITS,
+} from "@/lib/request-limits";
 
 export const runtime = "nodejs";
 
@@ -13,6 +17,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "请先登录" }, { status: 401 });
   }
   const userId = session.user.id;
+  const limited = await enforceUserRequestLimit(
+    userId,
+    REQUEST_LIMITS.imageGenerate,
+  );
+  if (limited) return limited;
 
   let form: FormData;
   try {
@@ -49,7 +58,7 @@ export async function POST(req: Request) {
     typeof thumb === "string" && thumb.startsWith("data:") ? [thumb] : undefined;
 
   try {
-    const turn = await runImageTurn({
+    const turn = await enqueueImageTurn({
       userId,
       conversationId,
       prompt,

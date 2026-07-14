@@ -25,15 +25,18 @@ const STATUS: Record<
 };
 
 export default async function AdminOrdersPage() {
-  const orders = await prisma.order.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 100,
-    include: { user: { select: { email: true } } },
-  });
-
-  const revenue = orders
-    .filter((o) => o.status === "PAID")
-    .reduce((sum, o) => sum + o.amount, 0);
+  const [orders, paidRevenue] = await Promise.all([
+    prisma.order.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      include: { user: { select: { email: true } } },
+    }),
+    prisma.order.aggregate({
+      where: { status: "PAID" },
+      _sum: { amount: true },
+    }),
+  ]);
+  const revenue = paidRevenue._sum.amount ?? 0;
 
   return (
     <div className="space-y-6">

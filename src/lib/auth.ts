@@ -1,23 +1,30 @@
 import NextAuth from "next-auth";
 import { PrismaAdapter } from "@auth/prisma-adapter";
+import type { Adapter, AdapterUser } from "@auth/core/adapters";
 import Credentials from "next-auth/providers/credentials";
 import type { Provider } from "next-auth/providers";
 import bcrypt from "bcryptjs";
+import { cache } from "react";
 import { z } from "zod";
 import { authConfig } from "./auth.config";
 import { prisma } from "./db";
-import { addCredits, getSettingNumber } from "./credits";
-import { SETTING_KEYS } from "./settings-config";
 import LinuxDo, { type LinuxDoProfile } from "./auth-providers/linux-do";
 import {
   assertRegistrationAllowed,
+  createRegisteredUser,
   OperationBlockedError,
-  recordRegistration,
 } from "./operations";
+import { refreshSessionFromDatabase } from "./auth-session";
+import { AUTH_INPUT_LIMITS } from "./auth-inputs";
 
 const credentialsSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
+  email: z
+    .string()
+    .trim()
+    .max(AUTH_INPUT_LIMITS.emailCharacters)
+    .email()
+    .transform((value) => value.toLowerCase()),
+  password: z.string().min(1).max(AUTH_INPUT_LIMITS.loginPasswordCharacters),
 });
 
 const providers: Provider[] = [
@@ -31,7 +38,9 @@ const providers: Provider[] = [
       if (!parsed.success) return null;
 
       const { email, password } = parsed.data;
-      const user = await prisma.user.findUnique({ where: { email } });
+      const user = await prisma.user.findFirst({
+        where: { email: { equals: email, mode: "insensitive" } },
+      });
       if (!user || !user.passwordHash) return null;
       if (user.status === "BANNED") return null;
 
@@ -45,6 +54,7 @@ const providers: Provider[] = [
         image: user.image,
         role: user.role,
         credits: user.credits,
+        sessionVersion: user.sessionVersion,
       };
     },
   }),
@@ -59,9 +69,25 @@ if (process.env.LINUX_DO_CLIENT_ID && process.env.LINUX_DO_CLIENT_SECRET) {
   );
 }
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+const baseAdapter = PrismaAdapter(prisma);
+const registrationAdapter: Adapter = {
+  ...baseAdapter,
+  // Credentials registration uses its own API route; Linux.do is currently the
+  // only provider that asks the Auth.js adapter to create users.
+  async createUser(user) {
+    return (await createRegisteredUser({
+      provider: "linux-do",
+      email: user.email,
+      name: user.name,
+      image: user.image,
+      emailVerified: user.emailVerified,
+    })) as AdapterUser;
+  },
+};
+
+const nextAuth = NextAuth({
   ...authConfig,
-  adapter: PrismaAdapter(prisma),
+  adapter: registrationAdapter,
   providers,
   callbacks: {
     ...authConfig.callbacks,
@@ -96,30 +122,37 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (user.id) {
         const dbUser = await prisma.user.findUnique({
           where: { id: user.id },
-          select: { status: true },
+          select: { status: true, sessionVersion: true },
         });
         if (dbUser?.status === "BANNED") return false;
+        if (dbUser) user.sessionVersion = dbUser.sessionVersion;
       }
 
       return true;
     },
   },
-  events: {
-    async createUser({ user }) {
-      if (!user.id) return;
-      try {
-        await recordRegistration({
-          userId: user.id,
-          email: user.email,
-          provider: "linux-do",
-        });
-        const bonus = await getSettingNumber(SETTING_KEYS.SIGNUP_BONUS);
-        if (bonus > 0) {
-          await addCredits(user.id, bonus, "SIGNUP_BONUS", "Linux.do 注册赠送");
-        }
-      } catch (error) {
-        console.error("Failed to grant Linux.do signup bonus", error);
-      }
+});
+
+export const { handlers, signIn, signOut } = nextAuth;
+
+const loadSessionUser = cache((id: string) =>
+  prisma.user.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      role: true,
+      status: true,
+      credits: true,
+      sessionVersion: true,
     },
-  },
+  }),
+);
+
+export const auth = cache(async () => {
+  const session = await nextAuth.auth();
+  if (!session?.user?.id) return session;
+  return refreshSessionFromDatabase(
+    session,
+    await loadSessionUser(session.user.id),
+  );
 });

@@ -1,9 +1,17 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { saveImageBlob, tagsToJson } from "@/lib/materials";
+import {
+  deleteStoredMaterialFile,
+  saveImageBlob,
+  tagsToJson,
+} from "@/lib/materials";
 import { resolveMaterialSubmissionState } from "@/lib/material-review";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
+import {
+  enforceUserRequestLimit,
+  REQUEST_LIMITS,
+} from "@/lib/request-limits";
 
 export const runtime = "nodejs";
 
@@ -12,6 +20,11 @@ export async function POST(req: Request) {
   if (!session?.user) {
     return NextResponse.json({ error: "请先登录" }, { status: 401 });
   }
+  const limited = await enforceUserRequestLimit(
+    session.user.id,
+    REQUEST_LIMITS.materialUpload,
+  );
+  if (limited) return limited;
   try {
     await assertControlledModuleAvailableForUser("library", session.user.id);
   } catch (error) {
@@ -38,8 +51,9 @@ export async function POST(req: Request) {
   const tags = String(form.get("tags") || "").trim().slice(0, 200);
   const visibility = form.get("visibility") === "PUBLIC" ? "PUBLIC" : "PRIVATE";
 
+  let stored: Awaited<ReturnType<typeof saveImageBlob>> | null = null;
   try {
-    const stored = await saveImageBlob(image, session.user.id);
+    stored = await saveImageBlob(image, session.user.id);
     const finalTitle = title || "未命名素材";
     const submission = await resolveMaterialSubmissionState(visibility, {
       type: "IMAGE",
@@ -73,6 +87,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, id: material.id, status: material.status });
   } catch (e) {
+    await deleteStoredMaterialFile(stored?.storageKey ?? null);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "上传失败" },
       { status: 400 }

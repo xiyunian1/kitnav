@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { editTurnFieldsSchema } from "@/lib/image-schema";
-import { runImageTurn, TurnError, type ImageTurnProgressEvent } from "@/lib/image-workbench";
+import { enqueueImageTurn, TurnError } from "@/lib/image-workbench";
+import { createImageTurnStreamResponse } from "@/lib/image-stream-response";
+import {
+  enforceUserRequestLimit,
+  REQUEST_LIMITS,
+} from "@/lib/request-limits";
 
 export const runtime = "nodejs";
 
@@ -11,6 +16,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "请先登录" }, { status: 401 });
   }
   const userId = session.user.id;
+  const limited = await enforceUserRequestLimit(
+    userId,
+    REQUEST_LIMITS.imageGenerate,
+  );
+  if (limited) return limited;
 
   let form: FormData;
   try {
@@ -45,56 +55,26 @@ export async function POST(req: Request) {
   const referenceThumbs =
     typeof thumb === "string" && thumb.startsWith("data:") ? [thumb] : undefined;
 
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const encoder = new TextEncoder();
-      let closed = false;
-      const enqueue = (event: ImageTurnProgressEvent | { type: "error"; status: number; error: string }) => {
-        if (closed || req.signal.aborted) return;
-        try {
-          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
-        } catch {
-          closed = true;
-        }
-      };
-      try {
-        await runImageTurn({
-          userId,
-          conversationId: parsed.data.conversationId,
-          prompt: parsed.data.prompt,
-          ratio: parsed.data.ratio,
-          quality: parsed.data.quality,
-          count: parsed.data.count,
-          model: parsed.data.model,
-          modelSource: parsed.data.modelSource,
-          mode: "edit",
-          editImage: { blob: image, filename },
-          referenceThumbs,
-          signal: req.signal,
-          onProgress: (event) => {
-            enqueue(event);
-          },
-        });
-      } catch (e) {
-        const status = e instanceof TurnError ? e.status : 500;
-        const message = e instanceof Error ? e.message : "生成失败";
-        enqueue({ type: "error", status, error: message });
-      } finally {
-        if (!closed) {
-          try {
-            controller.close();
-          } catch {
-            closed = true;
-          }
-        }
-      }
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "application/x-ndjson; charset=utf-8",
-      "Cache-Control": "no-store",
-    },
-  });
+  try {
+    const turn = await enqueueImageTurn({
+      userId,
+      conversationId: parsed.data.conversationId,
+      prompt: parsed.data.prompt,
+      ratio: parsed.data.ratio,
+      quality: parsed.data.quality,
+      count: parsed.data.count,
+      model: parsed.data.model,
+      modelSource: parsed.data.modelSource,
+      mode: "edit",
+      editImage: { blob: image, filename },
+      referenceThumbs,
+    });
+    return createImageTurnStreamResponse(turn, req.signal);
+  } catch (error) {
+    const status = error instanceof TurnError ? error.status : 500;
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "生成失败" },
+      { status },
+    );
+  }
 }

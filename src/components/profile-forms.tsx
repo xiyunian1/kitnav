@@ -2,6 +2,7 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { signOut } from "next-auth/react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +19,7 @@ import {
   updateProfileAction,
   changePasswordAction,
 } from "@/app/(app)/profile/actions";
+import { AUTH_INPUT_LIMITS } from "@/lib/auth-inputs";
 
 export function ProfileForms({ name }: { name: string }) {
   const router = useRouter();
@@ -39,7 +41,10 @@ export function ProfileForms({ name }: { name: string }) {
     startPwd(async () => {
       const res = await changePasswordAction(formData);
       if (res?.error) toast.error(res.error);
-      else toast.success("密码已修改");
+      else {
+        toast.success("密码已修改，请重新登录");
+        await signOut({ callbackUrl: "/login" });
+      }
     });
   }
 
@@ -73,7 +78,13 @@ export function ProfileForms({ name }: { name: string }) {
           <form action={handlePassword} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="current">当前密码</Label>
-              <Input id="current" name="current" type="password" required />
+              <Input
+                id="current"
+                name="current"
+                type="password"
+                maxLength={AUTH_INPUT_LIMITS.loginPasswordCharacters}
+                required
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="next">新密码</Label>
@@ -83,6 +94,7 @@ export function ProfileForms({ name }: { name: string }) {
                 type="password"
                 required
                 minLength={6}
+                maxLength={AUTH_INPUT_LIMITS.newPasswordCharacters}
               />
             </div>
             <Button type="submit" disabled={pendingPwd}>

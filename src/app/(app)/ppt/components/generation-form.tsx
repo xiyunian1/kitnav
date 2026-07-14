@@ -38,6 +38,7 @@ import { PPT_STYLE_PRESETS } from "@/lib/ppt-agent/styles";
 import { CancelProjectButton } from "./cancel-project-button";
 import { formatProjectDurationLabel } from "./duration";
 import {
+	isPptCompletedStatus,
 	PPT_STATUS_LABELS,
 	PPT_USER_FAILURE_MESSAGE,
 } from "@/lib/ppt-agent/status";
@@ -245,7 +246,7 @@ export function GenerationForm({
 					} else if (status.status) {
 						setPhase(PPT_STATUS_LABELS[status.status] ?? "正在生成 PPT");
 					}
-					if (status.status === "COMPLETED") {
+					if (isPptCompletedStatus(status.status)) {
 						toast.success("PPT 生成完成。");
 						router.push(`/ppt/${projectId}`);
 						router.refresh();

@@ -9,20 +9,27 @@ export async function requireAdmin() {
   if (!session?.user) redirect("/login");
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { role: true },
+    select: { role: true, status: true },
   });
   if (!user) redirect("/login");
+  if (user.status !== "ACTIVE") redirect("/login");
   if (user.role !== "ADMIN") redirect("/");
   return session;
 }
 
 // 用于 Server Action 中的软校验（返回布尔，不重定向）
 export async function isAdmin(): Promise<boolean> {
+  return Boolean(await getActiveAdminId());
+}
+
+export async function getActiveAdminId(): Promise<string | null> {
   const session = await auth();
-  if (!session?.user?.id) return false;
+  if (!session?.user?.id) return null;
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { role: true },
+    select: { role: true, status: true },
   });
-  return user?.role === "ADMIN";
+  return user?.role === "ADMIN" && user.status === "ACTIVE"
+    ? session.user.id
+    : null;
 }

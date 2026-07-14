@@ -16,6 +16,8 @@ interface Props {
   onReusePrompt: (prompt: string) => void;
   onRegenerate: (input: ReuseTurnInput) => void;
   onGenerateSimilar: (url: string, input: ReuseTurnInput) => void;
+  stoppingTurnIds: ReadonlySet<string>;
+  onStopTurn: (turnId: string) => void;
 }
 
 export const ResultStream = memo(function ResultStream({
@@ -27,6 +29,8 @@ export const ResultStream = memo(function ResultStream({
   onReusePrompt,
   onRegenerate,
   onGenerateSimilar,
+  stoppingTurnIds,
+  onStopTurn,
 }: Props) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const scrollStateRef = useRef({
@@ -160,6 +164,8 @@ export const ResultStream = memo(function ResultStream({
           onReusePrompt={onReusePrompt}
           onRegenerate={onRegenerate}
           onGenerateSimilar={onGenerateSimilar}
+          stopping={stoppingTurnIds.has(turn.id)}
+          onStop={onStopTurn}
         />
       ))}
     </div>

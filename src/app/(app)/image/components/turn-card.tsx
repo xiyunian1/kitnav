@@ -2,7 +2,15 @@
 
 import { memo, useState, useTransition } from "react";
 import Image from "next/image";
-import { Clock3, FileText, Loader2, Sparkles, ImageOff, Save } from "lucide-react";
+import {
+  Clock3,
+  FileText,
+  ImageOff,
+  Loader2,
+  Save,
+  Sparkles,
+  Square,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -78,9 +86,20 @@ interface Props {
   onReusePrompt: (prompt: string) => void;
   onRegenerate: (input: ReuseTurnInput) => void;
   onGenerateSimilar: (url: string, input: ReuseTurnInput) => void;
+  stopping: boolean;
+  onStop: (turnId: string) => void;
 }
 
-export const TurnCard = memo(function TurnCard({ turn, index, onContinueEdit, onReusePrompt, onRegenerate, onGenerateSimilar }: Props) {
+export const TurnCard = memo(function TurnCard({
+  turn,
+  index,
+  onContinueEdit,
+  onReusePrompt,
+  onRegenerate,
+  onGenerateSimilar,
+  stopping,
+  onStop,
+}: Props) {
   const ac = aspectClass(turn.ratio);
   const [preview, setPreview] = useState<{ src: string; alt: string } | null>(null);
   const [saving, startSaving] = useTransition();
@@ -169,6 +188,22 @@ export const TurnCard = memo(function TurnCard({ turn, index, onContinueEdit, on
             </div>
             <p className="line-clamp-2 text-sm">{turn.prompt}</p>
           </div>
+          {turn.status === "PENDING" && (
+            <Button
+              variant="outline"
+              size="icon-sm"
+              disabled={stopping}
+              onClick={() => onStop(turn.id)}
+              title={stopping ? "正在停止" : "停止生成"}
+              aria-label={stopping ? "正在停止生成" : "停止生成"}
+            >
+              {stopping ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Square className="size-3.5" />
+              )}
+            </Button>
+          )}
           <Button variant="ghost" size="sm" onClick={() => onReusePrompt(turn.prompt)}>
             <Sparkles className="size-3.5" /> 复用提示词
           </Button>

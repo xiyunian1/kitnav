@@ -1,7 +1,11 @@
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	buildOpenAiCompatibleCompat,
 	buildThinkingLevelMap,
+	cleanupPptPiAgentConfig,
 } from "./pi-agent-config";
 
 describe("PPT pi agent reasoning config", () => {
@@ -24,5 +28,19 @@ describe("PPT pi agent reasoning config", () => {
 		expect(
 			buildThinkingLevelMap({ PPT_PI_THINKING_VALUE: "max" }).xhigh,
 		).toBe("max");
+	});
+
+	it("removes task-scoped config directories after the agent exits", () => {
+		const configDir = mkdtempSync(join(tmpdir(), "ppt-pi-test-"));
+		cleanupPptPiAgentConfig({
+			configDir,
+			provider: "test",
+			model: "test-model",
+			apiKey: "test-key",
+			thinkingLevel: "medium",
+			source: "platform",
+			supportsVision: false,
+		});
+		expect(existsSync(configDir)).toBe(false);
 	});
 });

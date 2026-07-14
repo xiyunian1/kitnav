@@ -1,13 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { isAdmin } from "@/lib/admin-guard";
-import { prisma } from "@/lib/db";
+import { getActiveAdminId } from "@/lib/admin-guard";
 import { SETTING_META } from "@/lib/settings-config";
-import { writeAuditLog } from "@/lib/audit";
+import { runAuditedAdminTransaction } from "@/lib/audit";
 
 export async function updateSettingsAction(formData: FormData) {
-  if (!(await isAdmin())) return { error: "无权限" };
+  const adminId = await getActiveAdminId();
+  if (!adminId) return { error: "无权限" };
 
   const updates: { key: string; value: string }[] = [];
   for (const meta of SETTING_META) {
@@ -39,21 +39,24 @@ export async function updateSettingsAction(formData: FormData) {
     updates.push({ key: meta.key, value: raw.trim() });
   }
 
-  await prisma.$transaction(
-    updates.map((u) =>
-      prisma.setting.upsert({
-        where: { key: u.key },
-        update: { value: u.value },
-        create: { key: u.key, value: u.value },
-      })
-    )
+  await runAuditedAdminTransaction(
+    adminId,
+    (tx) =>
+      Promise.all(
+        updates.map((update) =>
+          tx.setting.upsert({
+            where: { key: update.key },
+            update: { value: update.value },
+            create: { key: update.key, value: update.value },
+          }),
+        ),
+      ),
+    {
+      action: "settings.update",
+      target: "settings",
+      detail: updates,
+    },
   );
-
-  await writeAuditLog({
-    action: "settings.update",
-    target: "settings",
-    detail: updates,
-  });
   revalidatePath("/admin/settings");
   revalidatePath("/admin/materials");
   revalidatePath("/admin/operations");

@@ -1,4 +1,22 @@
 import type { ProviderCredentials } from "./types";
+import { fetchProviderEndpoint } from "./network";
+import {
+  readBoundedJsonResponse,
+  readBoundedResponseText,
+} from "@/lib/safe-fetch";
+
+const MAX_TEXT_RESPONSE_BYTES = 4 * 1024 * 1024;
+const MAX_ERROR_RESPONSE_BYTES = 64 * 1024;
+
+interface ChatCompletionResponse {
+  choices?: Array<{
+    message?: {
+      content?: unknown;
+      tool_calls?: unknown;
+    };
+    finish_reason?: unknown;
+  }>;
+}
 
 export interface TextMessage {
   role: "system" | "user" | "assistant" | "tool";
@@ -85,20 +103,28 @@ export class OpenAITextProvider {
       throw new Error(await formatUpstreamError(res));
     }
 
-    return res.json();
+    return readBoundedJsonResponse<ChatCompletionResponse>(
+      res,
+      MAX_TEXT_RESPONSE_BYTES,
+      "上游文本响应超过 4MB",
+    );
   }
 
   private async fetchChatCompletion(body: Record<string, unknown>, params: TextGenerationParams | ToolChatParams) {
     const signal = buildRequestSignal(params.signal, params.timeoutMs ?? 180_000);
-    return fetch(`${this.creds.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.creds.apiKey}`,
+    return fetchProviderEndpoint(
+      `${this.creds.baseUrl.replace(/\/+$/, "")}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.creds.apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal,
       },
-      body: JSON.stringify(body),
-      signal,
-    });
+      this.creds.networkPolicy,
+    );
   }
 }
 
@@ -121,10 +147,25 @@ function buildRequestSignal(signal: AbortSignal | undefined, timeoutMs: number) 
 
 async function readErrorDetail(res: Response) {
   try {
-    const data = await res.json();
-    return data?.error?.message || data?.message || JSON.stringify(data);
-  } catch {
-    return res.text().catch(() => "");
+    const text = await readBoundedResponseText(
+      res,
+      MAX_ERROR_RESPONSE_BYTES,
+      "上游错误响应过大",
+    );
+    try {
+      const parsed = JSON.parse(text) as unknown;
+      if (!parsed || typeof parsed !== "object") return text;
+      const record = parsed as Record<string, unknown>;
+      const nested =
+        record.error && typeof record.error === "object"
+          ? (record.error as Record<string, unknown>)
+          : null;
+      return String(nested?.message ?? record.message ?? text);
+    } catch {
+      return text;
+    }
+  } catch (error) {
+    return error instanceof Error ? error.message : "";
   }
 }
 

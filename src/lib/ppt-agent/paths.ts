@@ -1,23 +1,53 @@
-import { readdir, stat } from "fs/promises";
+import { lstat, readdir, realpath } from "fs/promises";
 import { join, resolve, sep, basename, isAbsolute } from "path";
 
-export const PPT_PROJECTS_ROOT = resolve(process.cwd(), "data", "ppt-projects");
+export const PPT_PROJECTS_ROOT = resolve(
+  /* turbopackIgnore: true */ process.env.PPT_PROJECTS_ROOT ||
+    join(process.cwd(), "data", "ppt-projects"),
+);
 
 export function getPptProjectDir(projectId: string) {
   if (!/^[a-zA-Z0-9_-]+$/.test(projectId)) {
     throw new Error("Invalid PPT project id");
   }
-  return join(PPT_PROJECTS_ROOT, projectId);
+  return join(/* turbopackIgnore: true */ PPT_PROJECTS_ROOT, projectId);
 }
 
 export function assertInsidePptProject(projectId: string, path: string) {
   const projectDir = getPptProjectDir(projectId);
-  const resolved = isAbsolute(path) ? resolve(path) : resolve(projectDir, path);
+  const resolved = isAbsolute(path)
+    ? resolve(/* turbopackIgnore: true */ path)
+    : resolve(/* turbopackIgnore: true */ projectDir, path);
   const normalizedRoot = projectDir.endsWith(sep) ? projectDir : `${projectDir}${sep}`;
   if (resolved !== projectDir && !resolved.startsWith(normalizedRoot)) {
     throw new Error("Resolved path is outside the PPT project directory");
   }
   return resolved;
+}
+
+export async function resolvePptProjectFile(projectId: string, path: string) {
+  const projectDir = getPptProjectDir(projectId);
+  const candidate = assertInsidePptProject(projectId, path);
+  const info = await lstat(/* turbopackIgnore: true */ candidate);
+  if (!info.isFile() || info.isSymbolicLink()) {
+    throw new Error("PPT project file is not a regular file");
+  }
+
+  const [rootRealPath, projectRealPath, fileRealPath] = await Promise.all([
+    realpath(/* turbopackIgnore: true */ PPT_PROJECTS_ROOT),
+    realpath(/* turbopackIgnore: true */ projectDir),
+    realpath(/* turbopackIgnore: true */ candidate),
+  ]);
+  assertResolvedPathInside(rootRealPath, projectRealPath);
+  assertResolvedPathInside(projectRealPath, fileRealPath);
+  return { path: fileRealPath, size: info.size };
+}
+
+function assertResolvedPathInside(root: string, candidate: string) {
+  const normalizedRoot = root.endsWith(sep) ? root : `${root}${sep}`;
+  if (candidate !== root && !candidate.startsWith(normalizedRoot)) {
+    throw new Error("Resolved path is outside the expected directory");
+  }
 }
 
 export function publicProjectUrl(projectId: string, absolutePath: string) {
@@ -31,10 +61,13 @@ export function publicProjectUrl(projectId: string, absolutePath: string) {
 }
 
 export async function getProjectSvgPreviews(projectId: string) {
-  const svgDir = join(getPptProjectDir(projectId), "svg_output");
+  const svgDir = join(
+    /* turbopackIgnore: true */ getPptProjectDir(projectId),
+    "svg_output",
+  );
   try {
-    const info = await stat(svgDir);
-    if (!info.isDirectory()) return [];
+    const info = await lstat(svgDir);
+    if (!info.isDirectory() || info.isSymbolicLink()) return [];
   } catch {
     return [];
   }

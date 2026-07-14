@@ -374,6 +374,8 @@ export function ImageWorkbench({
       activeId={wb.activeId}
       search={wb.search}
       loading={wb.loadingList}
+      loadingMore={wb.loadingMoreConversations}
+      hasMore={wb.hasMoreConversations}
       balance={wb.balance}
       useOwnKey={useOwnKey}
       onSearch={setSearch}
@@ -381,17 +383,18 @@ export function ImageWorkbench({
       onNew={startNewConversation}
       onDelete={remove}
       onClear={clearAll}
+      onLoadMore={wb.loadMoreConversations}
     />
   );
 
   return (
-    <div className="grid flex-1 grid-cols-1 gap-4 md:min-h-0 md:overflow-hidden md:grid-cols-[minmax(0,1fr)_360px] lg:grid-cols-[260px_minmax(0,1fr)_360px]">
-      <Card className="hidden min-h-0 overflow-hidden p-3 lg:block">
+    <div className="grid flex-1 grid-cols-1 gap-4 md:min-h-0 md:overflow-hidden md:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[260px_minmax(0,1fr)_360px]">
+      <Card className="hidden min-h-0 overflow-hidden p-3 2xl:block">
         {renderConversationSidebar()}
       </Card>
 
       <Card className="min-h-0 min-w-0 gap-0 overflow-hidden p-4">
-        <div className="mb-3 flex items-center justify-between gap-2 lg:hidden">
+        <div className="mb-3 flex items-center justify-between gap-2 2xl:hidden">
           <Button
             type="button"
             variant="outline"
@@ -415,11 +418,13 @@ export function ImageWorkbench({
             onReusePrompt={setPrompt}
             onRegenerate={handleRegenerate}
             onGenerateSimilar={handleGenerateSimilar}
+            stoppingTurnIds={wb.stoppingTurnIds}
+            onStopTurn={wb.stopTurn}
           />
         </div>
       </Card>
 
-      <Card className="min-h-0 overflow-visible p-4 md:max-h-full md:self-stretch md:overflow-hidden lg:self-start">
+      <Card className="min-h-0 overflow-visible p-4 md:max-h-full md:self-stretch md:overflow-hidden 2xl:self-start">
         <PromptComposer
           mode={mode}
           prompt={prompt}
@@ -449,7 +454,7 @@ export function ImageWorkbench({
       </Card>
 
       <Dialog open={conversationOpen} onOpenChange={setConversationOpen}>
-        <DialogContent className="left-0 top-0 h-dvh max-h-dvh w-[min(22rem,calc(100vw-1rem))] max-w-none grid-rows-[auto_minmax(0,1fr)] translate-x-0 translate-y-0 rounded-none rounded-r-xl p-4 sm:left-0 sm:top-0 sm:max-w-none sm:translate-x-0 sm:translate-y-0 lg:hidden">
+        <DialogContent className="left-0 top-0 h-dvh max-h-dvh w-[min(22rem,calc(100vw-1rem))] max-w-none grid-rows-[auto_minmax(0,1fr)] translate-x-0 translate-y-0 rounded-none rounded-r-xl p-4 sm:left-0 sm:top-0 sm:max-w-none sm:translate-x-0 sm:translate-y-0 2xl:hidden">
           <DialogTitle>会话管理</DialogTitle>
           <DialogDescription className="sr-only">
             新建、搜索、切换或删除图片创作会话。

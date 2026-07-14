@@ -20,9 +20,11 @@ import {
 	isPptImageGenerationEnabled,
 } from "./image-options";
 
-const PNG_DATA_URL = `data:image/png;base64,${Buffer.from([
-	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-]).toString("base64")}`;
+const PNG = Buffer.from(
+	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+	"base64",
+);
+const PNG_DATA_URL = `data:image/png;base64,${PNG.toString("base64")}`;
 
 describe("PPT image generation", () => {
 	const temporaryDirectories: string[] = [];
@@ -126,7 +128,7 @@ describe("PPT image generation", () => {
 			expect.objectContaining({ status: "Generated", model: "chosen-image-model" }),
 		]);
 		expect(readFileSync(join(projectDir, "images", "cover.png"))).toEqual(
-			Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+			PNG,
 		);
 	});
 
@@ -237,7 +239,7 @@ describe("PPT image generation", () => {
 		expect(manifestText).toContain("已自动重试 1 次");
 		expect(manifestText).not.toContain("sensitive upstream response");
 		expect(readFileSync(join(projectDir, "images", "detail.png"))).toEqual(
-			Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+			PNG,
 		);
 	});
 

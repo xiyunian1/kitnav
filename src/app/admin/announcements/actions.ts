@@ -2,12 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { isAdmin } from "@/lib/admin-guard";
-import { prisma } from "@/lib/db";
-import { writeAuditLog } from "@/lib/audit";
+import { getActiveAdminId } from "@/lib/admin-guard";
+import { runAuditedAdminTransaction } from "@/lib/audit";
 
 const announcementSchema = z.object({
-  id: z.string().optional(),
+  id: z.string().min(1).max(100).optional(),
   title: z.string().trim().min(1).max(80),
   content: z.string().trim().min(1).max(1000),
   placement: z.string().trim().min(1).max(30).default("APP"),
@@ -15,23 +14,38 @@ const announcementSchema = z.object({
 });
 
 export async function saveAnnouncementAction(input: z.infer<typeof announcementSchema>) {
-  if (!(await isAdmin())) return { error: "无权限" };
+  const adminId = await getActiveAdminId();
+  if (!adminId) return { error: "无权限" };
   const parsed = announcementSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "参数错误" };
   const { id, ...data } = parsed.data;
-  const item = id
-    ? await prisma.siteAnnouncement.update({ where: { id }, data })
-    : await prisma.siteAnnouncement.create({ data });
-  await writeAuditLog({ action: "announcement.save", target: item.id, detail: data });
+  await runAuditedAdminTransaction(
+    adminId,
+    (tx) =>
+      id
+        ? tx.siteAnnouncement.update({ where: { id }, data })
+        : tx.siteAnnouncement.create({ data }),
+    (item) => ({
+      action: "announcement.save",
+      target: item.id,
+      detail: data,
+    }),
+  );
   revalidatePath("/admin/announcements");
   revalidatePath("/", "layout");
   return { ok: true };
 }
 
 export async function deleteAnnouncementAction(id: string) {
-  if (!(await isAdmin())) return { error: "无权限" };
-  await prisma.siteAnnouncement.delete({ where: { id } });
-  await writeAuditLog({ action: "announcement.delete", target: id });
+  const adminId = await getActiveAdminId();
+  if (!adminId) return { error: "无权限" };
+  const parsed = z.string().min(1).max(100).safeParse(id);
+  if (!parsed.success) return { error: "参数错误" };
+  await runAuditedAdminTransaction(
+    adminId,
+    (tx) => tx.siteAnnouncement.delete({ where: { id: parsed.data } }),
+    { action: "announcement.delete", target: parsed.data },
+  );
   revalidatePath("/admin/announcements");
   revalidatePath("/", "layout");
   return { ok: true };

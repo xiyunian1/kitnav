@@ -6,8 +6,18 @@ import type {
   ProviderCredentials,
 } from "./types";
 import { UpstreamImageError } from "./types";
+import { fetchProviderEndpoint } from "./network";
+import {
+  PublicUrlSafetyError,
+  readBoundedJsonResponse,
+  readBoundedResponseText,
+} from "@/lib/safe-fetch";
 
 const DEFAULT_IMAGE_REQUEST_TIMEOUT_MS = 180_000;
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_IMAGE_RESPONSE_BYTES = 128 * 1024 * 1024;
+const MAX_ERROR_RESPONSE_BYTES = 64 * 1024;
+const MAX_BASE64_LENGTH = Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 1024;
 
 function normalizeTimeoutMs(timeoutMs?: number) {
   if (timeoutMs === 0) return 0;
@@ -48,10 +58,17 @@ export class OpenAIImageProvider implements ImageProvider {
     else parentSignal?.addEventListener("abort", abortFromParent, { once: true });
 
     try {
-      const res = await fetch(url, { ...init, signal: controller.signal });
+      const res = await fetchProviderEndpoint(
+        url,
+        { ...init, signal: controller.signal },
+        this.creds.networkPolicy,
+      );
       return { res, elapsedMs: Date.now() - startedAt };
     } catch (e) {
       const elapsedMs = Date.now() - startedAt;
+      if (e instanceof PublicUrlSafetyError) {
+        throw new UpstreamImageError(e.message, undefined, elapsedMs);
+      }
       if (parentSignal?.aborted) {
         throw new UpstreamImageError("用户已停止生成", undefined, elapsedMs);
       }
@@ -76,10 +93,9 @@ export class OpenAIImageProvider implements ImageProvider {
   private async throwUpstreamError(res: Response, elapsedMs: number): Promise<never> {
     let detail = "";
     try {
-      const err = await res.json();
-      detail = err?.error?.message || err?.message || JSON.stringify(err);
-    } catch {
-      detail = await res.text().catch(() => "");
+      detail = await readErrorDetail(res);
+    } catch (error) {
+      detail = error instanceof Error ? error.message : "";
     }
     const suffix = detail.slice(0, 200) || "请求失败";
     const elapsed = `约 ${Math.round(elapsedMs / 1000)} 秒`;
@@ -105,16 +121,29 @@ export class OpenAIImageProvider implements ImageProvider {
   }
 
   // 统一解析成功响应：兼容返回 url 或 b64_json 两种形式。
-  private async parseImageResponse(res: Response, elapsedMs: number): Promise<GenerationResult> {
-    const data = await res.json();
-    const items: unknown[] = data?.data ?? [];
-    if (!Array.isArray(items) || items.length === 0) {
+  private async parseImageResponse(
+    res: Response,
+    elapsedMs: number,
+    expectedCount: number,
+  ): Promise<GenerationResult> {
+    const data = await readBoundedJsonResponse<{ data?: unknown }>(
+      res,
+      MAX_IMAGE_RESPONSE_BYTES,
+      "上游图片响应过大",
+    );
+    const items = Array.isArray(data?.data) ? data.data : [];
+    if (items.length === 0) {
       throw new Error("上游未返回图片");
     }
-    const urls = items.map((item) => {
-      const it = item as { url?: string; b64_json?: string };
-      if (it.url) return it.url;
-      if (it.b64_json) return `data:image/png;base64,${it.b64_json}`;
+    const urls = items.slice(0, expectedCount).map((item) => {
+      const it = item as { url?: unknown; b64_json?: unknown };
+      if (typeof it.url === "string") return normalizeImageResultUrl(it.url);
+      if (typeof it.b64_json === "string") {
+        if (it.b64_json.length > MAX_BASE64_LENGTH) {
+          throw new Error("上游返回图片超过 8MB");
+        }
+        return `data:image/png;base64,${it.b64_json}`;
+      }
       throw new Error("上游返回格式无法解析");
     });
     return { urls, elapsedMs };
@@ -158,7 +187,11 @@ export class OpenAIImageProvider implements ImageProvider {
     if (!res.ok) {
       return this.throwUpstreamError(res, elapsedMs);
     }
-    return this.parseImageResponse(res, elapsedMs);
+    return this.parseImageResponse(
+      res,
+      elapsedMs,
+      Math.min(Math.max(params.count ?? 1, 1), 10),
+    );
   }
 
   async edit(params: ImageEditParams): Promise<GenerationResult> {
@@ -201,10 +234,9 @@ export class OpenAIImageProvider implements ImageProvider {
       if (res.status >= 400 && res.status < 500) {
         let detail = "";
         try {
-          const err = await res.json();
-          detail = err?.error?.message || err?.message || "";
-        } catch {
-          detail = "";
+          detail = await readErrorDetail(res);
+        } catch (error) {
+          detail = error instanceof Error ? error.message : "";
         }
         throw new UpstreamImageError(
           `图生图失败：当前模型「${model}」或当前上游通道可能不支持图片编辑${
@@ -215,6 +247,50 @@ export class OpenAIImageProvider implements ImageProvider {
       }
       return this.throwUpstreamError(res, elapsedMs);
     }
-    return this.parseImageResponse(res, elapsedMs);
+    return this.parseImageResponse(
+      res,
+      elapsedMs,
+      Math.min(Math.max(params.count ?? 1, 1), 10),
+    );
+  }
+}
+
+function normalizeImageResultUrl(rawUrl: string) {
+  if (/^data:image\//i.test(rawUrl)) {
+    if (rawUrl.length > MAX_BASE64_LENGTH + 64) {
+      throw new Error("上游返回图片超过 8MB");
+    }
+    return rawUrl;
+  }
+  if (rawUrl.length > 4096) throw new Error("上游返回图片 URL 过长");
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error("上游返回了无效的图片 URL");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("上游返回了不支持的图片 URL");
+  }
+  return rawUrl;
+}
+
+async function readErrorDetail(res: Response) {
+  const text = await readBoundedResponseText(
+    res,
+    MAX_ERROR_RESPONSE_BYTES,
+    "上游错误响应过大",
+  );
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (!parsed || typeof parsed !== "object") return text;
+    const record = parsed as Record<string, unknown>;
+    const nested =
+      record.error && typeof record.error === "object"
+        ? (record.error as Record<string, unknown>)
+        : null;
+    return String(nested?.message ?? record.message ?? text);
+  } catch {
+    return text;
   }
 }

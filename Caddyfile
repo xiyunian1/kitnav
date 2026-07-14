@@ -1,3 +1,47 @@
 ai.kitnav.com {
-  reverse_proxy app:3001
+	@credentialLogin path /api/auth/callback/credentials
+	request_body @credentialLogin {
+		max_size 16KB
+	}
+	@imageMultipart path /api/image/turns/edit /api/image/turns/edit/stream /api/materials/upload /api/materials/prompts
+	request_body @imageMultipart {
+		max_size 9MB
+	}
+	@pptUpload path /api/ppt/upload
+	request_body @pptUpload {
+		max_size 22MB
+	}
+	request_body {
+		max_size 35MB
+	}
+	encode zstd gzip
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		Cross-Origin-Opener-Policy "same-origin-allow-popups"
+		Content-Security-Policy "base-uri 'self'; frame-ancestors 'none'; object-src 'none'"
+	}
+	handle_path /uploads/materials/* {
+		rewrite * /api/files/materials{path}
+		reverse_proxy app:3001
+	}
+	handle_path /uploads/feedback/* {
+		rewrite * /api/files/feedback{path}
+		reverse_proxy app:3001
+	}
+	handle /projects/* {
+		header Cache-Control "no-store"
+		respond 404
+	}
+	handle /uploads/* {
+		header Cache-Control "no-store"
+		respond 404
+	}
+	handle {
+		reverse_proxy app:3001
+	}
 }

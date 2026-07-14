@@ -1,0 +1,167 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+        env:
+          POSTGRES_DB: ai_aggregator_test
+          POSTGRES_USER: ai_aggregator
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ai_aggregator -d ai_aggregator_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://ai_aggregator:test_password@127.0.0.1:5432/ai_aggregator_test?schema=public
+      ENCRYPTION_KEY: 1111111111111111111111111111111111111111111111111111111111111111
+      AUTH_SECRET: ci-auth-secret-with-sufficient-length
+      NEXT_PUBLIC_SITE_URL: http://localhost:3001
+      PPT_PYTHON_CMD: python3
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11.15"
+      - run: node scripts/check-secret-patterns.mjs
+      - run: node scripts/check-supply-chain-pins.mjs
+      - run: npm ci
+      - run: npm run ppt-requirements:check
+      - run: 'python -m pip install --only-binary=:all: --require-hashes -r scripts/ppt-requirements.lock'
+      - run: npx prisma migrate deploy
+      - run: DATABASE_READINESS_INTEGRATION_URL="$DATABASE_URL" npm run db:readiness:check-integration
+      - run: QUEUE_CAPACITY_INTEGRATION_DATABASE_URL="$DATABASE_URL" npm run queue-capacity:check-integration
+      - run: npm run db:indexes:check
+      - name: Database index migration integration
+        run: |
+          docker exec "${{ job.services.postgres.id }}" createdb -U ai_aggregator ci_index_migration_test
+          DATABASE_INDEX_INTEGRATION_URL='postgresql://ai_aggregator:test_password@127.0.0.1:5432/ci_index_migration_test?schema=public' npm run db:indexes:check-integration
+      - run: npm test
+      - run: npm run lint
+      - run: npx tsc --noEmit
+      - run: npm run build
+      - run: npm run ppt-worker:build
+      - run: npm run image-worker:build
+      - run: npm run worker-bundles:check
+      - run: npm run ppt-agent:check-tools
+      - run: npm run ppt-quality:check
+      - run: npm run compose:isolation:check
+      - run: docker run --rm -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648 caddy validate --config /etc/caddy/Caddyfile
+      - name: Image worker integration
+        run: |
+          docker exec "${{ job.services.postgres.id }}" createdb -U ai_aggregator ci_image_worker_test
+          DATABASE_URL='postgresql://ai_aggregator:test_password@127.0.0.1:5432/ci_image_worker_test?schema=public' npx prisma migrate deploy
+          IMAGE_WORKER_INTEGRATION_DATABASE_URL='postgresql://ai_aggregator:test_password@127.0.0.1:5432/ci_image_worker_test?schema=public' npm run image-worker:check-integration
+      - name: Image conversation pagination integration
+        run: |
+          docker exec "${{ job.services.postgres.id }}" createdb -U ai_aggregator ci_image_conversation_test
+          DATABASE_URL='postgresql://ai_aggregator:test_password@127.0.0.1:5432/ci_image_conversation_test?schema=public' npx prisma migrate deploy
+          IMAGE_CONVERSATION_INTEGRATION_DATABASE_URL='postgresql://ai_aggregator:test_password@127.0.0.1:5432/ci_image_conversation_test?schema=public' npm run image-conversation:check-integration
+      - name: PPT queue and refund integration
+        run: |
+          docker exec "${{ job.services.postgres.id }}" createdb -U ai_aggregator ci_ppt_queue_test
+          DATABASE_URL='postgresql://ai_aggregator:test_password@127.0.0.1:5432/ci_ppt_queue_test?schema=public' npx prisma migrate deploy
+          PPT_QUEUE_INTEGRATION_DATABASE_URL='postgresql://ai_aggregator:test_password@127.0.0.1:5432/ci_ppt_queue_test?schema=public' npm run ppt-queue:check-integration
+      - name: Registration concurrency integration
+        run: |
+          docker exec "${{ job.services.postgres.id }}" createdb -U ai_aggregator ci_registration_test
+          DATABASE_URL='postgresql://ai_aggregator:test_password@127.0.0.1:5432/ci_registration_test?schema=public' npx prisma migrate deploy
+          REGISTRATION_INTEGRATION_DATABASE_URL='postgresql://ai_aggregator:test_password@127.0.0.1:5432/ci_registration_test?schema=public' npm run registration:check-integration
+      - name: Storage retention integration
+        run: |
+          docker exec "${{ job.services.postgres.id }}" createdb -U ai_aggregator ci_storage_retention_test
+          DATABASE_URL='postgresql://ai_aggregator:test_password@127.0.0.1:5432/ci_storage_retention_test?schema=public' npx prisma migrate deploy
+          STORAGE_RETENTION_INTEGRATION_DATABASE_URL='postgresql://ai_aggregator:test_password@127.0.0.1:5432/ci_storage_retention_test?schema=public' npm run storage:check-integration
+      - name: Upload storage concurrency integration
+        run: |
+          docker exec "${{ job.services.postgres.id }}" createdb -U ai_aggregator ci_upload_storage_test
+          DATABASE_URL='postgresql://ai_aggregator:test_password@127.0.0.1:5432/ci_upload_storage_test?schema=public' npx prisma migrate deploy
+          UPLOAD_STORAGE_INTEGRATION_DATABASE_URL='postgresql://ai_aggregator:test_password@127.0.0.1:5432/ci_upload_storage_test?schema=public' npm run storage-quota:check-integration
+      - run: npm audit --omit=dev --audit-level=high
+
+  backup-restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - run: npm run backup:check-integration
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - name: Build role-specific production images
+        run: |
+          docker build --target web-runner --build-arg NEXT_PUBLIC_SITE_URL=http://localhost:3001 -t ai-aggregator-web:ci .
+          docker build --target image-worker-runner --build-arg NEXT_PUBLIC_SITE_URL=http://localhost:3001 -t ai-aggregator-image-worker:ci .
+          docker build --target ppt-worker-runner --build-arg NEXT_PUBLIC_SITE_URL=http://localhost:3001 -t ai-aggregator-ppt-worker:ci .
+      - name: Verify image role boundaries
+        run: |
+          assert_image_size() {
+            image="$1"
+            max_bytes="$2"
+            size="$(docker image inspect "$image" --format '{{.Size}}')"
+            if [ "$size" -gt "$max_bytes" ]; then
+              echo "$image is $size bytes; limit is $max_bytes bytes" >&2
+              exit 1
+            fi
+          }
+          assert_image_size ai-aggregator-web:ci $((350 * 1024 * 1024))
+          assert_image_size ai-aggregator-image-worker:ci $((300 * 1024 * 1024))
+          assert_image_size ai-aggregator-ppt-worker:ci $((800 * 1024 * 1024))
+          docker run --rm --entrypoint sh ai-aggregator-web:ci -c 'test -f server.js && test -f scripts/database-index-spec.mjs && test -f scripts/prepare-production-indexes.mjs && test ! -e /opt/ppt-venv && ! command -v pi && test ! -f scripts/image-worker.cjs && test ! -f scripts/ppt-worker.cjs'
+          docker run --rm --entrypoint sh ai-aggregator-image-worker:ci -c 'test -f scripts/image-worker.cjs && test ! -f server.js && test ! -e /opt/ppt-venv && ! command -v pi && node -e "require(\"@prisma/client\"); require(\"sharp\")"'
+          docker run --rm --entrypoint sh ai-aggregator-ppt-worker:ci -c 'test -f scripts/ppt-worker.cjs && test -f scripts/ppt-master/SKILL.md && test ! -f server.js && test ! -f scripts/image-worker.cjs && command -v pi && command -v unrar && python3 -c "import fitz, PIL, pptx"'
+      - uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
+        with:
+          version: v0.70.0
+          cache: true
+      - name: Scan production images
+        run: |
+          for image in \
+            ai-aggregator-web:ci \
+            ai-aggregator-image-worker:ci \
+            ai-aggregator-ppt-worker:ci
+          do
+            trivy image \
+              --exit-code 1 \
+              --ignore-unfixed \
+              --pkg-types os,library \
+              --severity HIGH,CRITICAL \
+              --timeout 10m \
+              "$image"
+          done
+      - name: Smoke test production image
+        env:
+          CONTAINER_WEB_IMAGE: ai-aggregator-web:ci
+          CONTAINER_IMAGE_WORKER_IMAGE: ai-aggregator-image-worker:ci
+          CONTAINER_PPT_WORKER_IMAGE: ai-aggregator-ppt-worker:ci
+        run: npm run prod:check-images

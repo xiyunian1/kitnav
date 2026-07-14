@@ -127,6 +127,7 @@ export async function resolveImageProvider(
       baseUrl: userCfg.baseUrl,
       apiKey,
       model: selected.model,
+      networkPolicy: "public",
     };
     return {
       provider: new OpenAIImageProvider(creds),
@@ -157,6 +158,7 @@ export async function resolveImageProvider(
       baseUrl: platformCfg.baseUrl,
       apiKey,
       model: selected.model,
+      networkPolicy: "trusted",
     };
     return {
       provider: new OpenAIImageProvider(creds),
@@ -197,6 +199,7 @@ export async function resolveTextProvider(
         baseUrl: userCfg.baseUrl,
         apiKey,
         model: selected.model,
+        networkPolicy: "public",
       }),
       useOwnKey: true,
       model: selected.model,
@@ -229,6 +232,7 @@ export async function resolveTextProvider(
         baseUrl: platformCfg.baseUrl,
         apiKey,
         model: selected.model,
+        networkPolicy: "trusted",
       }),
       useOwnKey: false,
       model: selected.model,

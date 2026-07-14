@@ -15,6 +15,7 @@ export const authConfig = {
         token.id = user.id as string;
         token.role = (user.role ?? "USER") as "USER" | "ADMIN";
         token.credits = user.credits ?? 0;
+        token.sessionVersion = user.sessionVersion ?? 0;
       }
       return token;
     },
@@ -23,6 +24,8 @@ export const authConfig = {
         session.user.id = token.id as string;
         session.user.role = token.role as "USER" | "ADMIN";
         session.user.credits = token.credits as number;
+        session.user.sessionVersion =
+          typeof token.sessionVersion === "number" ? token.sessionVersion : 0;
       }
       return session;
     },

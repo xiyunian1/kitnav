@@ -1,3 +1,14 @@
+import {
+  PublicUrlSafetyError,
+  readBoundedJsonResponse,
+  readBoundedResponseText,
+} from "@/lib/safe-fetch";
+import { fetchProviderEndpoint } from "./network";
+import type { ProviderNetworkPolicy } from "./types";
+
+const MAX_MODEL_LIST_BYTES = 2 * 1024 * 1024;
+const MAX_ERROR_BYTES = 64 * 1024;
+
 export interface ListModelsResult {
   ok: boolean;
   models?: string[];
@@ -7,6 +18,7 @@ export interface ListModelsResult {
 export async function listModels(creds: {
   baseUrl: string;
   apiKey: string;
+  networkPolicy?: ProviderNetworkPolicy;
 }): Promise<ListModelsResult> {
   if (!creds.baseUrl || !creds.apiKey) {
     return { ok: false, error: "请填写 Base URL 和 API Key" };
@@ -16,12 +28,19 @@ export async function listModels(creds: {
 
   let res: Response;
   try {
-    res = await fetch(url, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${creds.apiKey}` },
-      signal: AbortSignal.timeout(30_000),
-    });
+    res = await fetchProviderEndpoint(
+      url,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${creds.apiKey}` },
+        signal: AbortSignal.timeout(30_000),
+      },
+      creds.networkPolicy,
+    );
   } catch (e) {
+    if (e instanceof PublicUrlSafetyError) {
+      return { ok: false, error: e.message };
+    }
     if (e instanceof Error && e.name === "TimeoutError") {
       return { ok: false, error: "上游响应超时" };
     }
@@ -29,24 +48,36 @@ export async function listModels(creds: {
   }
 
   if (!res.ok) {
-    let detail = "";
+    let detail: unknown = "";
     try {
-      const err = await res.json();
-      detail = err?.error?.message || err?.message || JSON.stringify(err);
-    } catch {
-      detail = await res.text().catch(() => "");
+      const text = await readBoundedResponseText(
+        res,
+        MAX_ERROR_BYTES,
+        "上游错误响应过大",
+      );
+      detail = errorDetail(text);
+    } catch (error) {
+      detail = error instanceof Error ? error.message : "";
     }
     return {
       ok: false,
-      error: `上游返回 ${res.status}：${detail.slice(0, 200) || "请求失败"}`,
+      error: `上游返回 ${res.status}：${String(detail).slice(0, 200) || "请求失败"}`,
     };
   }
 
   let data: unknown;
   try {
-    data = await res.json();
-  } catch {
-    return { ok: false, error: "上游返回格式无法解析" };
+    data = await readBoundedJsonResponse(
+      res,
+      MAX_MODEL_LIST_BYTES,
+      "上游模型列表响应过大",
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error ? error.message : "上游返回格式无法解析",
+    };
   }
 
   const list = Array.isArray(data) ? data : (data as { data?: unknown })?.data;
@@ -67,4 +98,19 @@ export async function listModels(creds: {
   }
 
   return { ok: true, models: unique };
+}
+
+function errorDetail(text: string) {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (!parsed || typeof parsed !== "object") return text;
+    const record = parsed as Record<string, unknown>;
+    const nested =
+      record.error && typeof record.error === "object"
+        ? (record.error as Record<string, unknown>)
+        : null;
+    return nested?.message ?? record.message ?? text;
+  } catch {
+    return text;
+  }
 }

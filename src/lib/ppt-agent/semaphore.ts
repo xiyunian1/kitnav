@@ -44,9 +44,13 @@ export class Semaphore {
 // 本信号量仅限「单副本内」并发上限；全局总并发 = 本值 × 副本数。
 // 如需「硬性全局并发上限」（跨副本），可后续用 Postgres 计数行 + FOR UPDATE 实现。
 const DEFAULT_PPT_CONCURRENCY = 3;
-export const pptSemaphore = new Semaphore(
-	Math.max(
-		1,
-		Number(process.env.PPT_AGENT_MAX_CONCURRENT || DEFAULT_PPT_CONCURRENCY),
-	),
-);
+
+export function getPptConcurrencyLimit(
+	environment: Readonly<Record<string, string | undefined>> = process.env,
+) {
+	const configured = Number(environment.PPT_AGENT_MAX_CONCURRENT);
+	if (!Number.isFinite(configured) || configured < 1) return DEFAULT_PPT_CONCURRENCY;
+	return Math.min(10, Math.floor(configured));
+}
+
+export const pptSemaphore = new Semaphore(getPptConcurrencyLimit());

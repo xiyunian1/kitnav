@@ -5,6 +5,14 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import {
+  AUTH_INPUT_LIMITS,
+  fitsBcryptPasswordLimit,
+} from "@/lib/auth-inputs";
+import {
+  enforceUserRequestLimit,
+  REQUEST_LIMITS,
+} from "@/lib/request-limits";
 
 const profileSchema = z.object({
   name: z.string().trim().max(30).optional(),
@@ -29,8 +37,18 @@ export async function updateProfileAction(formData: FormData) {
 }
 
 const passwordSchema = z.object({
-  current: z.string().min(1),
-  next: z.string().min(6, "新密码至少 6 位"),
+  current: z
+    .string()
+    .min(1)
+    .max(AUTH_INPUT_LIMITS.loginPasswordCharacters, "当前密码过长"),
+  next: z
+    .string()
+    .min(6, "新密码至少 6 位")
+    .max(AUTH_INPUT_LIMITS.newPasswordCharacters, "新密码过长")
+    .refine(
+      fitsBcryptPasswordLimit,
+      `新密码不能超过 ${AUTH_INPUT_LIMITS.bcryptPasswordBytes} 个 UTF-8 字节`,
+    ),
 });
 
 export async function changePasswordAction(formData: FormData) {
@@ -45,6 +63,12 @@ export async function changePasswordAction(formData: FormData) {
     return { error: parsed.error.issues[0]?.message ?? "参数错误" };
   }
 
+  const limited = await enforceUserRequestLimit(
+    session.user.id,
+    REQUEST_LIMITS.passwordChange,
+  );
+  if (limited) return { error: REQUEST_LIMITS.passwordChange.message };
+
   const user = await prisma.user.findUnique({ where: { id: session.user.id } });
   if (!user?.passwordHash) return { error: "账号异常" };
 
@@ -54,7 +78,10 @@ export async function changePasswordAction(formData: FormData) {
   const passwordHash = await bcrypt.hash(parsed.data.next, 10);
   await prisma.user.update({
     where: { id: user.id },
-    data: { passwordHash },
+    data: {
+      passwordHash,
+      sessionVersion: { increment: 1 },
+    },
   });
 
   return { ok: true };

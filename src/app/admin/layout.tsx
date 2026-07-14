@@ -3,6 +3,8 @@ import { recordDailyActivity } from "@/lib/activity";
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
 import { AdminMobileHeader } from "@/components/admin/admin-mobile-nav";
 
+export const dynamic = "force-dynamic";
+
 export default async function AdminLayout({
   children,
 }: {
