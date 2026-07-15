@@ -33,6 +33,10 @@ import type {
 	PptTextVolume,
 	PptTone,
 } from "./content-options";
+import type {
+	PptColorPreference,
+	PptTypographyPreference,
+} from "./design-options";
 import { getPptInternalErrorMessage } from "./status";
 
 export interface GenerationParams {
@@ -62,6 +66,8 @@ export interface GenerationParams {
 	textVolume?: PptTextVolume;
 	audience?: PptAudience;
 	tone?: PptTone;
+	colorPreference?: PptColorPreference;
+	typographyPreference?: PptTypographyPreference;
 	signal?: AbortSignal;
 }
 

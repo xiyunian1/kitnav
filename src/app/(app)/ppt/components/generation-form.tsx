@@ -27,8 +27,10 @@ import {
 	MessageSquareText,
 	Minus,
 	Paperclip,
+	Palette,
 	Plus,
 	Sparkles,
+	Type,
 	Upload,
 	Users,
 	X,
@@ -57,6 +59,12 @@ import {
 	getPptImageUnitCreditCost,
 	PPT_IMAGE_MODEL_NONE,
 } from "@/lib/ppt-agent/image-options";
+import {
+	PPT_COLOR_PREFERENCE_OPTIONS,
+	PPT_TYPOGRAPHY_PREFERENCE_OPTIONS,
+	type PptColorPreference,
+	type PptTypographyPreference,
+} from "@/lib/ppt-agent/design-options";
 
 interface GenerationFormProps {
 	modelOptions: ModuleModelOption[];
@@ -99,6 +107,10 @@ export function GenerationForm({
 	const [textVolume, setTextVolume] = useState<PptTextVolume>("balanced");
 	const [audience, setAudience] = useState<PptAudience>("general");
 	const [tone, setTone] = useState<PptTone>("natural");
+	const [colorPreference, setColorPreference] =
+		useState<PptColorPreference>("auto");
+	const [typographyPreference, setTypographyPreference] =
+		useState<PptTypographyPreference>("auto");
 	const [visualReview, setVisualReview] = useState(false);
 	const [phase, setPhase] = useState("任务正在排队");
 	const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -203,6 +215,10 @@ export function GenerationForm({
 					textVolume,
 					audience,
 					tone,
+					colorPreference: hasUploadedTemplate ? "auto" : colorPreference,
+					typographyPreference: hasUploadedTemplate
+						? "auto"
+						: typographyPreference,
 				}),
 			});
 
@@ -605,7 +621,7 @@ export function GenerationForm({
 						</div>
 					</div>
 
-					<div className="grid gap-2 border-t bg-muted/15 px-3 py-2.5 sm:grid-cols-2 sm:px-4 lg:grid-cols-5">
+					<div className="grid gap-2 border-t bg-muted/15 px-3 py-2.5 sm:grid-cols-2 sm:px-4 lg:grid-cols-4 xl:grid-cols-7">
 						<Select
 							value={
 								hasUploadedTemplate
@@ -641,6 +657,64 @@ export function GenerationForm({
 												{option.sourceLabel}
 											</span>
 										</span>
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+
+						<Select
+							value={
+								hasUploadedTemplate ? "uploaded-template" : colorPreference
+							}
+							onValueChange={(value) =>
+								setColorPreference(value as PptColorPreference)
+							}
+							disabled={hasUploadedTemplate}
+						>
+							<SelectTrigger className="h-9 w-full min-w-0 bg-background">
+								<Palette className="size-3.5 shrink-0 text-muted-foreground" />
+								<span className="shrink-0 text-xs text-muted-foreground">配色</span>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{hasUploadedTemplate && (
+									<SelectItem value="uploaded-template">
+										继承模板配色
+									</SelectItem>
+								)}
+								{PPT_COLOR_PREFERENCE_OPTIONS.map((option) => (
+									<SelectItem key={option.id} value={option.id}>
+										{option.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+
+						<Select
+							value={
+								hasUploadedTemplate
+									? "uploaded-template"
+									: typographyPreference
+							}
+							onValueChange={(value) =>
+								setTypographyPreference(value as PptTypographyPreference)
+							}
+							disabled={hasUploadedTemplate}
+						>
+							<SelectTrigger className="h-9 w-full min-w-0 bg-background">
+								<Type className="size-3.5 shrink-0 text-muted-foreground" />
+								<span className="shrink-0 text-xs text-muted-foreground">字体</span>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{hasUploadedTemplate && (
+									<SelectItem value="uploaded-template">
+										继承模板字体
+									</SelectItem>
+								)}
+								{PPT_TYPOGRAPHY_PREFERENCE_OPTIONS.map((option) => (
+									<SelectItem key={option.id} value={option.id}>
+										{option.label}
 									</SelectItem>
 								))}
 							</SelectContent>

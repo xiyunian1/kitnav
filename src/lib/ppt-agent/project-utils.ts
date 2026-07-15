@@ -4,6 +4,7 @@ import { PPT_PROJECTS_ROOT } from "./paths";
 import { convertDocumentToMarkdown } from "./source-converters";
 
 export const MAX_PPT_SOURCE_MARKDOWN_CHARS = 80_000;
+export const THIN_PPT_SOURCE_MEANINGFUL_CHARS = 500;
 
 export interface PptSourceParams {
 	sourceType: "topic" | "document" | "markdown";
@@ -53,6 +54,11 @@ export function assertPptSourceMarkdownLength(source: string) {
 		throw new Error("资料总文字量超过 8 万字符，请减少文件或精简内容后重试。");
 	}
 	return source;
+}
+
+export function isThinPptSource(source: string) {
+	const meaningful = source.replace(/[\s#>*_`~\-|\[\](){}:：,，.。!?！？]/g, "");
+	return meaningful.length < THIN_PPT_SOURCE_MEANINGFUL_CHARS;
 }
 
 async function resolveCombinedSourceMarkdown(

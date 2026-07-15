@@ -11,6 +11,8 @@ describe("rebuildGenerationParams", () => {
 					sourceType: "markdown",
 					prompt: "Create a concise deck",
 					sourceFileUrls: ["/private/source.docx"],
+					colorPreference: "monochrome",
+					typographyPreference: "editorial",
 				}),
 				"lease-1",
 			),
@@ -21,6 +23,8 @@ describe("rebuildGenerationParams", () => {
 			sourceType: "markdown",
 			prompt: "Create a concise deck",
 			sourceFileUrls: ["/private/source.docx"],
+			colorPreference: "monochrome",
+			typographyPreference: "editorial",
 		});
 	});
 

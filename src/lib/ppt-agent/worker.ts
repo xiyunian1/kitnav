@@ -441,5 +441,7 @@ export function rebuildGenerationParams(
 		textVolume: stored.textVolume,
 		audience: stored.audience,
 		tone: stored.tone,
+		colorPreference: stored.colorPreference,
+		typographyPreference: stored.typographyPreference,
 	};
 }

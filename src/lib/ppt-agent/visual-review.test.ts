@@ -11,6 +11,7 @@ import sharp from "sharp";
 import {
 	assertPptVisualReviewImagesRead,
 	batchPptVisualReviewSlides,
+	buildPptVisualReviewPrompt,
 	renderPptSlidesForVisualReview,
 } from "./visual-review";
 
@@ -95,5 +96,27 @@ describe("PPT hosted visual review renderer", () => {
 			}),
 		].join("\n");
 		expect(() => assertPptVisualReviewImagesRead(output, slides)).not.toThrow();
+	});
+
+	it("requires cross-page aesthetic checks without changing slide facts", () => {
+		const prompt = buildPptVisualReviewPrompt(
+			[
+				{
+					svgFile: "01_slide.svg",
+					pngFile: "01_slide.png",
+					svgPath: "/tmp/01_slide.svg",
+					pngPath: "/tmp/01_slide.png",
+				},
+			],
+			0,
+			2,
+		);
+
+		expect(prompt).toContain("只有用户主动开启");
+		expect(prompt).toContain("重复构图");
+		expect(prompt).toContain("第一视觉焦点");
+		expect(prompt).toContain("必须保留原文案、事实、数据、图片、配色");
+		expect(prompt).toContain("不得改变列数、图表类型或页面分区");
+		expect(prompt).toContain("标记 needs_human");
 	});
 });

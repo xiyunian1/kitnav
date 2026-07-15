@@ -46,6 +46,10 @@ import {
 	PPT_TEXT_VOLUME_VALUES,
 	PPT_TONE_VALUES,
 } from "@/lib/ppt-agent/content-options";
+import {
+	PPT_COLOR_PREFERENCE_VALUES,
+	PPT_TYPOGRAPHY_PREFERENCE_VALUES,
+} from "@/lib/ppt-agent/design-options";
 
 export const runtime = "nodejs";
 
@@ -103,6 +107,10 @@ const requestSchema = z
 		textVolume: z.enum(PPT_TEXT_VOLUME_VALUES).default("balanced"),
 		audience: z.enum(PPT_AUDIENCE_VALUES).default("general"),
 		tone: z.enum(PPT_TONE_VALUES).default("natural"),
+		colorPreference: z.enum(PPT_COLOR_PREFERENCE_VALUES).default("auto"),
+		typographyPreference: z
+			.enum(PPT_TYPOGRAPHY_PREFERENCE_VALUES)
+			.default("auto"),
 	})
 	.strict()
 	.superRefine((data, ctx) => {
@@ -384,6 +392,8 @@ export async function POST(req: NextRequest) {
 		textVolume: parsed.textVolume,
 		audience: parsed.audience,
 		tone: parsed.tone,
+		colorPreference: parsed.colorPreference,
+		typographyPreference: parsed.typographyPreference,
 	});
 
 	let projectId = "";
