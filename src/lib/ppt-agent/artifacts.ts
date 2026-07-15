@@ -2,6 +2,10 @@ import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "
 import { join } from "path";
 
 const HEX_RE = /^#[0-9A-Fa-f]{3,8}$/;
+const NON_EXECUTION_TYPOGRAPHY_KEYS = new Set([
+  "body_size_unit",
+  "formula_policy",
+]);
 
 export function collectPptArtifactPaths(projectDir: string, pptxPath?: string) {
   const designSpecPath = join(projectDir, "design_spec.md");
@@ -21,6 +25,33 @@ export function normalizePptSvgArtifacts(projectDir: string) {
   const addedColors = syncSpecLockColors(projectDir);
   const addedFonts = syncSpecLockFontFamilies(projectDir);
   return { namedGroups, addedColors, addedFonts };
+}
+
+export function normalizePptSpecLock(projectDir: string) {
+  const specLockPath = join(projectDir, "spec_lock.md");
+  if (!existsSync(specLockPath)) return 0;
+
+  const original = readFileSync(specLockPath, "utf-8");
+  const lines = original.split(/\r?\n/);
+  const section = findSectionBounds(lines, "typography");
+  if (!section) return 0;
+
+  let removed = 0;
+  const updatedLines = lines.filter((line, index) => {
+    if (index <= section.start || index >= section.end) return true;
+    const key = line.match(/^-\s+([A-Za-z0-9_]+)\s*:/)?.[1];
+    if (!key || !NON_EXECUTION_TYPOGRAPHY_KEYS.has(key)) return true;
+    removed += 1;
+    return false;
+  });
+  if (removed > 0) {
+    writeFileSync(
+      specLockPath,
+      preserveTrailingNewline(original, updatedLines.join("\n")),
+      "utf-8",
+    );
+  }
+  return removed;
 }
 
 function ensureTopLevelGroupIds(projectDir: string) {

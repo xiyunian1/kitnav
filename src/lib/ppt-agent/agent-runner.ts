@@ -73,6 +73,7 @@ import {
 } from "./visual-review";
 import { terminateProcessTree } from "./bounded-process";
 import { getPptAgentTimeoutMs } from "./timings";
+import { normalizePptSpecLock } from "./artifacts";
 
 export interface AgentRunResult {
 	pptxPath: string;
@@ -273,6 +274,15 @@ async function runConfiguredPptMasterAgent(
 		if (requiresImageManifest && !hasPptImageManifest(options.projectDir)) {
 			throw new Error(
 				"PPT Master 未在规划阶段生成 images/image_prompts.json。",
+			);
+		}
+		const removedSpecLockMetadata = normalizePptSpecLock(options.projectDir);
+		if (removedSpecLockMetadata > 0) {
+			await emitProjectLog(
+				params.projectId,
+				options.emit,
+				"已规范化 spec_lock.md 字体段，移除仅属于规划阶段的元数据",
+				options.workerLease,
 			);
 		}
 		clearPrematureSlideOutputs(options.projectDir);
@@ -501,6 +511,7 @@ function buildSvgGenerationPrompt(
 		"- 所有可见幻灯片文字必须使用简体中文。只有 AI、API、LLM、SaaS、PPTX 等无法自然翻译的产品名或技术缩写可以保留英文。",
 		"- 本会话不得生成任何 SVG、notes 或 PPTX；只允许完成内容简报、design_spec.md、spec_lock.md 和所需图片清单。",
 		"- 在 design_spec.md 的逐页大纲中为每页指定明确的叙事职责、page_rhythm 和主构图家族，避免把所有页面规划成卡片阵列。",
+		"- `spec_lock.md` 的 typography 段只允许字体族和不带单位的数字 px 字号；formula_policy 与 body_size_unit 只属于规划说明，不得写入该段。",
 		"- 不要修改项目目录以外的任何文件。只允许写入当前 PPT 项目目录。",
 		"- `.ppt-master-skill/` 是服务器提供的只读工具副本；不得修改其中任何文件。如果工具脚本失败，记录原因并终止，不要尝试绕过。",
 		"- Hosted-mode override: 本站前端会直接预览 `svg_output/`，不要启动长期运行的 `svg_editor/server.py` live preview 服务；这一步视为由站内 SSE 预览替代。",
@@ -613,6 +624,7 @@ function buildFreshExecutionPrompt(
 			? "status=Needs-Manual 的图片视为不可用：移除页面对它们的依赖，不得保留缺图占位框。"
 			: "不要创建图片生成任务，不要调用 image_gen.py 或 image_search.py。",
 		"不要读取或请求任何 API Key。除移除不可用图片依赖外，不要改写 design_spec.md、spec_lock.md 或图片清单。",
+		"spec_lock.md 的 typography 段必须只包含字体族和不带单位的数字 px 字号，不得加入 formula_policy、body_size_unit 或其他规划元数据。",
 		"进入 Executor 前读取 .ppt-master-skill/references/executor-base.md、.ppt-master-skill/references/shared-standards.md、spec_lock.md 锁定的 .ppt-master-skill/references/modes/ 与 .ppt-master-skill/references/visual-styles/ 文件、.ppt-master-skill/references/image-layout-spec.md 和 .ppt-master-skill/references/svg-image-embedding.md。",
 		`从第 1 页开始逐页生成 svg_output/*.svg，目标 ${options.slideCount} 页；每页前重新读取 spec_lock.md。`,
 		"不得写脚本批量生成 SVG，不得生成占位页，不得跳过页面。",
@@ -1818,6 +1830,7 @@ async function verifyAgentOutput(
 		options.workerLease,
 	);
 
+	normalizePptSpecLock(options.projectDir);
 	const quality = await checkSvgQuality(options.projectDir, skillDir);
 	if (quality.errors.length > 0) {
 		throw new Error(`SVG 质量检查失败：${quality.errors.join("; ")}`);
