@@ -24,7 +24,7 @@ export function PptWorkbench({
     .join("|");
 
   return (
-    <div className="space-y-14">
+    <div className="space-y-10">
       <GenerationForm
         modelOptions={modelOptions}
         imageModelOptions={imageModelOptions}

@@ -82,8 +82,8 @@ export default async function PptPage() {
   const displayName = session?.user?.name?.trim();
 
   return (
-    <div className="mx-auto w-full max-w-[1480px] space-y-10 pb-10">
-      <div className="pt-3 text-center sm:pt-7">
+    <div className="mx-auto w-full max-w-[1120px] space-y-8 pb-10">
+      <div className="pt-2 text-center sm:pt-4">
         <h1 className="text-2xl font-semibold tracking-normal sm:text-3xl">
           {displayName ? `Hi ${displayName}，` : "你好，"}开始创建演示文稿
         </h1>

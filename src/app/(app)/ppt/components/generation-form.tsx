@@ -32,7 +32,6 @@ import {
 	Plus,
 	Sparkles,
 	Type,
-	Upload,
 	Users,
 	X,
 } from "lucide-react";
@@ -347,14 +346,14 @@ export function GenerationForm({
 
 	return (
 		<form
-			className="mx-auto w-full max-w-[980px]"
+			className="w-full"
 			onSubmit={(event) => {
 				event.preventDefault();
 				if (!loading && !uploading) void handleSubmit();
 			}}
 		>
-			<div className="ppt-workspace-grid relative isolate px-0 py-3 sm:px-8 sm:py-7">
-				<section className="relative z-10 overflow-hidden rounded-lg border border-border/80 bg-card shadow-[0_18px_60px_rgba(24,24,27,0.10)]">
+			<div>
+				<section className="overflow-hidden rounded-lg border border-border/80 bg-card shadow-sm">
 					<div className="flex min-h-12 flex-wrap items-center justify-between gap-2 border-b bg-muted/20 px-3 py-2 sm:px-4">
 						<div className="flex flex-wrap items-center gap-1">
 							<div className="flex h-8 items-center gap-2 rounded-md bg-background px-3 text-sm font-medium shadow-sm ring-1 ring-border/70">
@@ -501,8 +500,8 @@ export function GenerationForm({
 						</div>
 					)}
 
-					<div className="flex flex-wrap items-center gap-2 border-t bg-muted/15 px-3 py-2.5 sm:px-4">
-						<div className="flex h-9 items-center rounded-md border bg-background px-1">
+					<div className="grid grid-cols-1 gap-2 border-t bg-muted/15 px-3 py-2.5 sm:grid-cols-2 sm:px-4 xl:grid-cols-[auto_104px_minmax(220px,1fr)_160px_auto_auto]">
+						<div className="flex h-9 min-w-0 items-center rounded-md border bg-background px-1">
 							<span className="px-2 text-xs text-muted-foreground">页数</span>
 							<Button
 								type="button"
@@ -530,7 +529,7 @@ export function GenerationForm({
 						</div>
 
 						<Select value={aspectRatio} onValueChange={setAspectRatio}>
-							<SelectTrigger className="h-9 w-[104px] bg-background">
+							<SelectTrigger className="h-9 w-full min-w-0 bg-background">
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
@@ -550,7 +549,7 @@ export function GenerationForm({
 							}}
 							disabled={modelOptions.length === 0}
 						>
-							<SelectTrigger className="h-9 w-[220px] max-w-full bg-background">
+							<SelectTrigger className="h-9 w-full min-w-0 bg-background">
 								<Bot className="size-3.5 text-muted-foreground" />
 								<SelectValue placeholder="暂无可用模型" />
 							</SelectTrigger>
@@ -598,7 +597,7 @@ export function GenerationForm({
 								setStyle(value);
 							}}
 						>
-							<SelectTrigger className="h-9 w-[148px] bg-background">
+							<SelectTrigger className="h-9 w-full min-w-0 bg-background">
 								<Sparkles className="size-3.5 text-muted-foreground" />
 								<SelectValue />
 							</SelectTrigger>
@@ -615,12 +614,12 @@ export function GenerationForm({
 							</SelectContent>
 						</Select>
 
-						<div className="flex h-9 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground">
+						<div className="flex h-9 min-w-0 items-center gap-1.5 rounded-md border bg-background px-3 text-sm text-muted-foreground">
 							<Languages className="size-4" />
 							简体中文
 						</div>
 
-						<div className="ml-auto flex h-9 items-center px-2 text-sm">
+						<div className="flex h-9 min-w-0 items-center justify-end rounded-md border bg-background px-3 text-sm">
 							<span className="text-muted-foreground">预估</span>
 							<span className="ml-1.5 font-medium">
 								{!selectedModel
@@ -630,182 +629,259 @@ export function GenerationForm({
 						</div>
 					</div>
 
-						<div className="grid gap-2 border-t bg-muted/15 px-3 py-2.5 sm:grid-cols-2 sm:px-4 lg:grid-cols-4 xl:grid-cols-8">
-						<Select
-							value={
-								hasUploadedTemplate
-									? PPT_IMAGE_MODEL_NONE
-									: imageModelValue
-							}
-							onValueChange={setImageModelValue}
-							disabled={hasUploadedTemplate}
-						>
-							<SelectTrigger className="h-9 w-full min-w-0 bg-background">
-								<ImageIcon className="size-3.5 shrink-0 text-muted-foreground" />
-								<span className="shrink-0 text-xs text-muted-foreground">图片模型</span>
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value={PPT_IMAGE_MODEL_NONE}>
-									{hasUploadedTemplate
-										? "模板填充不替换图片"
-										: "不使用 AI 图片"}
-								</SelectItem>
-								{imageModelOptions.map((option) => (
-									<SelectItem key={option.value} value={option.value}>
-										<span className="flex min-w-0 items-center gap-2">
-											<span className="truncate">{option.model}</span>
-											<span
-												className={cn(
-													"shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
-													option.source === "user"
-														? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-														: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-												)}
-											>
-												{option.sourceLabel}
-											</span>
-										</span>
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
+					<div className="border-t bg-muted/15 px-3 py-3 sm:px-4">
+						<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+							<div className="min-w-0 space-y-1.5">
+								<label
+									htmlFor="pptImageModel"
+									className="block text-xs font-medium text-muted-foreground"
+								>
+									图片模型
+								</label>
+								<Select
+									value={
+										hasUploadedTemplate
+											? PPT_IMAGE_MODEL_NONE
+											: imageModelValue
+									}
+									onValueChange={setImageModelValue}
+									disabled={hasUploadedTemplate}
+								>
+									<SelectTrigger
+										id="pptImageModel"
+										className="h-9 w-full min-w-0 bg-background"
+									>
+										<ImageIcon className="size-3.5 shrink-0 text-muted-foreground" />
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value={PPT_IMAGE_MODEL_NONE}>
+											{hasUploadedTemplate
+												? "模板填充不替换图片"
+												: "不使用 AI 图片"}
+										</SelectItem>
+										{imageModelOptions.map((option) => (
+											<SelectItem key={option.value} value={option.value}>
+												<span className="flex min-w-0 items-center gap-2">
+													<span className="truncate">{option.model}</span>
+													<span
+														className={cn(
+															"shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
+															option.source === "user"
+																? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+																: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+														)}
+													>
+														{option.sourceLabel}
+													</span>
+												</span>
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
 
-						<Select
-							value={
-								hasUploadedTemplate ? "uploaded-template" : colorPreference
-							}
-							onValueChange={(value) =>
-								setColorPreference(value as PptColorPreference)
-							}
-							disabled={hasUploadedTemplate}
-						>
-							<SelectTrigger className="h-9 w-full min-w-0 bg-background">
-								<Palette className="size-3.5 shrink-0 text-muted-foreground" />
-								<span className="shrink-0 text-xs text-muted-foreground">配色</span>
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								{hasUploadedTemplate && (
-									<SelectItem value="uploaded-template">
-										继承模板配色
-									</SelectItem>
-								)}
-								{PPT_COLOR_PREFERENCE_OPTIONS.map((option) => (
-									<SelectItem key={option.id} value={option.id}>
-										{option.label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
+							<div className="min-w-0 space-y-1.5">
+								<label
+									htmlFor="pptColorPreference"
+									className="block text-xs font-medium text-muted-foreground"
+								>
+									配色
+								</label>
+								<Select
+									value={
+										hasUploadedTemplate
+											? "uploaded-template"
+											: colorPreference
+									}
+									onValueChange={(value) =>
+										setColorPreference(value as PptColorPreference)
+									}
+									disabled={hasUploadedTemplate}
+								>
+									<SelectTrigger
+										id="pptColorPreference"
+										className="h-9 w-full min-w-0 bg-background"
+									>
+										<Palette className="size-3.5 shrink-0 text-muted-foreground" />
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{hasUploadedTemplate && (
+											<SelectItem value="uploaded-template">
+												继承模板配色
+											</SelectItem>
+										)}
+										{PPT_COLOR_PREFERENCE_OPTIONS.map((option) => (
+											<SelectItem key={option.id} value={option.id}>
+												{option.label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
 
-						<Select
-							value={
-								hasUploadedTemplate
-									? "uploaded-template"
-									: typographyPreference
-							}
-							onValueChange={(value) =>
-								setTypographyPreference(value as PptTypographyPreference)
-							}
-							disabled={hasUploadedTemplate}
-						>
-							<SelectTrigger className="h-9 w-full min-w-0 bg-background">
-								<Type className="size-3.5 shrink-0 text-muted-foreground" />
-								<span className="shrink-0 text-xs text-muted-foreground">字体</span>
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								{hasUploadedTemplate && (
-									<SelectItem value="uploaded-template">
-										继承模板字体
-									</SelectItem>
-								)}
-								{PPT_TYPOGRAPHY_PREFERENCE_OPTIONS.map((option) => (
-									<SelectItem key={option.id} value={option.id}>
-										{option.label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
+							<div className="min-w-0 space-y-1.5">
+								<label
+									htmlFor="pptTypographyPreference"
+									className="block text-xs font-medium text-muted-foreground"
+								>
+									字体
+								</label>
+								<Select
+									value={
+										hasUploadedTemplate
+											? "uploaded-template"
+											: typographyPreference
+									}
+									onValueChange={(value) =>
+										setTypographyPreference(
+											value as PptTypographyPreference,
+										)
+									}
+									disabled={hasUploadedTemplate}
+								>
+									<SelectTrigger
+										id="pptTypographyPreference"
+										className="h-9 w-full min-w-0 bg-background"
+									>
+										<Type className="size-3.5 shrink-0 text-muted-foreground" />
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{hasUploadedTemplate && (
+											<SelectItem value="uploaded-template">
+												继承模板字体
+											</SelectItem>
+										)}
+										{PPT_TYPOGRAPHY_PREFERENCE_OPTIONS.map((option) => (
+											<SelectItem key={option.id} value={option.id}>
+												{option.label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
 
-						<Select
-							value={textVolume}
-							onValueChange={(value) => setTextVolume(value as PptTextVolume)}
-						>
-							<SelectTrigger className="h-9 w-full min-w-0 bg-background">
-								<AlignLeft className="size-3.5 shrink-0 text-muted-foreground" />
-								<span className="shrink-0 text-xs text-muted-foreground">文字量</span>
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								{PPT_TEXT_VOLUME_OPTIONS.map((option) => (
-									<SelectItem key={option.id} value={option.id}>
-										{option.label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
+							<div className="min-w-0 space-y-1.5">
+								<label
+									htmlFor="pptTextVolume"
+									className="block text-xs font-medium text-muted-foreground"
+								>
+									文字量
+								</label>
+								<Select
+									value={textVolume}
+									onValueChange={(value) =>
+										setTextVolume(value as PptTextVolume)
+									}
+								>
+									<SelectTrigger
+										id="pptTextVolume"
+										className="h-9 w-full min-w-0 bg-background"
+									>
+										<AlignLeft className="size-3.5 shrink-0 text-muted-foreground" />
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{PPT_TEXT_VOLUME_OPTIONS.map((option) => (
+											<SelectItem key={option.id} value={option.id}>
+												{option.label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
 
-						<Select
-							value={audience}
-							onValueChange={(value) => setAudience(value as PptAudience)}
-						>
-							<SelectTrigger className="h-9 w-full min-w-0 bg-background">
-								<Users className="size-3.5 shrink-0 text-muted-foreground" />
-								<span className="shrink-0 text-xs text-muted-foreground">面向对象</span>
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								{PPT_AUDIENCE_OPTIONS.map((option) => (
-									<SelectItem key={option.id} value={option.id}>
-										{option.label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
+							<div className="min-w-0 space-y-1.5">
+								<label
+									htmlFor="pptAudience"
+									className="block text-xs font-medium text-muted-foreground"
+								>
+									面向对象
+								</label>
+								<Select
+									value={audience}
+									onValueChange={(value) =>
+										setAudience(value as PptAudience)
+									}
+								>
+									<SelectTrigger
+										id="pptAudience"
+										className="h-9 w-full min-w-0 bg-background"
+									>
+										<Users className="size-3.5 shrink-0 text-muted-foreground" />
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{PPT_AUDIENCE_OPTIONS.map((option) => (
+											<SelectItem key={option.id} value={option.id}>
+												{option.label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
 
-						<Select value={tone} onValueChange={(value) => setTone(value as PptTone)}>
-							<SelectTrigger className="h-9 w-full min-w-0 bg-background">
-								<MessageSquareText className="size-3.5 shrink-0 text-muted-foreground" />
-								<span className="shrink-0 text-xs text-muted-foreground">表达语气</span>
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								{PPT_TONE_OPTIONS.map((option) => (
-									<SelectItem key={option.id} value={option.id}>
-										{option.label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
+							<div className="min-w-0 space-y-1.5">
+								<label
+									htmlFor="pptTone"
+									className="block text-xs font-medium text-muted-foreground"
+								>
+									表达语气
+								</label>
+								<Select
+									value={tone}
+									onValueChange={(value) => setTone(value as PptTone)}
+								>
+									<SelectTrigger
+										id="pptTone"
+										className="h-9 w-full min-w-0 bg-background"
+									>
+										<MessageSquareText className="size-3.5 shrink-0 text-muted-foreground" />
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{PPT_TONE_OPTIONS.map((option) => (
+											<SelectItem key={option.id} value={option.id}>
+												{option.label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
+						</div>
 
-						<label className="flex h-9 min-w-0 items-center gap-2 rounded-md border bg-background px-3 text-sm">
-							<Eye className="size-3.5 shrink-0 text-muted-foreground" />
-							<span className="min-w-0 flex-1 truncate">视觉复核</span>
-							<Switch
-								aria-label="视觉复核"
-								checked={
-									!hasUploadedTemplate &&
-									Boolean(selectedModel?.supportsVision) &&
-									visualReview
-								}
-								disabled={
-									hasUploadedTemplate || !selectedModel?.supportsVision
-								}
-								onCheckedChange={setVisualReview}
-							/>
-						</label>
+						<div className="mt-3 grid gap-2 border-t pt-3 sm:grid-cols-2">
+							<label className="flex h-10 min-w-0 items-center gap-2 rounded-md border bg-background px-3 text-sm">
+								<Eye className="size-3.5 shrink-0 text-muted-foreground" />
+								<span className="min-w-0 flex-1 truncate">视觉复核</span>
+								<Switch
+									aria-label="视觉复核"
+									checked={
+										!hasUploadedTemplate &&
+										Boolean(selectedModel?.supportsVision) &&
+										visualReview
+									}
+									disabled={
+										hasUploadedTemplate || !selectedModel?.supportsVision
+									}
+									onCheckedChange={setVisualReview}
+								/>
+							</label>
 
-						<label className="flex h-9 min-w-0 items-center gap-2 rounded-md border bg-background px-3 text-sm">
-							<ListChecks className="size-3.5 shrink-0 text-muted-foreground" />
-							<span className="min-w-0 flex-1 truncate">生成前确认方案</span>
-							<Switch
-								aria-label="生成前确认方案"
-								checked={confirmDesign}
-								onCheckedChange={setConfirmDesign}
-							/>
-						</label>
+							<label className="flex h-10 min-w-0 items-center gap-2 rounded-md border bg-background px-3 text-sm">
+								<ListChecks className="size-3.5 shrink-0 text-muted-foreground" />
+								<span className="min-w-0 flex-1 truncate">
+									生成前确认方案
+								</span>
+								<Switch
+									aria-label="生成前确认方案"
+									checked={confirmDesign}
+									onCheckedChange={setConfirmDesign}
+								/>
+							</label>
+						</div>
 					</div>
 
 					{loading && (
@@ -842,42 +918,6 @@ export function GenerationForm({
 						</div>
 					)}
 				</section>
-
-				<div className="relative z-10 mt-4 flex flex-wrap justify-center gap-2">
-					<label className="flex h-10 cursor-pointer items-center gap-2 rounded-full border bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-muted">
-						<span className="flex size-6 items-center justify-center rounded-md bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300">
-							<Upload className="size-3.5" />
-						</span>
-						上传资料
-						<input
-							type="file"
-							multiple
-							accept={DOCUMENT_ACCEPT}
-							disabled={uploading}
-							onChange={(event) => {
-								void handleFileChange("source", event.target.files);
-								event.target.value = "";
-							}}
-							className="sr-only"
-						/>
-					</label>
-					<label className="flex h-10 cursor-pointer items-center gap-2 rounded-full border bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-muted">
-						<span className="flex size-6 items-center justify-center rounded-md bg-cyan-100 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300">
-							<LayoutTemplate className="size-3.5" />
-						</span>
-						上传模板
-						<input
-							type="file"
-							accept={TEMPLATE_ACCEPT}
-							disabled={uploading}
-							onChange={(event) => {
-								void handleFileChange("template", event.target.files);
-								event.target.value = "";
-							}}
-							className="sr-only"
-						/>
-					</label>
-				</div>
 			</div>
 		</form>
 	);

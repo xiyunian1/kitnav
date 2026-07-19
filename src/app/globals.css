@@ -122,15 +122,3 @@ body {
   color: var(--foreground);
   -webkit-font-smoothing: antialiased;
 }
-
-.ppt-workspace-grid::before {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  content: "";
-  background-image:
-    linear-gradient(to right, color-mix(in oklch, var(--border) 42%, transparent) 1px, transparent 1px),
-    linear-gradient(to bottom, color-mix(in oklch, var(--border) 42%, transparent) 1px, transparent 1px);
-  background-size: 64px 64px;
-  mask-image: linear-gradient(to bottom, transparent, black 16%, black 84%, transparent);
-}
