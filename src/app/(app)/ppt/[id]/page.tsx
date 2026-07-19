@@ -14,6 +14,7 @@ import { Download, RefreshCw } from "lucide-react";
 import { getProjectSvgPreviews } from "@/lib/ppt-agent/paths";
 import { CancelProjectButton } from "../components/cancel-project-button";
 import { ProjectStatusCard } from "./project-status-card";
+import { PlanningConfirmationPanel } from "./planning-confirmation-panel";
 import {
 	isPptCompletedStatus,
 	isPptProcessingStatus,
@@ -114,6 +115,10 @@ export default async function PptProjectPage({
 					updatedAt: project.updatedAt.toISOString(),
 				}}
 			/>
+
+			{project.status === "AWAITING_CONFIRMATION" && (
+				<PlanningConfirmationPanel projectId={project.id} />
+			)}
 
 			{previews.length > 0 && (
 				<div className="grid gap-4 md:grid-cols-2">

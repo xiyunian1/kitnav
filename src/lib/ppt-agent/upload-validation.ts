@@ -50,7 +50,7 @@ export function assertValidPptUpload(buffer: Buffer, extension: string) {
 		return;
 	}
 
-	const entries = readZipEntries(buffer);
+	const entries = listValidatedZipEntries(buffer);
 	if (ext === ".docx") {
 		assertZipEntries(entries, ["[Content_Types].xml", "word/document.xml"]);
 		return;
@@ -107,7 +107,17 @@ function assertZipEntries(entries: Set<string>, required: string[]) {
 	if (!required.every((entry) => entries.has(entry))) invalidFile();
 }
 
-function readZipEntries(buffer: Buffer) {
+export interface ValidatedZipEntryMetadata {
+	crc32: number;
+	compressedBytes: number;
+	uncompressedBytes: number;
+}
+
+export function listValidatedZipEntries(buffer: Buffer) {
+	return new Set(listValidatedZipEntryMetadata(buffer).keys());
+}
+
+export function listValidatedZipEntryMetadata(buffer: Buffer) {
 	const eocdOffset = findEndOfCentralDirectory(buffer);
 	if (eocdOffset < 0 || eocdOffset + 22 > buffer.length) invalidFile();
 
@@ -134,7 +144,7 @@ function readZipEntries(buffer: Buffer) {
 		invalidFile();
 	}
 
-	const entries = new Set<string>();
+	const entries = new Map<string, ValidatedZipEntryMetadata>();
 	let cursor = centralOffset;
 	let totalUncompressedBytes = 0;
 	for (let index = 0; index < totalEntries; index += 1) {
@@ -143,6 +153,7 @@ function readZipEntries(buffer: Buffer) {
 		}
 		const flags = buffer.readUInt16LE(cursor + 8);
 		const compressionMethod = buffer.readUInt16LE(cursor + 10);
+		const crc32 = buffer.readUInt32LE(cursor + 16);
 		const compressedBytes = buffer.readUInt32LE(cursor + 20);
 		const uncompressedBytes = buffer.readUInt32LE(cursor + 24);
 		const nameLength = buffer.readUInt16LE(cursor + 28);
@@ -175,7 +186,8 @@ function readZipEntries(buffer: Buffer) {
 		) {
 			invalidFile();
 		}
-		entries.add(name);
+		if (entries.has(name)) invalidFile();
+		entries.set(name, { crc32, compressedBytes, uncompressedBytes });
 		totalUncompressedBytes += uncompressedBytes;
 		if (totalUncompressedBytes > MAX_ZIP_TOTAL_BYTES) invalidFile();
 		cursor = entryEnd;

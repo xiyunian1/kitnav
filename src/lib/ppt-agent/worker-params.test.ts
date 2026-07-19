@@ -11,8 +11,11 @@ describe("rebuildGenerationParams", () => {
 					sourceType: "markdown",
 					prompt: "Create a concise deck",
 					sourceFileUrls: ["/private/source.docx"],
-					colorPreference: "monochrome",
-					typographyPreference: "editorial",
+						colorPreference: "monochrome",
+						typographyPreference: "editorial",
+						confirmDesign: true,
+						planningConfirmed: true,
+						textCreditsCost: 100,
 				}),
 				"lease-1",
 			),
@@ -24,8 +27,11 @@ describe("rebuildGenerationParams", () => {
 			prompt: "Create a concise deck",
 			sourceFileUrls: ["/private/source.docx"],
 			colorPreference: "monochrome",
-			typographyPreference: "editorial",
-		});
+				typographyPreference: "editorial",
+				confirmDesign: true,
+				planningConfirmed: true,
+				textCreditsCost: 100,
+			});
 	});
 
 	it("rejects queued legacy URL inputs instead of silently changing their meaning", () => {

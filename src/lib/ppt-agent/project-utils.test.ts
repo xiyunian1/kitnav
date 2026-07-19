@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	assertPptSourceMarkdownLength,
+	fitPptSourceMarkdown,
 	isThinPptSource,
 	MAX_PPT_SOURCE_MARKDOWN_CHARS,
 } from "./project-utils";
@@ -11,12 +12,18 @@ describe("assertPptSourceMarkdownLength", () => {
 		expect(assertPptSourceMarkdownLength(source)).toBe(source);
 	});
 
-	it("rejects source content that would overfill the model context", () => {
-		expect(() =>
-			assertPptSourceMarkdownLength(
-				"a".repeat(MAX_PPT_SOURCE_MARKDOWN_CHARS + 1),
-			),
-		).toThrow("超过 8 万字符");
+	it("compacts oversized source content instead of rejecting the project", () => {
+		const result = assertPptSourceMarkdownLength(
+			`# 第一章\n${"a".repeat(MAX_PPT_SOURCE_MARKDOWN_CHARS)}\n# 第二章\n结论`,
+		);
+		expect(result.length).toBeLessThanOrEqual(MAX_PPT_SOURCE_MARKDOWN_CHARS);
+		expect(result).toContain("资料导航");
+		expect(result).toContain("# 第一章");
+		expect(result).toContain("# 第二章");
+	});
+
+	it("preserves short source markdown exactly", () => {
+		expect(fitPptSourceMarkdown("# 资料\n内容", 100)).toBe("# 资料\n内容");
 	});
 });
 

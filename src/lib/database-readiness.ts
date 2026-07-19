@@ -10,6 +10,7 @@ export const REQUIRED_DATABASE_MIGRATIONS = [
   "20260713010000_query_and_foreign_key_indexes",
   "20260713020000_ppt_worker_leases",
   "20260714010000_user_session_version",
+  "20260718010000_ppt_planning_confirmation",
 ] as const;
 
 export interface MigrationReadinessRow {

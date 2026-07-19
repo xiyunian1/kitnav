@@ -3,8 +3,8 @@ import { resolve } from "node:path";
 import { prisma } from "@/lib/db";
 import { IMAGE_WORKER_STALE_TIMEOUT_MS } from "@/lib/image-worker-config";
 import {
-  PPT_PROCESSING_STATUSES,
-  PPT_RUNNING_STATUSES,
+	PPT_CAPACITY_STATUSES,
+	PPT_RUNNING_STATUSES,
 } from "@/lib/ppt-agent/status";
 import { getStaleActiveProjectMs } from "@/lib/ppt-agent/timings";
 import {
@@ -142,7 +142,7 @@ async function collectOperationalMetricsUncached(): Promise<OperationalMetricsSn
       },
     }),
     prisma.pptProject.findFirst({
-      where: { status: { in: [...PPT_PROCESSING_STATUSES] } },
+      where: { status: { in: [...PPT_CAPACITY_STATUSES] } },
       orderBy: { createdAt: "asc" },
       select: { createdAt: true },
     }),

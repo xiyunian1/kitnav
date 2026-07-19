@@ -3,6 +3,7 @@ export const PPT_PROCESSING_STATUSES = [
 	"QUEUED",
 	"GENERATING",
 	"STRATEGIZING",
+	"AWAITING_CONFIRMATION",
 	"ACQUIRING_IMAGES",
 	"EXECUTING",
 	"EXPORTING",
@@ -10,6 +11,19 @@ export const PPT_PROCESSING_STATUSES = [
 
 export const PPT_RUNNING_STATUSES = [
 	"PENDING",
+	"GENERATING",
+	"STRATEGIZING",
+	"ACQUIRING_IMAGES",
+	"EXECUTING",
+	"EXPORTING",
+] as const;
+
+// Waiting for a user decision uses no worker slot and must not block global
+// queue admission. It remains in PPT_PROCESSING_STATUSES so it can be polled,
+// cancelled, retained, and treated as an unfinished user project.
+export const PPT_CAPACITY_STATUSES = [
+	"PENDING",
+	"QUEUED",
 	"GENERATING",
 	"STRATEGIZING",
 	"ACQUIRING_IMAGES",
@@ -25,6 +39,7 @@ export const PPT_STATUS_LABELS: Record<string, string> = {
 	QUEUED: "排队中",
 	GENERATING: "生成中",
 	STRATEGIZING: "规划中",
+	AWAITING_CONFIRMATION: "等待确认设计方案",
 	ACQUIRING_IMAGES: "采集素材",
 	EXECUTING: "生成中",
 	EXPORTING: "导出中",

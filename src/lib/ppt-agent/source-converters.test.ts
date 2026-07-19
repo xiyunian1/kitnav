@@ -1,9 +1,12 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readConvertedMarkdown } from "./source-converters";
+import {
+	collectConvertedSourceImages,
+	readConvertedMarkdown,
+} from "./source-converters";
 
 let root = "";
 
@@ -30,4 +33,43 @@ describe("readConvertedMarkdown", () => {
 		expect(() => readConvertedMarkdown(path)).toThrow("文字内容过多");
 		expect(existsSync(path)).toBe(false);
 	});
+
+	it("copies extracted document images into the project image pool", async () => {
+		const markdownPath = join(root, "sources", "document_01.md");
+		const assetDir = join(root, "sources", "document_01_files");
+		await mkdir(assetDir, { recursive: true });
+		await writeFile(markdownPath, "![figure](document_01_files/chart.png)");
+		await writeFile(join(assetDir, "chart.png"), Buffer.from("png"));
+		await writeFile(join(assetDir, "image_manifest.json"), "{}");
+
+		const copied = collectConvertedSourceImages(
+			markdownPath,
+			join(root, "images"),
+			"source_01",
+		);
+		expect(copied).toHaveLength(1);
+		expect(copied[0]).toMatch(/source_01_chart\.png$/);
+		expect(existsSync(copied[0])).toBe(true);
+	});
+
+	it.skipIf(process.platform === "win32")(
+		"ignores symbolic links in converted document assets",
+		async () => {
+			const markdownPath = join(root, "sources", "document_01.md");
+			const assetDir = join(root, "sources", "document_01_files");
+			const externalPath = join(root, "external.png");
+			await mkdir(assetDir, { recursive: true });
+			await writeFile(markdownPath, "![figure](document_01_files/chart.png)");
+			await writeFile(externalPath, Buffer.from("external"));
+			await symlink(externalPath, join(assetDir, "chart.png"));
+
+			expect(
+				collectConvertedSourceImages(
+					markdownPath,
+					join(root, "images"),
+					"source_01",
+				),
+			).toEqual([]);
+		},
+	);
 });

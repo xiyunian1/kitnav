@@ -543,6 +543,7 @@ enum PptProjectStatus {
   QUEUED // 队列中
   GENERATING // 旧版 PPT 模块生成中状态，保留用于兼容历史数据
   STRATEGIZING // Strategist 阶段
+  AWAITING_CONFIRMATION // 等待用户确认设计方案
   ACQUIRING_IMAGES // 图片采集
   EXECUTING // Executor 渲染 SVG
   EXPORTING // 生成 PPTX

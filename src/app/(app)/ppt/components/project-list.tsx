@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
   CheckCircle2,
+  CircleHelp,
   Clock,
   Download,
   ExternalLink,
@@ -49,6 +50,7 @@ const STATUS_MAP = {
   PENDING: { label: "等待中", icon: Clock, className: "border-slate-200 bg-white/90 text-slate-700" },
   QUEUED: { label: "排队中", icon: Clock, className: "border-blue-200 bg-white/90 text-blue-700" },
   STRATEGIZING: { label: "规划中", icon: Loader2, className: "border-violet-200 bg-white/90 text-violet-700" },
+  AWAITING_CONFIRMATION: { label: "等待确认", icon: CircleHelp, className: "border-amber-200 bg-white/90 text-amber-700" },
   ACQUIRING_IMAGES: { label: "采集素材", icon: Loader2, className: "border-amber-200 bg-white/90 text-amber-700" },
   GENERATING: { label: "生成中", icon: Loader2, className: "border-indigo-200 bg-white/90 text-indigo-700" },
   EXECUTING: { label: "生成中", icon: Loader2, className: "border-indigo-200 bg-white/90 text-indigo-700" },

@@ -42,21 +42,21 @@ export async function refundPptProjectCredits(projectId: string, reason: string)
   });
 }
 
-export async function refundPptProjectCreditsAmount(
+export async function reconcilePptProjectCredits(
   projectId: string,
-  amount: number,
+  targetCreditsCost: number,
   reason: string,
   expectedLease?: string,
 ) {
-  const normalizedAmount = Math.max(0, Math.floor(amount));
-  if (normalizedAmount <= 0) return 0;
+  const normalizedTarget = Math.max(0, Math.floor(targetCreditsCost));
 
   return prisma.$transaction(async (tx) => {
     const project = await tx.pptProject.findUnique({
       where: { id: projectId },
       select: { userId: true, creditsCost: true },
     });
-    if (!project || project.creditsCost < normalizedAmount) return 0;
+    if (!project || project.creditsCost <= normalizedTarget) return 0;
+    const amount = project.creditsCost - normalizedTarget;
 
     const claimed = await tx.pptProject.updateMany({
       where: {
@@ -64,24 +64,24 @@ export async function refundPptProjectCreditsAmount(
         creditsCost: project.creditsCost,
         ...(expectedLease ? { workerLease: expectedLease } : {}),
       },
-      data: { creditsCost: { decrement: normalizedAmount } },
+      data: { creditsCost: normalizedTarget },
     });
     if (claimed.count !== 1) return 0;
 
     const updated = await tx.user.update({
       where: { id: project.userId },
-      data: { credits: { increment: normalizedAmount } },
+      data: { credits: { increment: amount } },
     });
     await tx.creditTransaction.create({
       data: {
         userId: project.userId,
-        amount: normalizedAmount,
+        amount,
         type: "REFUND",
         balanceAfter: updated.credits,
         description: reason,
       },
     });
-    return normalizedAmount;
+    return amount;
   });
 }
 

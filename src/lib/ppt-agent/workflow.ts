@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { extname, join } from "node:path";
 
 const NATIVE_PPTX_EXTENSIONS = new Set([
@@ -27,6 +27,20 @@ export function stageNativePptTemplate(
 	projectDir: string,
 	templateFileUrls: string[],
 ): StagedPptTemplate {
+	const sourcesDir = join(projectDir, "sources");
+	const existingName = existsSync(sourcesDir)
+		? readdirSync(sourcesDir).find((name) => {
+				const extension = extname(name).toLowerCase();
+				return name.startsWith("template-source") && NATIVE_PPTX_EXTENSIONS.has(extension);
+			})
+		: undefined;
+	if (existingName) {
+		return {
+			absolutePath: join(sourcesDir, existingName),
+			relativePath: join("sources", existingName),
+		};
+	}
+
 	const sourcePath = templateFileUrls[0];
 	if (!sourcePath || !existsSync(sourcePath)) {
 		throw new Error("上传的 PPT 模板不存在，请重新上传。");
@@ -39,7 +53,7 @@ export function stageNativePptTemplate(
 
 	const relativePath = join("sources", `template-source${extension}`);
 	const absolutePath = join(projectDir, relativePath);
-	mkdirSync(join(projectDir, "sources"), { recursive: true });
+	mkdirSync(sourcesDir, { recursive: true });
 	copyFileSync(sourcePath, absolutePath);
 	return { absolutePath, relativePath };
 }

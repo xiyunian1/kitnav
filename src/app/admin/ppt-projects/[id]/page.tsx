@@ -16,6 +16,7 @@ const STATUS_META: Record<
   QUEUED: { label: "排队中", variant: "secondary" },
   GENERATING: { label: "生成中", variant: "secondary" },
   STRATEGIZING: { label: "规划中", variant: "secondary" },
+  AWAITING_CONFIRMATION: { label: "等待确认", variant: "secondary" },
   ACQUIRING_IMAGES: { label: "采集素材", variant: "secondary" },
   EXECUTING: { label: "生成中", variant: "secondary" },
   EXPORTING: { label: "导出中", variant: "secondary" },

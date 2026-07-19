@@ -33,6 +33,7 @@ import {
 	getPptInternalErrorMessage,
 	PPT_PROCESSING_STATUSES,
 } from "./status";
+import { isPptPlanningConfirmationRequiredError } from "./planning-confirmation";
 import {
 	PPT_STORAGE_DEFAULT_SWEEP_INTERVAL_MS,
 	PPT_STORAGE_MIN_SWEEP_INTERVAL_MS,
@@ -294,6 +295,7 @@ async function processProject(
 		);
 		await generatePPT({ ...params, signal: controller.signal }, noopEmit);
 	} catch (error) {
+		if (isPptPlanningConfirmationRequiredError(error)) return;
 		if (isPptLeaseLostError(error)) return;
 		if (isPptWorkerShutdown(error)) {
 			if (await requeuePptProject(projectId, lease)) {
@@ -437,7 +439,11 @@ export function rebuildGenerationParams(
 		imageModelSource: stored.imageModelSource,
 		imageCountLimit: stored.imageCountLimit,
 		imageUnitCreditCost: stored.imageUnitCreditCost,
+		textCreditsCost: stored.textCreditsCost,
 		visualReview: stored.visualReview,
+		confirmDesign: stored.confirmDesign,
+		planningConfirmed: stored.planningConfirmed,
+		planningConfirmationStage: stored.planningConfirmationStage,
 		textVolume: stored.textVolume,
 		audience: stored.audience,
 		tone: stored.tone,

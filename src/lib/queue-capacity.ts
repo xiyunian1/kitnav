@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { boundedIntegerEnv } from "@/lib/runtime-config";
-import { PPT_PROCESSING_STATUSES } from "@/lib/ppt-agent/status";
+import { PPT_CAPACITY_STATUSES } from "@/lib/ppt-agent/status";
 
 const IMAGE_QUEUE_CAPACITY_LOCK = "queue-capacity:image";
 const PPT_QUEUE_CAPACITY_LOCK = "queue-capacity:ppt";
@@ -44,7 +44,7 @@ export async function checkPptQueueCapacity(
   await acquireCapacityLock(tx, PPT_QUEUE_CAPACITY_LOCK);
   const maxPending = getPptGlobalMaxPending(environment);
   const pending = await tx.pptProject.count({
-    where: { status: { in: [...PPT_PROCESSING_STATUSES] } },
+    where: { status: { in: [...PPT_CAPACITY_STATUSES] } },
   });
   return { allowed: pending < maxPending, pending, maxPending };
 }

@@ -104,6 +104,7 @@ const requestSchema = z
 		imageModel: z.string().trim().min(1).max(100).optional(),
 		imageModelSource: z.enum(MODEL_SOURCES).optional(),
 		visualReview: z.boolean().default(false),
+		confirmDesign: z.boolean().default(false),
 		textVolume: z.enum(PPT_TEXT_VOLUME_VALUES).default("balanced"),
 		audience: z.enum(PPT_AUDIENCE_VALUES).default("general"),
 		tone: z.enum(PPT_TONE_VALUES).default("natural"),
@@ -208,13 +209,16 @@ export async function POST(req: NextRequest) {
 			status: { in: [...PPT_PROCESSING_STATUSES] },
 		},
 		orderBy: { updatedAt: "desc" },
-		select: { id: true, updatedAt: true, workerLease: true },
+		select: { id: true, status: true, updatedAt: true, workerLease: true },
 	});
 
 	const now = Date.now();
 	const staleBefore = new Date(now - staleMs);
 	for (const activeProject of activeProjects) {
-		if (now - activeProject.updatedAt.getTime() > staleMs) {
+		if (
+			activeProject.status !== "AWAITING_CONFIRMATION" &&
+			now - activeProject.updatedAt.getTime() > staleMs
+		) {
 			const released = await releaseStaleProject(activeProject.id, undefined, {
 				expectedLease: activeProject.workerLease,
 				staleBefore,
@@ -388,7 +392,10 @@ export async function POST(req: NextRequest) {
 		imageModelSource,
 		imageCountLimit,
 		imageUnitCreditCost,
+		textCreditsCost,
 		visualReview: parsed.visualReview,
+		confirmDesign: parsed.confirmDesign,
+		planningConfirmed: false,
 		textVolume: parsed.textVolume,
 		audience: parsed.audience,
 		tone: parsed.tone,

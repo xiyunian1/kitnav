@@ -26,21 +26,23 @@ export function ProjectStatusCard({ initial }: ProjectStatusCardProps) {
 	const [snapshot, setSnapshot] = useState(initial);
 	const [now, setNow] = useState<number | null>(null);
 	const isProcessing = isPptProcessingStatus(snapshot.status);
+	const isWaitingForConfirmation = snapshot.status === "AWAITING_CONFIRMATION";
+	const isActivelyRunning = isProcessing && !isWaitingForConfirmation;
 	const phase =
 		snapshot.currentPhase || PPT_STATUS_LABELS[snapshot.status] || "处理中";
 	const durationLabel = formatProjectDurationLabel({
 		startedAt: snapshot.createdAt,
 		completedAt: snapshot.completedAt,
 		updatedAt: snapshot.updatedAt,
-		running: isProcessing,
+		running: isActivelyRunning,
 		now,
 	});
 
 	useEffect(() => {
-		if (!isProcessing) return;
+		if (!isActivelyRunning) return;
 		const interval = window.setInterval(() => setNow(Date.now()), 1000);
 		return () => window.clearInterval(interval);
-	}, [isProcessing]);
+	}, [isActivelyRunning]);
 
 	useEffect(() => {
 		if (!isProcessing) return;
@@ -78,7 +80,7 @@ export function ProjectStatusCard({ initial }: ProjectStatusCardProps) {
 	return (
 		<Card className="p-4">
 			<div className="flex items-start gap-3 text-sm">
-				{isProcessing && (
+				{isActivelyRunning && (
 					<Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-primary" />
 				)}
 				<div className="min-w-0">

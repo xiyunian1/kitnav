@@ -23,6 +23,7 @@ import {
 	KeyRound,
 	Languages,
 	LayoutTemplate,
+	ListChecks,
 	Loader2,
 	MessageSquareText,
 	Minus,
@@ -112,6 +113,7 @@ export function GenerationForm({
 	const [typographyPreference, setTypographyPreference] =
 		useState<PptTypographyPreference>("auto");
 	const [visualReview, setVisualReview] = useState(false);
+	const [confirmDesign, setConfirmDesign] = useState(false);
 	const [phase, setPhase] = useState("任务正在排队");
 	const [startedAt, setStartedAt] = useState<number | null>(null);
 	const [now, setNow] = useState<number | null>(null);
@@ -204,8 +206,9 @@ export function GenerationForm({
 						styleSource === "custom" ? customStyle.trim() : undefined,
 					model: selectedModel.model,
 					modelSource: selectedModel.source,
-					visualReview:
-						!hasUploadedTemplate && selectedModel.supportsVision && visualReview,
+						visualReview:
+							!hasUploadedTemplate && selectedModel.supportsVision && visualReview,
+						confirmDesign,
 					...(!hasUploadedTemplate && selectedImageModel
 						? {
 								imageModel: selectedImageModel.model,
@@ -264,6 +267,12 @@ export function GenerationForm({
 					}
 					if (isPptCompletedStatus(status.status)) {
 						toast.success("PPT 生成完成。");
+						router.push(`/ppt/${projectId}`);
+						router.refresh();
+						return;
+					}
+					if (status.status === "AWAITING_CONFIRMATION") {
+						toast.info("设计方案已生成，请确认后继续。");
 						router.push(`/ppt/${projectId}`);
 						router.refresh();
 						return;
@@ -621,7 +630,7 @@ export function GenerationForm({
 						</div>
 					</div>
 
-					<div className="grid gap-2 border-t bg-muted/15 px-3 py-2.5 sm:grid-cols-2 sm:px-4 lg:grid-cols-4 xl:grid-cols-7">
+						<div className="grid gap-2 border-t bg-muted/15 px-3 py-2.5 sm:grid-cols-2 sm:px-4 lg:grid-cols-4 xl:grid-cols-8">
 						<Select
 							value={
 								hasUploadedTemplate
@@ -785,6 +794,16 @@ export function GenerationForm({
 									hasUploadedTemplate || !selectedModel?.supportsVision
 								}
 								onCheckedChange={setVisualReview}
+							/>
+						</label>
+
+						<label className="flex h-9 min-w-0 items-center gap-2 rounded-md border bg-background px-3 text-sm">
+							<ListChecks className="size-3.5 shrink-0 text-muted-foreground" />
+							<span className="min-w-0 flex-1 truncate">生成前确认方案</span>
+							<Switch
+								aria-label="生成前确认方案"
+								checked={confirmDesign}
+								onCheckedChange={setConfirmDesign}
 							/>
 						</label>
 					</div>

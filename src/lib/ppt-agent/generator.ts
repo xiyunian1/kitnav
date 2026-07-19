@@ -1,4 +1,4 @@
-import { writeFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { pptSemaphore } from "./semaphore";
 import { getPptProjectDir, publicProjectUrl } from "./paths";
@@ -38,6 +38,14 @@ import type {
 	PptTypographyPreference,
 } from "./design-options";
 import { getPptInternalErrorMessage } from "./status";
+import {
+	isPptPlanningConfirmationRequiredError,
+	getPptPlanningDraftPath,
+	getPptPlanningDecisionPath,
+	getPptPlanningRecommendationsPath,
+	type PptPlanningConfirmationStage,
+} from "./planning-confirmation";
+import { getPptTemplateFillDecisionPath } from "./template-fill-confirmation";
 
 export interface GenerationParams {
 	projectId: string;
@@ -62,7 +70,14 @@ export interface GenerationParams {
 	imageModelSource?: ModelSource;
 	imageCountLimit?: number;
 	imageUnitCreditCost?: number;
+	textCreditsCost?: number;
 	visualReview?: boolean;
+	confirmDesign?: boolean;
+	planningConfirmed?: boolean;
+	planningConfirmationStage?: Exclude<
+		PptPlanningConfirmationStage,
+		"direction"
+	> | "complete";
 	textVolume?: PptTextVolume;
 	audience?: PptAudience;
 	tone?: PptTone;
@@ -112,9 +127,21 @@ export async function generatePPT(
 		ensureProjectStructure(projectDir, params.projectId, canvasFormat);
 		throwIfPptCancelled(params.signal);
 
-		const sourceMd = await resolveSourceMarkdown(params, projectDir);
-		writeFileSync(join(projectDir, "sources", "source.md"), sourceMd, "utf-8");
 		const workflow = resolvePptGenerationWorkflow(params);
+		const preparedSource = await preparePptRunSource(
+			params,
+			projectDir,
+			workflow,
+		);
+		const sourceMd = preparedSource.sourceMd;
+		if (preparedSource.resumed) {
+			await emitProjectLog(
+				params.projectId,
+				emit,
+				"已读取原任务资料和规划结果，继续后续生成",
+				params.workerLease,
+			);
+		}
 		const templateInstruction = preparePptTemplateSelection(
 			params.template,
 			projectDir,
@@ -148,8 +175,8 @@ export async function generatePPT(
 			style: string;
 			stylePrompt: string;
 			styleLabel: string;
-				workflow: PptGenerationWorkflow;
-				workerLease: string;
+			workflow: PptGenerationWorkflow;
+			workerLease: string;
 			nativeTemplatePath?: string;
 			signal?: AbortSignal;
 			visualReview: boolean;
@@ -199,7 +226,14 @@ export async function generatePPT(
 				: "交给 PPT Master pi agent 执行完整工作流",
 			params.workerLease,
 		);
-		const result = await runPptMasterAgent(params, runnerOptions);
+		const agentParams = preparedSource.resumePlanning
+			? {
+					...params,
+					planningConfirmed: true,
+					planningConfirmationStage: "complete" as const,
+				}
+			: params;
+		const result = await runPptMasterAgent(agentParams, runnerOptions);
 		const pptxUrl = publicProjectUrl(params.projectId, result.pptxPath);
 
 		await updateProject(
@@ -219,6 +253,34 @@ export async function generatePPT(
 		emit({ type: "complete", data: { projectId: params.projectId, pptxUrl } });
 	} catch (error) {
 		if (isPptWorkerShutdown(error) || isPptLeaseLostError(error)) throw error;
+		if (isPptPlanningConfirmationRequiredError(error)) {
+			const waitingForTemplate = error.kind === "template-fill";
+			const confirmationLabel = waitingForTemplate
+				? "模板填充方案"
+				: error.stage === "design-system"
+					? "设计系统"
+					: error.stage === "execution"
+						? "图片与执行方案"
+						: "设计方向";
+			await emitProjectLog(
+				params.projectId,
+				emit,
+				`${confirmationLabel}候选已生成，等待用户确认后继续`,
+				params.workerLease,
+			);
+			await updateProject(
+				params.projectId,
+				{
+					status: "AWAITING_CONFIRMATION",
+					workerLease: null,
+					currentPhase: `等待确认${confirmationLabel}`,
+					progress: 30,
+					error: null,
+				},
+				params.workerLease,
+			);
+			throw error;
+		}
 		const cancelled = isPptGenerationCancelled(error);
 		const message = cancelled
 			? "用户已停止生成"
@@ -236,4 +298,57 @@ export async function generatePPT(
 	} finally {
 		pptSemaphore.release();
 	}
+}
+
+export async function preparePptRunSource(
+	params: GenerationParams,
+	projectDir: string,
+	workflow: PptGenerationWorkflow = resolvePptGenerationWorkflow(params),
+) {
+	const sourcePath = join(projectDir, "sources", "source.md");
+	const explicitResume = Boolean(
+		params.planningConfirmed || params.planningConfirmationStage,
+	);
+	const automaticResumeArtifacts = [
+		sourcePath,
+		join(projectDir, "design_spec.md"),
+		join(projectDir, "spec_lock.md"),
+		getPptPlanningRecommendationsPath(projectDir),
+		getPptPlanningDecisionPath(projectDir),
+	];
+	const resumeAutomaticPlanning =
+		workflow === "svg" &&
+		!explicitResume &&
+		automaticResumeArtifacts.every(existsSync);
+	if (explicitResume || resumeAutomaticPlanning) {
+		const requiredResumeArtifacts =
+			workflow === "template-fill"
+				? [
+						sourcePath,
+						join(projectDir, "analysis", "slide_library.json"),
+						join(projectDir, "analysis", "fill_plan.json"),
+						getPptTemplateFillDecisionPath(projectDir),
+					]
+				: [
+						sourcePath,
+						join(projectDir, "design_spec.md"),
+						join(projectDir, "spec_lock.md"),
+						getPptPlanningRecommendationsPath(projectDir),
+					...(params.planningConfirmed || resumeAutomaticPlanning
+						? [getPptPlanningDecisionPath(projectDir)]
+						: [getPptPlanningDraftPath(projectDir)]),
+					];
+		if (requiredResumeArtifacts.some((path) => !existsSync(path))) {
+			throw new Error("PPT 设计确认资料不完整，无法继续原任务。");
+		}
+		return {
+			sourceMd: readFileSync(sourcePath, "utf-8"),
+			resumed: true,
+			...(resumeAutomaticPlanning ? { resumePlanning: true } : {}),
+		};
+	}
+
+	const sourceMd = await resolveSourceMarkdown(params, projectDir);
+	writeFileSync(sourcePath, sourceMd, "utf-8");
+	return { sourceMd, resumed: false };
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	getPptInternalErrorMessage,
 	getPptUserFailureMessage,
+	PPT_CAPACITY_STATUSES,
   isPptCompletedStatus,
   isPptProcessingStatus,
   isPptRunningStatus,
@@ -18,6 +19,12 @@ describe("PPT status compatibility", () => {
     expect(isPptCompletedStatus("COMPLETED")).toBe(true);
     expect(isPptCompletedStatus("FAILED")).toBe(false);
   });
+
+	it("keeps confirmation waiting cancellable without consuming queue capacity", () => {
+		expect(isPptProcessingStatus("AWAITING_CONFIRMATION")).toBe(true);
+		expect(PPT_CAPACITY_STATUSES).not.toContain("AWAITING_CONFIRMATION");
+		expect(PPT_CAPACITY_STATUSES).toContain("QUEUED");
+	});
 
 	it("bounds internal failure details before persisting them", () => {
 		const message = getPptInternalErrorMessage(new Error("x".repeat(10_000)));

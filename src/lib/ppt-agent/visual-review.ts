@@ -1,6 +1,7 @@
 import {
 	copyFileSync,
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	readdirSync,
 	rmSync,
@@ -116,10 +117,15 @@ export function backupPptVisualReviewSlides(
 	const backupDir = join(projectDir, ".review", "backup");
 	mkdirSync(backupDir, { recursive: true });
 	return slides.map((slide) => {
+		const sourceStats = lstatSync(slide.svgPath);
+		if (!sourceStats.isFile() || sourceStats.nlink !== 1) {
+			throw new Error(`视觉复核源文件不是独占普通文件：${slide.svgFile}`);
+		}
 		const backupPath = join(
 			backupDir,
 			`${parse(slide.svgFile).name}.before-visual-review.svg`,
 		);
+		rmSync(backupPath, { recursive: true, force: true });
 		copyFileSync(slide.svgPath, backupPath);
 		return { svgPath: slide.svgPath, backupPath };
 	});
@@ -129,6 +135,7 @@ export function restorePptVisualReviewSlides(
 	backups: PptVisualReviewBackup[],
 ) {
 	for (const backup of backups) {
+		rmSync(backup.svgPath, { recursive: true, force: true });
 		copyFileSync(backup.backupPath, backup.svgPath);
 	}
 }
