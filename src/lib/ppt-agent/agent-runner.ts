@@ -945,8 +945,8 @@ function buildHostedPlanningRecommendationContract(
 		"- palettes 恰好 3 项，每项包含 id、label、background、secondaryBackground、primary、accent、bodyText、rationale；所有颜色必须是 #RRGGBB。",
 		"- typography 恰好 3 项，每项包含 id、label、heading、body、bodySize、rationale；heading/body 是可直接写入 SVG 的完整字体栈，bodySize 是 16-40 的整数 px。",
 		useAiImages
-			? "- imageStrategies 恰好 3 项且每项 usage 都包含 ai；每项包含 id、label、usage、rendering、palette、rationale，rendering/palette 使用官方图片参考 id。"
-			: "- imageStrategies 提供 1-3 项且不得包含 ai；usage 只能使用 provided 或 none，内容与项目实际已有图片一致。",
+			? '- imageStrategies 恰好 3 项且每项包含 id、label、usage、rendering、palette、rationale；usage 必须是包含 "ai" 的 JSON 数组，例如 ["ai"] 或 ["ai", "provided"]，绝不能写成字符串；rendering/palette 使用官方图片参考 id。'
+			: '- imageStrategies 提供 1-3 项且每项完整包含 id、label、usage、rendering、palette、rationale；不得包含 ai。usage 必须是 JSON 数组：有用户图片时写 ["provided"]，没有时写 ["none"]，绝不能写成字符串。没有图片时 rendering 与 palette 均写 "not-applicable"。',
 		`- pagePlan 恰好 ${slideCount} 项，page 从 1 连续到 ${slideCount}；每项包含 page、title、purpose、rhythm、layoutFamily，rhythm 只能为 anchor/dense/breathing。`,
 		"- recommendedDirectionId、recommendedPaletteId、recommendedTypographyId、recommendedImageStrategyId 必须引用各自候选中的 id。",
 		"- 同一候选数组中的 id 不得重复；id 仅使用英文字母、数字、下划线和短横线。",

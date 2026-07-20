@@ -40,14 +40,45 @@ const typographySchema = z.object({
 	rationale: z.string().trim().min(1).max(600),
 });
 
-const imageStrategySchema = z.object({
-	id: idSchema,
-	label: z.string().trim().min(1).max(80),
-	usage: z.array(z.enum(["ai", "provided", "none"])).min(1).max(2),
-	rendering: z.string().trim().min(1).max(120),
-	palette: z.string().trim().min(1).max(120),
-	rationale: z.string().trim().min(1).max(600),
-});
+const imageStrategySchema = z.preprocess(
+	normalizeLegacyImageStrategy,
+	z.object({
+		id: idSchema,
+		label: z.string().trim().min(1).max(80),
+		usage: z.array(z.enum(["ai", "provided", "none"])).min(1).max(2),
+		rendering: z.string().trim().min(1).max(120),
+		palette: z.string().trim().min(1).max(120),
+		rationale: z.string().trim().min(1).max(600),
+	}),
+);
+
+function normalizeLegacyImageStrategy(value: unknown) {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+	const strategy = value as Record<string, unknown>;
+	const usage =
+		typeof strategy.usage === "string" ? [strategy.usage] : strategy.usage;
+	if (
+		!Array.isArray(usage) ||
+		usage.length === 0 ||
+		usage.some((item) => item !== "provided" && item !== "none")
+	) {
+		return { ...strategy, usage };
+	}
+	const usesProvidedImages = usage.includes("provided");
+	return {
+		...strategy,
+		usage,
+		label:
+			strategy.label ||
+			(usesProvidedImages ? "使用已上传图片" : "不使用图片"),
+		rendering:
+			strategy.rendering ||
+			(usesProvidedImages ? "保持原始素材" : "not-applicable"),
+		palette:
+			strategy.palette ||
+			(usesProvidedImages ? "跟随演示配色" : "not-applicable"),
+	};
+}
 
 const pagePlanSchema = z.object({
 	page: z.number().int().min(1).max(100),

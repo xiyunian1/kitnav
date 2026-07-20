@@ -137,6 +137,51 @@ describe("PPT planning confirmation", () => {
 		).toThrow("页数不正确");
 	});
 
+	it("normalizes the legacy no-image strategy emitted by the strategist", () => {
+		const root = createRecommendations();
+		const path = join(root, "analysis", "hosted_confirmation.json");
+		const raw = JSON.parse(readFileSync(path, "utf-8"));
+		raw.imageStrategies = [
+			{
+				id: "no-images-native-diagrams",
+				usage: "none",
+				rationale: "Use native SVG diagrams instead of images.",
+			},
+		];
+		raw.recommendedImageStrategyId = "no-images-native-diagrams";
+		writeFileSync(path, JSON.stringify(raw));
+
+		expect(readPptPlanningRecommendations(root).imageStrategies).toEqual([
+			{
+				id: "no-images-native-diagrams",
+				label: "不使用图片",
+				usage: ["none"],
+				rendering: "not-applicable",
+				palette: "not-applicable",
+				rationale: "Use native SVG diagrams instead of images.",
+			},
+		]);
+	});
+
+	it("keeps incomplete AI image strategies invalid", () => {
+		const root = createRecommendations();
+		const path = join(root, "analysis", "hosted_confirmation.json");
+		const raw = JSON.parse(readFileSync(path, "utf-8"));
+		raw.imageStrategies = [
+			{
+				id: "generated-illustrations",
+				usage: "ai",
+				rationale: "Generate supporting illustrations.",
+			},
+		];
+		raw.recommendedImageStrategyId = "generated-illustrations";
+		writeFileSync(path, JSON.stringify(raw));
+
+		expect(() => readPptPlanningRecommendations(root)).toThrow(
+			"无法读取有效的 PPT 设计候选",
+		);
+	});
+
 	it("marks stored generation parameters for resume without dropping fields", () => {
 		expect(
 			JSON.parse(
