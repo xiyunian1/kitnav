@@ -129,8 +129,6 @@ export function writePptExecutionEvidence(
 			/^svg_output\/.*\.svg$/i.test(call.normalizedPath),
 	);
 	const firstMutationByPage = new Map<number, (typeof mutations)[number]>();
-	let activePage = 0;
-	let activePageLastCompletion = 0;
 	for (const mutation of mutations) {
 		const page = parseSlideNumber(mutation.normalizedPath);
 		if (!page) {
@@ -138,24 +136,6 @@ export function writePptExecutionEvidence(
 				`PPT Executor 写入的 SVG 文件名缺少可识别页码：${mutation.normalizedPath}。`,
 			);
 		}
-		if (page < activePage) {
-			throw new Error(
-				`PPT Executor 已开始 P${padPage(activePage)} 后又回头修改 P${padPage(page)}，不符合严格逐页顺序。`,
-				);
-		}
-		if (page > activePage) {
-			if (activePage > 0 && activePageLastCompletion >= mutation.sequence) {
-				throw new Error(
-					`PPT Executor 在 P${padPage(activePage)} 写入完成前已开始 P${padPage(page)}，不符合严格逐页顺序。`,
-				);
-			}
-			activePage = page;
-			activePageLastCompletion = 0;
-		}
-		activePageLastCompletion = Math.max(
-			activePageLastCompletion,
-			mutation.completedSequence,
-		);
 		if (!firstMutationByPage.has(page)) firstMutationByPage.set(page, mutation);
 	}
 	const firstMutations = [...firstMutationByPage.entries()]
@@ -171,6 +151,43 @@ export function writePptExecutionEvidence(
 	) {
 		throw new Error(
 			`PPT Executor 页面首次写入顺序不正确：${firstMutations.map((entry) => `P${padPage(entry.page)}`).join(" -> ") || "无写入"}。`,
+		);
+	}
+	const finalFirstMutation = firstMutations.at(-1)!.call;
+	const initialMutations = mutations.filter(
+		(mutation) => mutation.sequence <= finalFirstMutation.sequence,
+	);
+	let activePage = 0;
+	let activePageLastCompletion = 0;
+	for (const mutation of initialMutations) {
+		const page = parseSlideNumber(mutation.normalizedPath);
+		if (page < activePage) {
+			throw new Error(
+				`PPT Executor 已开始 P${padPage(activePage)} 后又在页面首次生成完成前回头修改 P${padPage(page)}，不符合严格逐页顺序。`,
+			);
+		}
+		if (page > activePage) {
+			if (activePage > 0 && activePageLastCompletion >= mutation.sequence) {
+				throw new Error(
+					`PPT Executor 在 P${padPage(activePage)} 写入完成前已开始 P${padPage(page)}，不符合严格逐页顺序。`,
+				);
+			}
+			activePage = page;
+			activePageLastCompletion = 0;
+		}
+		activePageLastCompletion = Math.max(
+			activePageLastCompletion,
+			mutation.completedSequence,
+		);
+	}
+	const overlappingRevision = mutations.find(
+		(mutation) =>
+			mutation.sequence > finalFirstMutation.sequence &&
+			mutation.sequence < finalFirstMutation.completedSequence,
+	);
+	if (overlappingRevision) {
+		throw new Error(
+			`PPT Executor 在 P${padPage(expectedSlideCount)} 首次写入完成前已开始质量修订，不符合严格逐页顺序。`,
 		);
 	}
 
@@ -205,7 +222,7 @@ export function writePptExecutionEvidence(
 
 	let lastSpecReadSequence = 0;
 	let previousPageLastWriteSequence = 0;
-	const pages = firstMutations.map(({ page, call }) => {
+	const pages = firstMutations.map(({ page, call }, index) => {
 		const specRead = [...reads]
 			.reverse()
 			.find(
@@ -222,13 +239,22 @@ export function writePptExecutionEvidence(
 			);
 		}
 		lastSpecReadSequence = specRead.sequence;
-		const pageMutations = mutations.filter(
-			(mutation) => parseSlideNumber(mutation.normalizedPath) === page,
+		const nextPageFirstSequence =
+			firstMutations[index + 1]?.call.sequence ?? Number.MAX_SAFE_INTEGER;
+		const pageInitialMutations = initialMutations.filter(
+			(mutation) =>
+				parseSlideNumber(mutation.normalizedPath) === page &&
+				mutation.sequence < nextPageFirstSequence,
 		);
 		const lastWriteSequence = Math.max(
-			...pageMutations.map((mutation) => mutation.completedSequence),
+			...pageInitialMutations.map((mutation) => mutation.completedSequence),
 		);
 		previousPageLastWriteSequence = lastWriteSequence;
+		const finalMutationSequence = Math.max(
+			...mutations
+				.filter((mutation) => parseSlideNumber(mutation.normalizedPath) === page)
+				.map((mutation) => mutation.completedSequence),
+		);
 		const templateBaseRead = findTemplateBaseRead(
 			projectDir,
 			reads,
@@ -241,6 +267,7 @@ export function writePptExecutionEvidence(
 			specLockReadSequence: specRead.sequence,
 			firstWriteSequence: call.sequence,
 			lastWriteSequence,
+			finalMutationSequence,
 			templateBaseRead,
 		};
 	});

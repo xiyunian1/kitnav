@@ -88,7 +88,7 @@ describe("PPT hosted execution evidence", () => {
 		expect(evidence.batchReads).toHaveLength(2);
 	});
 
-		it("rejects a reused spec read or any out-of-order page mutation", () => {
+	it("rejects a reused spec read or out-of-order initial page generation", () => {
 		const root = createProject(false);
 		expect(() =>
 			writePptExecutionEvidence(
@@ -113,22 +113,65 @@ describe("PPT hosted execution evidence", () => {
 				]),
 				2,
 			),
-			).toThrow("不符合严格逐页顺序");
+		).toThrow("页面首次写入顺序不正确");
+	});
 
-			expect(() =>
-				writePptExecutionEvidence(
-					root,
-					successfulCalls([
-						["read", "spec_lock.md"],
-						["write", "svg_output/01_slide.svg"],
-						["read", "spec_lock.md"],
-						["write", "svg_output/02_slide.svg"],
-						["edit", "svg_output/01_slide.svg"],
-					]),
-					2,
-				),
-			).toThrow("开始 P02 后又回头修改 P01");
+	it("allows quality repairs after every page has been generated", () => {
+		const root = createProject(false);
+		for (let page = 3; page <= 10; page += 1) {
+			writeFileSync(
+				join(root, "svg_output", `${String(page).padStart(2, "0")}_slide.svg`),
+				"<svg/>",
+			);
+		}
+		const initialGeneration = Array.from(
+			{ length: 10 },
+			(_, index) =>
+				[
+					["read", "spec_lock.md"],
+					[
+						"write",
+						`svg_output/${String(index + 1).padStart(2, "0")}_slide.svg`,
+					],
+				] as Array<[string, string]>,
+		).flat();
+		const evidence = writePptExecutionEvidence(
+			root,
+			successfulCalls([
+				...initialGeneration,
+				["edit", "svg_output/02_slide.svg"],
+				["edit", "svg_output/03_slide.svg"],
+				["edit", "svg_output/04_slide.svg"],
+				["edit", "svg_output/09_slide.svg"],
+			]),
+			10,
+		);
+
+		expect(evidence.pages[1]).toMatchObject({
+			lastWriteSequence: 8,
+			finalMutationSequence: 42,
 		});
+	});
+
+	it("rejects backtracking before all pages have been generated", () => {
+		const root = createProject(false);
+		writeFileSync(join(root, "svg_output", "03_slide.svg"), "<svg/>");
+		expect(() =>
+			writePptExecutionEvidence(
+				root,
+				successfulCalls([
+					["read", "spec_lock.md"],
+					["write", "svg_output/01_slide.svg"],
+					["read", "spec_lock.md"],
+					["write", "svg_output/02_slide.svg"],
+					["edit", "svg_output/01_slide.svg"],
+					["read", "spec_lock.md"],
+					["write", "svg_output/03_slide.svg"],
+				]),
+				3,
+			),
+		).toThrow("页面首次生成完成前回头修改 P01");
+	});
 
 	it("requires the mapped external template base before each page", () => {
 		const root = createProject(false);

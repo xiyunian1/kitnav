@@ -1119,6 +1119,7 @@ function buildFreshExecutionPrompt(
 		"不要读取或请求任何 API Key。不得改写 design_spec.md、spec_lock.md 或图片清单；不可用图片只需在页面执行时忽略，不得改变已确认规划。",
 		"spec_lock.md 的 typography 段必须只包含字体族和不带单位的数字 px 字号，不得加入 formula_policy、body_size_unit 或其他规划元数据。",
 		"进入 Executor 前读取 .ppt-master-skill/references/executor-base.md、.ppt-master-skill/references/shared-standards.md、spec_lock.md 锁定的 .ppt-master-skill/references/modes/ 与 .ppt-master-skill/references/visual-styles/ 文件、.ppt-master-skill/references/image-layout-spec.md 和 .ppt-master-skill/references/svg-image-embedding.md。",
+		"在首个 SVG 前，根据 spec_lock.md 的 page_layouts 与 page_charts 批量读取全部锁定模板。官方模板位于 .ppt-master-skill/templates/，图表位于 .ppt-master-skill/templates/charts/；不得误读项目根目录下不存在的 templates/ 路径。",
 		`从第 1 页开始逐页生成 svg_output/*.svg，目标 ${options.slideCount} 页；每页前重新读取 spec_lock.md。`,
 		"不得写脚本批量生成 SVG，不得生成占位页，不得跳过页面。",
 		buildHostedCompositionQualityContract(options.slideCount),
