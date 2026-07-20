@@ -22,6 +22,26 @@ afterEach(() => {
 });
 
 describe("PPT hosted execution evidence", () => {
+	it("allows successful directory inspection calls alongside file evidence", () => {
+		const root = createProject();
+		const evidence = writePptExecutionEvidence(
+			root,
+			successfulCalls([
+				["ls", "svg_output"],
+				["find", ".ppt-master-skill/templates"],
+				["read", ".ppt-master-skill/templates/cover.svg"],
+				["read", ".ppt-master-skill/templates/charts/column_chart.svg"],
+				["read", "spec_lock.md"],
+				["write", "svg_output/01_slide.svg"],
+				["read", "spec_lock.md"],
+				["write", "svg_output/02_slide.svg"],
+			]),
+			2,
+		);
+
+		expect(evidence.pages.map((page) => page.page)).toEqual([1, 2]);
+	});
+
 	it("collects successful PI tool calls without retaining write content", () => {
 		const collector = new PptAgentToolCallCollector();
 		collector.consumeJsonLine(

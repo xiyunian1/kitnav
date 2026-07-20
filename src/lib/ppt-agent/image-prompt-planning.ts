@@ -96,10 +96,10 @@ export function writePptImagePromptEvidence(
 			...call,
 			sequence: call.startEventIndex ?? index * 2 + 1,
 			completedSequence: call.endEventIndex ?? index * 2 + 2,
-				normalizedPath: call.path
-					? normalizeToolPath(projectDir, call.path)
-					: "",
-			}));
+			normalizedPath: call.path && isEvidenceFileTool(call.toolName)
+				? normalizeToolPath(projectDir, call.path)
+				: "",
+		}));
 	if (ordered.some((call) => call.toolName === "bash")) {
 		throw new Error("PPT Image_Generator 图片提示词阶段不得调用 bash。");
 	}
@@ -454,6 +454,10 @@ function normalizeToolPath(projectDir: string, inputPath: string) {
 		return canonical.replaceAll(sep, "/");
 	}
 	return normalized;
+}
+
+function isEvidenceFileTool(toolName: string) {
+	return toolName === "read" || toolName === "write" || toolName === "edit";
 }
 
 function resolveExclusivePath(path: string) {

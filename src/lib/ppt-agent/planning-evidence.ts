@@ -31,7 +31,7 @@ export function writePptStrategistEvidence(
 			...call,
 			sequence: call.startEventIndex ?? index * 2 + 1,
 			completedSequence: call.endEventIndex ?? index * 2 + 2,
-			normalizedPath: call.path
+			normalizedPath: call.path && isEvidenceFileTool(call.toolName)
 				? normalizeToolPath(projectDir, call.path)
 				: "",
 		}));
@@ -262,6 +262,10 @@ function normalizeToolPath(projectDir: string, inputPath: string) {
 		return canonical.replaceAll(sep, "/");
 	}
 	return normalized;
+}
+
+function isEvidenceFileTool(toolName: string) {
+	return toolName === "read" || toolName === "write" || toolName === "edit";
 }
 
 function resolveExclusivePath(path: string) {

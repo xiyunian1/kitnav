@@ -1,4 +1,5 @@
 import {
+	linkSync,
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
@@ -23,6 +24,41 @@ afterEach(() => {
 });
 
 describe("PPT Strategist execution evidence", () => {
+	it("allows successful directory inspection calls alongside file evidence", () => {
+		const { root, requiredReads } = createProject();
+		const evidence = writePptStrategistEvidence(
+			root,
+			successfulCalls([
+				["ls", "analysis"],
+				["find", "templates"],
+				...requiredReads.map((path) => ["read", path] as [string, string]),
+				["write", "design_spec.md"],
+				["write", "spec_lock.md"],
+			]),
+		);
+
+		expect(evidence.requiredReads).toHaveLength(requiredReads.length);
+	});
+
+	it("still rejects non-exclusive file evidence", () => {
+		const { root, requiredReads } = createProject();
+		linkSync(
+			join(root, "sources", "source.md"),
+			join(root, "sources", "source-alias.md"),
+		);
+
+		expect(() =>
+			writePptStrategistEvidence(
+				root,
+				successfulCalls([
+					...requiredReads.map((path) => ["read", path] as [string, string]),
+					["write", "design_spec.md"],
+					["write", "spec_lock.md"],
+				]),
+			),
+		).toThrow("不是独占普通文件");
+	});
+
 	it("requires official planning references before design contract writes", () => {
 		const { root, requiredReads } = createProject();
 		const incomplete = successfulCalls([

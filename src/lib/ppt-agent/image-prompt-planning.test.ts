@@ -1,4 +1,5 @@
 import {
+	linkSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -24,6 +25,40 @@ afterEach(() => {
 });
 
 describe("PPT hosted image prompt planning", () => {
+	it("allows successful directory inspection calls alongside file evidence", () => {
+		const { root, skillDir, requiredReads } = createProject();
+		const evidence = writePptImagePromptEvidence(
+			root,
+			skillDir,
+			successfulCalls([
+				["ls", "analysis"],
+				["find", "images"],
+				...requiredReads.map((path) => ["read", path] as [string, string]),
+				["write", "images/image_prompts.json"],
+			]),
+			4,
+		);
+
+		expect(evidence.requiredReads).toHaveLength(requiredReads.length);
+	});
+
+	it("still rejects non-exclusive file evidence", () => {
+		const { root, skillDir, requiredReads } = createProject();
+		linkSync(join(root, "design_spec.md"), join(root, "design-spec-alias.md"));
+
+		expect(() =>
+			writePptImagePromptEvidence(
+				root,
+				skillDir,
+				successfulCalls([
+					...requiredReads.map((path) => ["read", path] as [string, string]),
+					["write", "images/image_prompts.json"],
+				]),
+				4,
+			),
+		).toThrow("不是独占普通文件");
+	});
+
 	it("requires official dimension reads before accepting the manifest", () => {
 		const { root, skillDir, requiredReads } = createProject();
 		const calls = successfulCalls([
@@ -59,7 +94,7 @@ describe("PPT hosted image prompt planning", () => {
 		const { root, skillDir, requiredReads } = createProject();
 		const calls = successfulCalls([
 			...requiredReads.map((path) => ["read", path] as [string, string]),
-			["bash", "images/image_prompts.json"],
+			["bash", "analysis"],
 			["write", "images/image_prompts.json"],
 		]);
 		expect(() =>
