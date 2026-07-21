@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Children, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
 	ArrowDown,
 	ArrowUp,
 	Check,
+	FileStack,
 	Image as ImageIcon,
 	LayoutTemplate,
 	Loader2,
@@ -17,6 +18,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
 	Select,
 	SelectContent,
@@ -24,11 +26,10 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type {
-	PptPlanningConfirmationStage,
 	PptPlanningDecision,
-	PptPlanningDraft,
 	PptPlanningRecommendations,
 } from "@/lib/ppt-agent/planning-confirmation";
 import type { PptTemplateFillConfirmation } from "@/lib/ppt-agent/template-fill-confirmation";
@@ -40,9 +41,7 @@ interface PlanningConfirmationPanelProps {
 interface DesignPlanningResponse {
 	kind: "design";
 	status: string;
-	stage: PptPlanningConfirmationStage;
 	recommendations: PptPlanningRecommendations;
-	draft: PptPlanningDraft | null;
 }
 
 interface TemplatePlanningResponse {
@@ -69,7 +68,7 @@ export function PlanningConfirmationPanel({
 	const applyResponse = useCallback((body: PlanningResponse) => {
 		setData(body);
 		if (body.kind === "design") {
-			setDecision(recommendedDecision(body.recommendations, body.draft));
+			setDecision(recommendedDecision(body.recommendations));
 			setTemplateSlides([]);
 		} else {
 			setDecision(null);
@@ -119,7 +118,7 @@ export function PlanningConfirmationPanel({
 							sourceSlide: slide.sourceSlide,
 						})),
 					}
-				: buildDesignSubmission(data.stage, decision);
+				: buildDesignSubmission(decision);
 		if (!payload) return;
 
 		setSubmitting(true);
@@ -141,6 +140,24 @@ export function PlanningConfirmationPanel({
 		} finally {
 			setSubmitting(false);
 		}
+	}
+
+	function updatePagePlan(
+		pageNumber: number,
+		changes: Partial<PptPlanningRecommendations["pagePlan"][number]>,
+	) {
+		if (!data || data.kind !== "design") return;
+		setDecision((current) =>
+			current
+				? {
+						...current,
+						pagePlan: (current.pagePlan || data.recommendations.pagePlan).map(
+							(page) =>
+								page.page === pageNumber ? { ...page, ...changes } : page,
+						),
+					}
+				: current,
+		);
 	}
 
 	function moveTemplateSlide(index: number, delta: -1 | 1) {
@@ -260,95 +277,185 @@ export function PlanningConfirmationPanel({
 
 	if (!decision) return null;
 	const recommendations = data.recommendations;
-	const stageTitle = {
-		direction: "确认设计方向",
-		"design-system": "确认设计系统",
-		execution: "确认图片与执行方案",
-	}[data.stage];
+	const pagePlan = decision.pagePlan || recommendations.pagePlan;
+	const hasInvalidPagePlan = pagePlan.some(
+		(page) =>
+			!page.title.trim() || !page.purpose.trim() || !page.layoutFamily.trim(),
+	);
 
 	return (
 		<Card className="overflow-hidden p-0">
-			<div className="border-b px-5 py-4">
-				<h2 className="text-lg font-semibold">{stageTitle}</h2>
-				<p className="mt-1 text-sm text-muted-foreground">{recommendations.summary}</p>
+			<div className="flex flex-col gap-2 border-b px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+				<div>
+					<h2 className="text-lg font-semibold">预览并调整生成方案</h2>
+					<p className="mt-1 text-sm text-muted-foreground">{recommendations.summary}</p>
+				</div>
+				<Badge variant="secondary" className="w-fit shrink-0">
+					{pagePlan.length} 页
+				</Badge>
 			</div>
 
 			<div className="divide-y">
-				{data.stage === "direction" && (
-					<ChoiceSection icon={<LayoutTemplate className="size-4" />} title="设计方向">
-						{recommendations.directions.map((option) => (
-							<Choice
-								key={option.id}
-								name="direction"
-								selected={decision.directionId === option.id}
-								recommended={option.id === recommendations.recommendedDirectionId}
-								title={option.label}
-								detail={option.rationale}
-								meta={`${option.mode} · ${option.visualStyle}`}
-								onSelect={() => setDecision({ ...decision, directionId: option.id })}
-							/>
-						))}
-					</ChoiceSection>
-				)}
+				<ChoiceSection icon={<LayoutTemplate className="size-4" />} title="设计方向">
+					{recommendations.directions.map((option) => (
+						<Choice
+							key={option.id}
+							name="direction"
+							selected={decision.directionId === option.id}
+							recommended={option.id === recommendations.recommendedDirectionId}
+							title={option.label}
+							detail={option.rationale}
+							meta={`${option.mode} · ${option.visualStyle}`}
+							onSelect={() => setDecision({ ...decision, directionId: option.id })}
+						/>
+					))}
+				</ChoiceSection>
 
-				{data.stage === "design-system" && (
-					<>
-						<ChoiceSection icon={<Palette className="size-4" />} title="配色">
-							{recommendations.palettes.map((option) => (
-								<Choice
-									key={option.id}
-									name="palette"
-									selected={decision.paletteId === option.id}
-									recommended={option.id === recommendations.recommendedPaletteId}
-									title={option.label}
-									detail={option.rationale}
-									onSelect={() => setDecision({ ...decision, paletteId: option.id })}
-									visual={<PaletteSwatches option={option} />}
-								/>
-							))}
-						</ChoiceSection>
-						<ChoiceSection icon={<Type className="size-4" />} title="字体">
-							{recommendations.typography.map((option) => (
-								<Choice
-									key={option.id}
-									name="typography"
-									selected={decision.typographyId === option.id}
-									recommended={option.id === recommendations.recommendedTypographyId}
-									title={option.label}
-									detail={option.rationale}
-									meta={`${option.heading} · 正文 ${option.bodySize}px`}
-									onSelect={() =>
-										setDecision({ ...decision, typographyId: option.id })
-									}
-								/>
-							))}
-						</ChoiceSection>
-					</>
-				)}
+				<ChoiceSection icon={<Palette className="size-4" />} title="配色">
+					{recommendations.palettes.map((option) => (
+						<Choice
+							key={option.id}
+							name="palette"
+							selected={decision.paletteId === option.id}
+							recommended={option.id === recommendations.recommendedPaletteId}
+							title={option.label}
+							detail={option.rationale}
+							onSelect={() => setDecision({ ...decision, paletteId: option.id })}
+							visual={<PaletteSwatches option={option} />}
+						/>
+					))}
+				</ChoiceSection>
 
-				{data.stage === "execution" && (
-					<ChoiceSection icon={<ImageIcon className="size-4" />} title="图片策略">
-						{recommendations.imageStrategies.map((option) => (
-							<Choice
-								key={option.id}
-								name="image-strategy"
-								selected={decision.imageStrategyId === option.id}
-								recommended={
-									option.id === recommendations.recommendedImageStrategyId
-								}
-								title={option.label}
-								detail={option.rationale}
-								meta={`${option.rendering} · ${option.palette}`}
-								onSelect={() =>
-									setDecision({ ...decision, imageStrategyId: option.id })
-								}
-							/>
+				<ChoiceSection icon={<Type className="size-4" />} title="字体">
+					{recommendations.typography.map((option) => (
+						<Choice
+							key={option.id}
+							name="typography"
+							selected={decision.typographyId === option.id}
+							recommended={option.id === recommendations.recommendedTypographyId}
+							title={option.label}
+							detail={option.rationale}
+							meta={`${option.heading} · 正文 ${option.bodySize}px`}
+							onSelect={() =>
+								setDecision({ ...decision, typographyId: option.id })
+							}
+						/>
+					))}
+				</ChoiceSection>
+
+				<ChoiceSection icon={<ImageIcon className="size-4" />} title="图片策略">
+					{recommendations.imageStrategies.map((option) => (
+						<Choice
+							key={option.id}
+							name="image-strategy"
+							selected={decision.imageStrategyId === option.id}
+							recommended={option.id === recommendations.recommendedImageStrategyId}
+							title={option.label}
+							detail={option.rationale}
+							meta={imageStrategyMeta(option)}
+							onSelect={() =>
+								setDecision({ ...decision, imageStrategyId: option.id })
+							}
+						/>
+					))}
+				</ChoiceSection>
+
+				<section>
+					<div className="flex items-center gap-2 px-5 py-4">
+						<FileStack className="size-4 text-muted-foreground" />
+						<h3 className="text-sm font-medium">逐页大纲</h3>
+					</div>
+					<div className="hidden border-t bg-muted/20 px-5 py-2 text-xs font-medium text-muted-foreground lg:grid lg:grid-cols-[48px_minmax(180px,0.8fr)_minmax(260px,1.4fr)_150px_180px] lg:gap-3">
+						<span>页码</span>
+						<span>标题</span>
+						<span>内容目标</span>
+						<span>节奏</span>
+						<span>页面类型</span>
+					</div>
+					<div className="divide-y border-t">
+						{pagePlan.map((page) => (
+							<div
+								key={page.page}
+								className="grid gap-3 px-5 py-4 lg:grid-cols-[48px_minmax(180px,0.8fr)_minmax(260px,1.4fr)_150px_180px] lg:items-start"
+							>
+								<div className="flex h-9 items-center text-sm font-semibold">
+									P{String(page.page).padStart(2, "0")}
+								</div>
+								<label>
+									<span className="mb-1 block text-xs text-muted-foreground lg:sr-only">
+										标题
+									</span>
+									<Input
+										value={page.title}
+										maxLength={200}
+										aria-invalid={!page.title.trim()}
+										onChange={(event) =>
+											updatePagePlan(page.page, { title: event.target.value })
+										}
+									/>
+								</label>
+								<label>
+									<span className="mb-1 block text-xs text-muted-foreground lg:sr-only">
+										内容目标
+									</span>
+									<Textarea
+										value={page.purpose}
+										maxLength={400}
+										aria-invalid={!page.purpose.trim()}
+										className="min-h-9 resize-y py-2"
+										onChange={(event) =>
+											updatePagePlan(page.page, { purpose: event.target.value })
+										}
+									/>
+								</label>
+								<label>
+									<span className="mb-1 block text-xs text-muted-foreground lg:sr-only">
+										节奏
+									</span>
+									<Select
+										value={page.rhythm}
+										onValueChange={(value) =>
+											updatePagePlan(page.page, {
+												rhythm: value as typeof page.rhythm,
+											})
+										}
+									>
+										<SelectTrigger className="w-full">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="anchor">重点页</SelectItem>
+											<SelectItem value="dense">信息密集</SelectItem>
+											<SelectItem value="breathing">留白过渡</SelectItem>
+										</SelectContent>
+									</Select>
+								</label>
+								<label>
+									<span className="mb-1 block text-xs text-muted-foreground lg:sr-only">
+										页面类型
+									</span>
+									<Input
+										value={page.layoutFamily}
+										maxLength={120}
+										aria-invalid={!page.layoutFamily.trim()}
+										onChange={(event) =>
+											updatePagePlan(page.page, {
+												layoutFamily: event.target.value,
+											})
+										}
+									/>
+								</label>
+							</div>
 						))}
-					</ChoiceSection>
-				)}
+					</div>
+				</section>
 			</div>
 
-			<ConfirmationFooter submitting={submitting} onSubmit={() => void submit()} />
+			<ConfirmationFooter
+				submitting={submitting}
+				disabled={hasInvalidPagePlan}
+				onSubmit={() => void submit()}
+			/>
 		</Card>
 	);
 }
@@ -372,49 +479,42 @@ async function fetchPlanningResponse(projectId: string) {
 
 function recommendedDecision(
 	recommendations: PptPlanningRecommendations,
-	draft: PptPlanningDraft | null,
 ): PptPlanningDecision {
 	return {
-		directionId: draft?.directionId || recommendations.recommendedDirectionId,
-		paletteId: draft?.paletteId || recommendations.recommendedPaletteId,
-		typographyId: draft?.typographyId || recommendations.recommendedTypographyId,
+		directionId: recommendations.recommendedDirectionId,
+		paletteId: recommendations.recommendedPaletteId,
+		typographyId: recommendations.recommendedTypographyId,
 		imageStrategyId: recommendations.recommendedImageStrategyId,
+		pagePlan: recommendations.pagePlan.map((page) => ({ ...page })),
 	};
 }
 
-function buildDesignSubmission(
-	stage: PptPlanningConfirmationStage,
-	decision: PptPlanningDecision | null,
-) {
-	if (!decision) return null;
-	if (stage === "direction") {
-		return { kind: "design", stage, directionId: decision.directionId };
-	}
-	if (stage === "design-system") {
-		return {
-			kind: "design",
-			stage,
-			paletteId: decision.paletteId,
-			typographyId: decision.typographyId,
-		};
-	}
+function buildDesignSubmission(decision: PptPlanningDecision | null) {
+	if (!decision?.pagePlan) return null;
 	return {
 		kind: "design",
-		stage,
-		imageStrategyId: decision.imageStrategyId,
+		...decision,
+		pagePlan: decision.pagePlan.map((page) => ({
+			...page,
+			title: page.title.trim(),
+			purpose: page.purpose.trim(),
+			layoutFamily: page.layoutFamily.trim(),
+		})),
 	};
 }
 
 function ConfirmationFooter({
 	submitting,
+	disabled = false,
 	onSubmit,
 }: {
 	submitting: boolean;
+	disabled?: boolean;
 	onSubmit: () => void;
 }) {
 	return (
 		<div className="flex justify-end border-t bg-muted/20 px-5 py-4">
-			<Button type="button" onClick={onSubmit} disabled={submitting}>
+			<Button type="button" onClick={onSubmit} disabled={submitting || disabled}>
 				{submitting ? (
 					<Loader2 className="size-4 animate-spin" />
 				) : (
@@ -451,6 +551,16 @@ function PaletteSwatches({
 	);
 }
 
+function imageStrategyMeta(
+	option: PptPlanningRecommendations["imageStrategies"][number],
+) {
+	if (option.usage.includes("ai")) {
+		return `${option.rendering} · ${option.palette}`;
+	}
+	if (option.usage.includes("provided")) return "使用已上传图片";
+	return "不使用外部图片";
+}
+
 function ChoiceSection({
 	icon,
 	title,
@@ -460,13 +570,22 @@ function ChoiceSection({
 	title: string;
 	children: React.ReactNode;
 }) {
+	const childCount = Children.count(children);
 	return (
 		<section className="grid gap-3 px-5 py-4 lg:grid-cols-[140px_1fr]">
 			<h3 className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
 				{icon}
 				{title}
 			</h3>
-			<div className="grid gap-2 lg:grid-cols-3">{children}</div>
+			<div
+				className={cn(
+					"grid gap-2",
+					childCount === 2 && "md:grid-cols-2",
+					childCount >= 3 && "md:grid-cols-2 xl:grid-cols-3",
+				)}
+			>
+				{children}
+			</div>
 		</section>
 	);
 }
@@ -514,7 +633,11 @@ function Choice({
 				{visual}
 			</div>
 			<p className="mt-2 line-clamp-3 text-xs leading-5 text-muted-foreground">{detail}</p>
-			{meta && <p className="mt-auto truncate pt-2 text-xs font-medium">{meta}</p>}
+			{meta && (
+				<p className="mt-auto break-words pt-2 text-xs font-medium leading-5">
+					{meta}
+				</p>
+			)}
 		</label>
 	);
 }

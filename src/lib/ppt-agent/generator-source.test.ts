@@ -47,10 +47,11 @@ describe("preparePptRunSource", () => {
 		).rejects.toThrow("设计确认资料不完整");
 	});
 
-	it("resumes an intermediate design stage without reconverting sources", async () => {
+	it("preserves an intermediate legacy confirmation task without reconverting sources", async () => {
 		const root = createConfirmedProject();
-		const original = "# preserved source";
+		const original = "# preserved legacy source";
 		writeFileSync(join(root, "sources", "source.md"), original);
+		rmSync(join(root, "analysis", "hosted_confirmation_result.json"));
 
 		await expect(
 			preparePptRunSource(
@@ -120,7 +121,6 @@ function createConfirmedProject() {
 	writeFileSync(join(root, "design_spec.md"), "# design");
 	writeFileSync(join(root, "spec_lock.md"), "# lock");
 	writeFileSync(join(root, "analysis", "hosted_confirmation.json"), "{}");
-	writeFileSync(join(root, "analysis", "hosted_confirmation_draft.json"), "{}");
 	writeFileSync(join(root, "analysis", "hosted_confirmation_result.json"), "{}");
 	return root;
 }

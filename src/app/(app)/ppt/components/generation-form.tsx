@@ -870,13 +870,13 @@ export function GenerationForm({
 								/>
 							</label>
 
-							<label className="flex h-10 min-w-0 items-center gap-2 rounded-md border bg-background px-3 text-sm">
+							<label className="flex min-h-10 min-w-0 items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm">
 								<ListChecks className="size-3.5 shrink-0 text-muted-foreground" />
-								<span className="min-w-0 flex-1 truncate">
-									生成前确认方案
+								<span className="min-w-0 flex-1 leading-5">
+									生成前预览并调整方案
 								</span>
 								<Switch
-									aria-label="生成前确认方案"
+									aria-label="生成前预览并调整方案"
 									checked={confirmDesign}
 									onCheckedChange={setConfirmDesign}
 								/>

@@ -6,17 +6,11 @@ import { JSON_BODY_LIMITS, jsonRequestErrorDetails, readLimitedJsonBody } from "
 import { getPptProjectDir } from "@/lib/ppt-agent/paths";
 import {
 	assertPptPlanningRecommendations,
-	hasPptPlanningDecision,
 	markStoredPptPlanningConfirmed,
-	markStoredPptPlanningStage,
-	readPptPlanningDraft,
-	readPptPlanningResult,
-	readStoredPptPlanningStage,
-	validatePptPlanningDesignSystem,
-	validatePptPlanningDirection,
-	validatePptPlanningExecution,
+	pptPlanningDecisionSchema,
+	pptPlanningPagePlanSchema,
+	validatePptPlanningDecision,
 	writePptPlanningDecision,
-	writePptPlanningDraft,
 } from "@/lib/ppt-agent/planning-confirmation";
 import { appendProjectLog } from "@/lib/ppt-agent/project-log";
 import {
@@ -34,24 +28,10 @@ interface LockedProject {
 	slideCount: number;
 }
 
-const designSubmissionSchema = z.discriminatedUnion("stage", [
-	z.object({
-		kind: z.literal("design"),
-		stage: z.literal("direction"),
-		directionId: z.string().trim().min(1).max(80),
-	}),
-	z.object({
-		kind: z.literal("design"),
-		stage: z.literal("design-system"),
-		paletteId: z.string().trim().min(1).max(80),
-		typographyId: z.string().trim().min(1).max(80),
-	}),
-	z.object({
-		kind: z.literal("design"),
-		stage: z.literal("execution"),
-		imageStrategyId: z.string().trim().min(1).max(80),
-	}),
-]);
+const designSubmissionSchema = pptPlanningDecisionSchema.extend({
+	kind: z.literal("design"),
+	pagePlan: pptPlanningPagePlanSchema,
+});
 
 const confirmationSubmissionSchema = z.union([
 	designSubmissionSchema,
@@ -94,15 +74,7 @@ export async function GET(
 		return Response.json({
 			kind: "design",
 			status: project.status,
-			stage: readStoredPptPlanningStage(project.params),
 			recommendations,
-			draft:
-				readStoredPptPlanningStage(project.params) === "direction"
-					? null
-					: readPptPlanningDraft(getPptProjectDir(project.id)),
-			decision: hasPptPlanningDecision(getPptProjectDir(project.id))
-				? readPptPlanningResult(getPptProjectDir(project.id))
-				: null,
 		});
 	} catch (error) {
 		return Response.json(
@@ -121,7 +93,7 @@ export async function POST(
 	let input: z.infer<typeof confirmationSubmissionSchema>;
 	try {
 		input = confirmationSubmissionSchema.parse(
-			await readLimitedJsonBody(req, JSON_BODY_LIMITS.small),
+			await readLimitedJsonBody(req, JSON_BODY_LIMITS.standard),
 		);
 	} catch (error) {
 		const details = jsonRequestErrorDetails(error, "设计方案选择不正确");
@@ -137,7 +109,7 @@ export async function POST(
 	}
 
 	const { id } = await params;
-	let confirmationLabel = "设计方向";
+	let confirmationLabel = "完整设计方案";
 	try {
 		await prisma.$transaction(async (tx) => {
 			const rows = await tx.$queryRaw<LockedProject[]>`
@@ -175,60 +147,21 @@ export async function POST(
 				throw new PlanningApiError("当前项目正在等待设计方案确认", 409);
 			}
 			const recommendations = assertPptPlanningRecommendations(projectDir, {
-				expectedSlideCount: project.slideCount,
+				expectedSlideCount: project.slideCount || 10,
 				allowAiImages: hasStoredImageModel(project.params),
 			});
-			const expectedStage = readStoredPptPlanningStage(project.params);
-			if (input.stage !== expectedStage) {
-				throw new PlanningApiError("确认阶段已更新，请刷新后重试。", 409);
-			}
-			let storedParams = project.params;
-			let currentPhase = "设计方向已确认，正在推导设计系统";
-			if (input.stage === "direction") {
-				const directionId = validatePptPlanningDirection(
-					recommendations,
-					input.directionId,
-				);
-				writePptPlanningDraft(projectDir, {
-					nextStage: "design-system",
-					directionId,
-				});
-				storedParams = markStoredPptPlanningStage(project.params, "design-system");
-				confirmationLabel = "设计方向";
-			} else if (input.stage === "design-system") {
-				const draft = readPptPlanningDraft(projectDir);
-				const selected = validatePptPlanningDesignSystem(
-					recommendations,
-					draft,
-					input,
-				);
-				writePptPlanningDraft(projectDir, {
-					nextStage: "execution",
-					directionId: draft.directionId,
-					...selected,
-				});
-				storedParams = markStoredPptPlanningStage(project.params, "execution");
-				currentPhase = "设计系统已确认，正在推导图片与执行方案";
-				confirmationLabel = "设计系统";
-			} else {
-				const draft = readPptPlanningDraft(projectDir);
-				const decision = validatePptPlanningExecution(
-					recommendations,
-					draft,
-					input.imageStrategyId,
-				);
-				writePptPlanningDecision(projectDir, decision, "user");
-				storedParams = markStoredPptPlanningConfirmed(project.params);
-				currentPhase = "完整设计方案已确认，等待继续生成";
-				confirmationLabel = "图片与执行方案";
-			}
+			const decision = validatePptPlanningDecision(
+				recommendations,
+				input,
+			);
+			writePptPlanningDecision(projectDir, decision, "user");
 			await tx.pptProject.update({
 				where: { id: project.id },
 				data: {
-					params: storedParams,
+					params: markStoredPptPlanningConfirmed(project.params),
 					status: "QUEUED",
 					workerLease: null,
-					currentPhase,
+					currentPhase: "完整设计方案已确认，等待继续生成",
 					progress: 31,
 					error: null,
 				},

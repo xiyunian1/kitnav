@@ -15,6 +15,7 @@ describe("rebuildGenerationParams", () => {
 						typographyPreference: "editorial",
 						confirmDesign: true,
 						planningConfirmed: true,
+						planningConfirmationStage: "complete",
 						textCreditsCost: 100,
 				}),
 				"lease-1",
@@ -30,6 +31,7 @@ describe("rebuildGenerationParams", () => {
 				typographyPreference: "editorial",
 				confirmDesign: true,
 				planningConfirmed: true,
+				planningConfirmationStage: "complete",
 				textCreditsCost: 100,
 			});
 	});

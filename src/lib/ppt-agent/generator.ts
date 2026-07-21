@@ -40,10 +40,10 @@ import type {
 import { getPptInternalErrorMessage } from "./status";
 import {
 	isPptPlanningConfirmationRequiredError,
-	getPptPlanningDraftPath,
 	getPptPlanningDecisionPath,
 	getPptPlanningRecommendationsPath,
-	type PptPlanningConfirmationStage,
+	isLegacyPptPlanningConfirmationStage,
+	type LegacyPptPlanningConfirmationStage,
 } from "./planning-confirmation";
 import { getPptTemplateFillDecisionPath } from "./template-fill-confirmation";
 
@@ -74,10 +74,8 @@ export interface GenerationParams {
 	visualReview?: boolean;
 	confirmDesign?: boolean;
 	planningConfirmed?: boolean;
-	planningConfirmationStage?: Exclude<
-		PptPlanningConfirmationStage,
-		"direction"
-	> | "complete";
+	// Transitional support for jobs queued by the former staged confirmation flow.
+	planningConfirmationStage?: LegacyPptPlanningConfirmationStage;
 	textVolume?: PptTextVolume;
 	audience?: PptAudience;
 	tone?: PptTone;
@@ -230,7 +228,6 @@ export async function generatePPT(
 			? {
 					...params,
 					planningConfirmed: true,
-					planningConfirmationStage: "complete" as const,
 				}
 			: params;
 		const result = await runPptMasterAgent(agentParams, runnerOptions);
@@ -257,11 +254,7 @@ export async function generatePPT(
 			const waitingForTemplate = error.kind === "template-fill";
 			const confirmationLabel = waitingForTemplate
 				? "模板填充方案"
-				: error.stage === "design-system"
-					? "设计系统"
-					: error.stage === "execution"
-						? "图片与执行方案"
-						: "设计方向";
+				: "完整设计方案";
 			await emitProjectLog(
 				params.projectId,
 				emit,
@@ -307,7 +300,8 @@ export async function preparePptRunSource(
 ) {
 	const sourcePath = join(projectDir, "sources", "source.md");
 	const explicitResume = Boolean(
-		params.planningConfirmed || params.planningConfirmationStage,
+		params.planningConfirmed ||
+			isLegacyPptPlanningConfirmationStage(params.planningConfirmationStage),
 	);
 	const automaticResumeArtifacts = [
 		sourcePath,
@@ -334,9 +328,9 @@ export async function preparePptRunSource(
 						join(projectDir, "design_spec.md"),
 						join(projectDir, "spec_lock.md"),
 						getPptPlanningRecommendationsPath(projectDir),
-					...(params.planningConfirmed || resumeAutomaticPlanning
-						? [getPptPlanningDecisionPath(projectDir)]
-						: [getPptPlanningDraftPath(projectDir)]),
+						...(params.planningConfirmed || resumeAutomaticPlanning
+							? [getPptPlanningDecisionPath(projectDir)]
+							: []),
 					];
 		if (requiredResumeArtifacts.some((path) => !existsSync(path))) {
 			throw new Error("PPT 设计确认资料不完整，无法继续原任务。");

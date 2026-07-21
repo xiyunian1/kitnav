@@ -3,6 +3,7 @@ import {
 	mkdirSync,
 	readFileSync,
 	renameSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -88,20 +89,7 @@ const pagePlanSchema = z.object({
 	layoutFamily: z.string().trim().min(1).max(120),
 });
 
-const derivationSchema = z.discriminatedUnion("stage", [
-	z.object({
-		stage: z.literal("design-system"),
-		directionId: idSchema,
-		derivedAt: z.string().datetime(),
-	}),
-	z.object({
-		stage: z.literal("execution"),
-		directionId: idSchema,
-		paletteId: idSchema,
-		typographyId: idSchema,
-		derivedAt: z.string().datetime(),
-	}),
-]);
+export const pptPlanningPagePlanSchema = z.array(pagePlanSchema).min(3).max(30);
 
 export const pptPlanningRecommendationsSchema = z
 	.object({
@@ -111,30 +99,29 @@ export const pptPlanningRecommendationsSchema = z
 		palettes: z.array(paletteSchema).length(3),
 		typography: z.array(typographySchema).length(3),
 		imageStrategies: z.array(imageStrategySchema).min(1).max(3),
-		pagePlan: z.array(pagePlanSchema).min(3).max(30),
+		pagePlan: pptPlanningPagePlanSchema,
 		recommendedDirectionId: idSchema,
 		recommendedPaletteId: idSchema,
-			recommendedTypographyId: idSchema,
-			recommendedImageStrategyId: idSchema,
-			derivation: derivationSchema.optional(),
-		})
-		.superRefine((value, ctx) => {
-			for (const [field, options] of [
-				["directions", value.directions],
-				["palettes", value.palettes],
-				["typography", value.typography],
-				["imageStrategies", value.imageStrategies],
-			] as const) {
-				const ids = options.map((option) => option.id);
-				if (new Set(ids).size !== ids.length) {
-					ctx.addIssue({
-						code: "custom",
-						path: [field],
-						message: `${field} contains duplicate ids`,
-					});
-				}
+		recommendedTypographyId: idSchema,
+		recommendedImageStrategyId: idSchema,
+	})
+	.superRefine((value, ctx) => {
+		for (const [field, options] of [
+			["directions", value.directions],
+			["palettes", value.palettes],
+			["typography", value.typography],
+			["imageStrategies", value.imageStrategies],
+		] as const) {
+			const ids = options.map((option) => option.id);
+			if (new Set(ids).size !== ids.length) {
+				ctx.addIssue({
+					code: "custom",
+					path: [field],
+					message: `${field} contains duplicate ids`,
+				});
 			}
-			for (const [field, options, selected] of [
+		}
+		for (const [field, options, selected] of [
 			["recommendedDirectionId", value.directions, value.recommendedDirectionId],
 			["recommendedPaletteId", value.palettes, value.recommendedPaletteId],
 			["recommendedTypographyId", value.typography, value.recommendedTypographyId],
@@ -159,35 +146,8 @@ export const pptPlanningDecisionSchema = z.object({
 	paletteId: idSchema,
 	typographyId: idSchema,
 	imageStrategyId: idSchema,
+	pagePlan: pptPlanningPagePlanSchema.optional(),
 });
-
-export const pptPlanningConfirmationStageSchema = z.enum([
-	"direction",
-	"design-system",
-	"execution",
-]);
-
-export const pptPlanningDraftSchema = z
-	.object({
-		schema: z.literal("ppt_hosted_planning_draft.v1"),
-		nextStage: z.enum(["design-system", "execution"]),
-		directionId: idSchema,
-		paletteId: idSchema.optional(),
-		typographyId: idSchema.optional(),
-		updatedAt: z.string().datetime(),
-	})
-	.superRefine((value, ctx) => {
-		if (
-			value.nextStage === "execution" &&
-			(!value.paletteId || !value.typographyId)
-		) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["nextStage"],
-				message: "execution stage requires paletteId and typographyId",
-			});
-		}
-	});
 
 export const pptPlanningResultSchema = pptPlanningDecisionSchema.extend({
 	schema: z.literal("ppt_hosted_planning_result.v1"),
@@ -200,10 +160,10 @@ export type PptPlanningRecommendations = z.infer<
 >;
 export type PptPlanningDecision = z.infer<typeof pptPlanningDecisionSchema>;
 export type PptPlanningResult = z.infer<typeof pptPlanningResultSchema>;
-export type PptPlanningConfirmationStage = z.infer<
-	typeof pptPlanningConfirmationStageSchema
->;
-export type PptPlanningDraft = z.infer<typeof pptPlanningDraftSchema>;
+export type LegacyPptPlanningConfirmationStage =
+	| "design-system"
+	| "execution"
+	| "complete";
 
 export interface PptPlanningValidationOptions {
 	expectedSlideCount: number;
@@ -212,11 +172,7 @@ export interface PptPlanningValidationOptions {
 }
 
 export class PptPlanningConfirmationRequiredError extends Error {
-	constructor(
-		public readonly kind: "design" | "template-fill" = "design",
-		public readonly stage: PptPlanningConfirmationStage | "template-fill" =
-			"direction",
-	) {
+	constructor(public readonly kind: "design" | "template-fill" = "design") {
 		super(
 			kind === "template-fill"
 				? "PPT 模板填充方案正在等待用户确认。"
@@ -232,6 +188,12 @@ export function isPptPlanningConfirmationRequiredError(
 	return error instanceof PptPlanningConfirmationRequiredError;
 }
 
+export function isLegacyPptPlanningConfirmationStage(
+	value: unknown,
+): value is LegacyPptPlanningConfirmationStage {
+	return value === "design-system" || value === "execution" || value === "complete";
+}
+
 export function getPptPlanningRecommendationsPath(projectDir: string) {
 	return join(projectDir, "analysis", "hosted_confirmation.json");
 }
@@ -240,20 +202,12 @@ export function getPptPlanningDecisionPath(projectDir: string) {
 	return join(projectDir, "analysis", "hosted_confirmation_result.json");
 }
 
-export function getPptPlanningDraftPath(projectDir: string) {
-	return join(projectDir, "analysis", "hosted_confirmation_draft.json");
-}
-
 export function hasPptPlanningRecommendations(projectDir: string) {
 	return existsSync(getPptPlanningRecommendationsPath(projectDir));
 }
 
 export function hasPptPlanningDecision(projectDir: string) {
 	return existsSync(getPptPlanningDecisionPath(projectDir));
-}
-
-export function hasPptPlanningDraft(projectDir: string) {
-	return existsSync(getPptPlanningDraftPath(projectDir));
 }
 
 export function readPptPlanningRecommendations(projectDir: string) {
@@ -276,17 +230,6 @@ export function readPptPlanningResult(projectDir: string) {
 	} catch (error) {
 		throw new Error(
 			`无法读取有效的 PPT 设计确认结果：${error instanceof Error ? error.message : String(error)}`,
-		);
-	}
-}
-
-export function readPptPlanningDraft(projectDir: string) {
-	const path = getPptPlanningDraftPath(projectDir);
-	try {
-		return pptPlanningDraftSchema.parse(JSON.parse(readFileSync(path, "utf-8")));
-	} catch (error) {
-		throw new Error(
-			`无法读取有效的 PPT 分阶段确认草稿：${error instanceof Error ? error.message : String(error)}`,
 		);
 	}
 }
@@ -357,67 +300,19 @@ export function validatePptPlanningDecision(
 	if (available.some(([id, options]) => !options.some((option) => option.id === id))) {
 		throw new Error("选择的 PPT 设计方案已失效，请刷新后重试。");
 	}
+	if (decision.pagePlan) {
+		if (decision.pagePlan.length !== recommendations.pagePlan.length) {
+			throw new Error("调整后的 PPT 逐页计划页数不正确，请刷新后重试。");
+		}
+		if (
+			decision.pagePlan.some(
+				(page, index) => page.page !== recommendations.pagePlan[index]?.page,
+			)
+		) {
+			throw new Error("调整后的 PPT 逐页计划顺序不正确，请刷新后重试。");
+		}
+	}
 	return decision;
-}
-
-export function validatePptPlanningDirection(
-	recommendations: PptPlanningRecommendations,
-	directionId: string,
-) {
-	const id = idSchema.parse(directionId);
-	if (!recommendations.directions.some((option) => option.id === id)) {
-		throw new Error("选择的 PPT 设计方向已失效，请刷新后重试。");
-	}
-	return id;
-}
-
-export function validatePptPlanningDesignSystem(
-	recommendations: PptPlanningRecommendations,
-	draft: PptPlanningDraft,
-	input: { paletteId: string; typographyId: string },
-) {
-	if (
-		draft.nextStage !== "design-system" ||
-		!recommendations.directions.some((option) => option.id === draft.directionId)
-	) {
-		throw new Error("PPT 设计方向确认状态已失效，请刷新后重试。");
-	}
-	const paletteId = idSchema.parse(input.paletteId);
-	const typographyId = idSchema.parse(input.typographyId);
-	if (!recommendations.palettes.some((option) => option.id === paletteId)) {
-		throw new Error("选择的 PPT 配色方案已失效，请刷新后重试。");
-	}
-	if (!recommendations.typography.some((option) => option.id === typographyId)) {
-		throw new Error("选择的 PPT 字体方案已失效，请刷新后重试。");
-	}
-	return { paletteId, typographyId };
-}
-
-export function validatePptPlanningExecution(
-	recommendations: PptPlanningRecommendations,
-	draft: PptPlanningDraft,
-	imageStrategyId: string,
-) {
-	if (
-		draft.nextStage !== "execution" ||
-		!draft.paletteId ||
-		!draft.typographyId ||
-		!recommendations.directions.some((option) => option.id === draft.directionId) ||
-		!recommendations.palettes.some((option) => option.id === draft.paletteId) ||
-		!recommendations.typography.some((option) => option.id === draft.typographyId)
-	) {
-		throw new Error("PPT 设计系统确认状态已失效，请刷新后重试。");
-	}
-	const id = idSchema.parse(imageStrategyId);
-	if (!recommendations.imageStrategies.some((option) => option.id === id)) {
-		throw new Error("选择的 PPT 图片策略已失效，请刷新后重试。");
-	}
-	return {
-		directionId: draft.directionId,
-		paletteId: draft.paletteId,
-		typographyId: draft.typographyId,
-		imageStrategyId: id,
-	};
 }
 
 export function writePptPlanningDecision(
@@ -446,23 +341,6 @@ export function writePptPlanningDecision(
 	return path;
 }
 
-export function writePptPlanningDraft(
-	projectDir: string,
-	draft: Omit<PptPlanningDraft, "schema" | "updatedAt">,
-) {
-	const path = getPptPlanningDraftPath(projectDir);
-	mkdirSync(join(projectDir, "analysis"), { recursive: true });
-	const value = pptPlanningDraftSchema.parse({
-		schema: "ppt_hosted_planning_draft.v1",
-		...draft,
-		updatedAt: new Date().toISOString(),
-	});
-	const temporaryPath = `${path}.${process.pid}.${Date.now()}.tmp`;
-	writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf-8");
-	renameSync(temporaryPath, path);
-	return path;
-}
-
 export function writeAutomaticPptPlanningDecision(projectDir: string) {
 	const recommendations = readPptPlanningRecommendations(projectDir);
 	return writePptPlanningDecision(
@@ -480,32 +358,8 @@ export function writeAutomaticPptPlanningDecision(projectDir: string) {
 export function markStoredPptPlanningConfirmed(paramsJson: string | null) {
 	return updateStoredPptPlanningState(paramsJson, {
 		planningConfirmed: true,
-		planningConfirmationStage: "complete",
+		planningConfirmationStage: undefined,
 	});
-}
-
-export function markStoredPptPlanningStage(
-	paramsJson: string | null,
-	stage: Exclude<PptPlanningConfirmationStage, "direction">,
-) {
-	return updateStoredPptPlanningState(paramsJson, {
-		planningConfirmed: false,
-		planningConfirmationStage: stage,
-	});
-}
-
-export function readStoredPptPlanningStage(
-	paramsJson: string | null,
-): PptPlanningConfirmationStage {
-	if (!paramsJson) return "direction";
-	try {
-		const parsed = JSON.parse(paramsJson) as Record<string, unknown>;
-		return pptPlanningConfirmationStageSchema.catch("direction").parse(
-			parsed.planningConfirmationStage,
-		);
-	} catch {
-		return "direction";
-	}
 }
 
 function updateStoredPptPlanningState(
@@ -528,39 +382,6 @@ function updateStoredPptPlanningState(
 	});
 }
 
-export function assertPptPlanningStageDerived(
-	recommendations: PptPlanningRecommendations,
-	draft: PptPlanningDraft,
-	stage: "design-system" | "execution",
-) {
-	const derivation = recommendations.derivation;
-	if (!derivation || derivation.stage !== stage) {
-		throw new Error(`PPT ${stage} 候选缺少基于上游选择的重新推导记录。`);
-	}
-	if (derivation.directionId !== draft.directionId) {
-		throw new Error("PPT 分阶段候选没有基于用户确认的设计方向重新推导。");
-	}
-	if (!recommendations.directions.some((option) => option.id === draft.directionId)) {
-		throw new Error("PPT 分阶段候选丢失了用户确认的设计方向。");
-	}
-	if (stage === "execution") {
-		if (
-			derivation.stage !== "execution" ||
-			derivation.paletteId !== draft.paletteId ||
-			derivation.typographyId !== draft.typographyId
-		) {
-			throw new Error("PPT 执行候选没有基于用户确认的配色与字体重新推导。");
-		}
-		if (
-			!recommendations.palettes.some((option) => option.id === draft.paletteId) ||
-			!recommendations.typography.some((option) => option.id === draft.typographyId)
-		) {
-			throw new Error("PPT 执行候选丢失了用户确认的设计系统。");
-		}
-	}
-	return recommendations;
-}
-
 export function resolvePptPlanningSelection(
 	recommendations: PptPlanningRecommendations,
 	decision: PptPlanningDecision,
@@ -579,7 +400,7 @@ export function resolvePptPlanningSelection(
 		imageStrategy: recommendations.imageStrategies.find(
 			(option) => option.id === valid.imageStrategyId,
 		)!,
-		pagePlan: recommendations.pagePlan,
+		pagePlan: valid.pagePlan || recommendations.pagePlan,
 	};
 }
 
@@ -593,6 +414,7 @@ export function assertPptPlanningDecisionApplied(projectDir: string) {
 		throw new Error("应用设计确认结果后缺少 design_spec.md 或 spec_lock.md。");
 	}
 	const specLock = readFileSync(specLockPath, "utf-8");
+	const designSpec = readFileSync(designSpecPath, "utf-8");
 	const requiredLines = [
 		`- mode: ${selected.direction.mode}`,
 		`- visual_style: ${selected.direction.visualStyle}`,
@@ -620,6 +442,13 @@ export function assertPptPlanningDecisionApplied(projectDir: string) {
 			throw new Error(`spec_lock.md 未应用第 ${page.page} 页节奏：${page.rhythm}`);
 		}
 	}
+	assertEditedPptPagePlanApplied({
+		recommendations,
+		result,
+		designSpec,
+		designSpecPath,
+		decisionPath: getPptPlanningDecisionPath(projectDir),
+	});
 	if (selected.imageStrategy.usage.includes("ai")) {
 		for (const line of [
 			`- image_rendering: ${selected.imageStrategy.rendering}`,
@@ -631,6 +460,54 @@ export function assertPptPlanningDecisionApplied(projectDir: string) {
 		}
 	}
 	return selected;
+}
+
+function assertEditedPptPagePlanApplied(input: {
+	recommendations: PptPlanningRecommendations;
+	result: PptPlanningResult;
+	designSpec: string;
+	designSpecPath: string;
+	decisionPath: string;
+}) {
+	if (input.result.source !== "user" || !input.result.pagePlan) return;
+	const editedPages = input.result.pagePlan.flatMap((page, index) => {
+		const recommended = input.recommendations.pagePlan[index];
+		if (!recommended) return [page];
+		return page.title !== recommended.title ||
+			page.purpose !== recommended.purpose ||
+			page.rhythm !== recommended.rhythm ||
+			page.layoutFamily !== recommended.layoutFamily
+			? [page]
+			: [];
+	});
+	if (editedPages.length === 0) return;
+	if (
+		statSync(input.designSpecPath).mtimeMs <= statSync(input.decisionPath).mtimeMs
+	) {
+		throw new Error("用户调整后的 PPT 逐页计划尚未经过规划修订。");
+	}
+
+	const normalizedDesignSpec = normalizePlanningText(input.designSpec);
+	for (const page of editedPages) {
+		const recommended = input.recommendations.pagePlan[page.page - 1];
+		if (!recommended) continue;
+		for (const [field, label] of [
+			["title", "标题"],
+			["purpose", "内容目标"],
+			["layoutFamily", "页面类型"],
+		] as const) {
+			if (page[field] === recommended[field]) continue;
+			if (!normalizedDesignSpec.includes(normalizePlanningText(page[field]))) {
+				throw new Error(
+					`design_spec.md 未应用用户调整的第 ${page.page} 页${label}。`,
+				);
+			}
+		}
+	}
+}
+
+function normalizePlanningText(value: string) {
+	return value.normalize("NFKC").replace(/\s+/g, " ").trim();
 }
 
 function assertOfficialReferenceId(

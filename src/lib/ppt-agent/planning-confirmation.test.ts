@@ -3,6 +3,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,19 +12,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	assertPptPlanningDecisionApplied,
 	assertPptPlanningRecommendations,
-	assertPptPlanningStageDerived,
 	markStoredPptPlanningConfirmed,
-	markStoredPptPlanningStage,
-	readPptPlanningDraft,
 	readPptPlanningRecommendations,
 	readPptPlanningResult,
 	resolvePptPlanningSelection,
 	validatePptPlanningDecision,
-	validatePptPlanningDesignSystem,
-	validatePptPlanningDirection,
-	validatePptPlanningExecution,
 	writeAutomaticPptPlanningDecision,
-	writePptPlanningDraft,
+	writePptPlanningDecision,
 } from "./planning-confirmation";
 
 const roots: string[] = [];
@@ -189,102 +184,139 @@ describe("PPT planning confirmation", () => {
 					JSON.stringify({ prompt: "topic", confirmDesign: true }),
 				),
 			),
-			).toEqual({
-				prompt: "topic",
-				confirmDesign: true,
-				planningConfirmed: true,
-				planningConfirmationStage: "complete",
-			});
-			expect(
-				JSON.parse(
-					markStoredPptPlanningStage(
-						JSON.stringify({ prompt: "topic", confirmDesign: true }),
-						"design-system",
-					),
-				),
-			).toMatchObject({
-				planningConfirmed: false,
-				planningConfirmationStage: "design-system",
-			});
+		).toEqual({
+			prompt: "topic",
+			confirmDesign: true,
+			planningConfirmed: true,
+		});
+	});
+
+	it("stores a complete user selection with edited page planning", () => {
+		const root = createRecommendations();
+		const recommendations = readPptPlanningRecommendations(root);
+		const pagePlan = recommendations.pagePlan.map((page) =>
+			page.page === 2
+				? {
+						...page,
+						title: "Edited page title",
+						purpose: "Edited page purpose",
+						rhythm: "dense" as const,
+						layoutFamily: "comparison",
+					}
+				: page,
+		);
+		const decision = validatePptPlanningDecision(recommendations, {
+			directionId: "bold",
+			paletteId: "vivid",
+			typographyId: "strong",
+			imageStrategyId: "none",
+			pagePlan,
 		});
 
-		it("validates staged choices and requires downstream derivation evidence", () => {
-			const root = createRecommendations();
-			let recommendations = readPptPlanningRecommendations(root);
-			const directionId = validatePptPlanningDirection(recommendations, "safe");
-			writePptPlanningDraft(root, { nextStage: "design-system", directionId });
-			const designDraft = readPptPlanningDraft(root);
-			const designSystem = validatePptPlanningDesignSystem(
-				recommendations,
-				designDraft,
-				{ paletteId: "light", typographyId: "clean" },
-			);
-			writePptPlanningDraft(root, {
-				nextStage: "execution",
-				directionId,
-				...designSystem,
-			});
+		writePptPlanningDecision(root, decision, "user");
 
-			const recommendationPath = join(
-				root,
-				"analysis",
-				"hosted_confirmation.json",
-			);
-			const raw = JSON.parse(readFileSync(recommendationPath, "utf-8"));
-			raw.derivation = {
-				stage: "execution",
-				directionId,
-				paletteId: "light",
-				typographyId: "clean",
-				derivedAt: new Date().toISOString(),
-			};
-			writeFileSync(recommendationPath, JSON.stringify(raw));
-			recommendations = readPptPlanningRecommendations(root);
-			const executionDraft = readPptPlanningDraft(root);
-			expect(
-				assertPptPlanningStageDerived(
-					recommendations,
-					executionDraft,
-					"execution",
-				).derivation?.stage,
-			).toBe("execution");
-			expect(
-				validatePptPlanningExecution(recommendations, executionDraft, "none"),
-			).toEqual({
+		const result = readPptPlanningResult(root);
+		expect(result.source).toBe("user");
+		expect(resolvePptPlanningSelection(recommendations, result).pagePlan[1]).toMatchObject({
+			title: "Edited page title",
+			purpose: "Edited page purpose",
+			rhythm: "dense",
+			layoutFamily: "comparison",
+		});
+	});
+
+	it("rejects an edited page plan with a changed page order", () => {
+		const root = createRecommendations();
+		const recommendations = readPptPlanningRecommendations(root);
+		const reversed = [...recommendations.pagePlan].reverse();
+
+		expect(() =>
+			validatePptPlanningDecision(recommendations, {
 				directionId: "safe",
 				paletteId: "light",
 				typographyId: "clean",
 				imageStrategyId: "none",
-			});
+				pagePlan: reversed,
+			}),
+		).toThrow("顺序不正确");
+	});
+
+	it("requires edited page details to be applied after user confirmation", () => {
+		const root = createRecommendations();
+		const recommendations = readPptPlanningRecommendations(root);
+		const pagePlan = recommendations.pagePlan.map((page) =>
+			page.page === 2
+				? {
+						...page,
+						title: "Edited page title",
+						purpose: "Edited page purpose",
+						layoutFamily: "comparison",
+					}
+				: page,
+		);
+		const designSpecPath = join(root, "design_spec.md");
+		writeFileSync(designSpecPath, "# Initial design\n");
+		writeRecommendedSpecLock(root);
+		writePptPlanningDecision(
+			root,
+			{
+				directionId: "safe",
+				paletteId: "light",
+				typographyId: "clean",
+				imageStrategyId: "none",
+				pagePlan,
+			},
+			"user",
+		);
+
+		expect(() => assertPptPlanningDecisionApplied(root)).toThrow(
+			"尚未经过规划修订",
+		);
+
+		writeFileSync(
+			designSpecPath,
+			"# Updated design\n\nEdited page title\nEdited page purpose\ncomparison\n",
+		);
+		const afterConfirmation = new Date(Date.now() + 2_000);
+		utimesSync(designSpecPath, afterConfirmation, afterConfirmation);
+		expect(assertPptPlanningDecisionApplied(root).pagePlan[1]).toMatchObject({
+			title: "Edited page title",
+			purpose: "Edited page purpose",
+			layoutFamily: "comparison",
 		});
+	});
 
 	it("checks that the confirmed design is applied to the execution lock", () => {
 		const root = createRecommendations();
 		writeAutomaticPptPlanningDecision(root);
 		writeFileSync(join(root, "design_spec.md"), "# Design\n");
-		writeFileSync(
-			join(root, "spec_lock.md"),
-			[
-				"## mode",
-				"- mode: briefing",
-				"## visual_style",
-				"- visual_style: swiss-minimal",
-				"## colors",
-				"- bg: #FFFFFF",
-				"- secondary_bg: #F3F4F6",
-				"- primary: #111827",
-				"- accent: #2563EB",
-				"- text: #1F2937",
-				"## typography",
-				"- title_family: Microsoft YaHei",
-				"- body_family: Microsoft YaHei",
-				"- body: 24",
-				"## page_rhythm",
-				"- P01: anchor",
-				"- P02: anchor",
-				"- P03: anchor",
-			].join("\n"),
-		);
+		writeRecommendedSpecLock(root);
 		expect(assertPptPlanningDecisionApplied(root).palette.id).toBe("light");
 	});
 });
+
+function writeRecommendedSpecLock(root: string) {
+	writeFileSync(
+		join(root, "spec_lock.md"),
+		[
+			"## mode",
+			"- mode: briefing",
+			"## visual_style",
+			"- visual_style: swiss-minimal",
+			"## colors",
+			"- bg: #FFFFFF",
+			"- secondary_bg: #F3F4F6",
+			"- primary: #111827",
+			"- accent: #2563EB",
+			"- text: #1F2937",
+			"## typography",
+			"- title_family: Microsoft YaHei",
+			"- body_family: Microsoft YaHei",
+			"- body: 24",
+			"## page_rhythm",
+			"- P01: anchor",
+			"- P02: anchor",
+			"- P03: anchor",
+		].join("\n"),
+	);
+}

@@ -88,14 +88,12 @@ import {
 import {
 	assertPptPlanningDecisionApplied,
 	assertPptPlanningRecommendations,
-	assertPptPlanningStageDerived,
 	getPptPlanningDecisionPath,
-	getPptPlanningDraftPath,
 	getPptPlanningRecommendationsPath,
 	hasPptPlanningDecision,
 	hasPptPlanningRecommendations,
+	isLegacyPptPlanningConfirmationStage,
 	PptPlanningConfirmationRequiredError,
-	readPptPlanningDraft,
 	readPptPlanningRecommendations,
 	readPptPlanningResult,
 	resolvePptPlanningSelection,
@@ -300,14 +298,17 @@ async function runConfiguredPptMasterAgent(
 	let executorPhaseProtection: PptAgentPhaseProtection | null = null;
 	const resumeExistingPlanning =
 		options.workflow === "svg" &&
-		Boolean(params.planningConfirmed || params.planningConfirmationStage);
+		Boolean(
+			params.planningConfirmed ||
+				isLegacyPptPlanningConfirmationStage(params.planningConfirmationStage),
+		);
 	if (resumeExistingPlanning) {
 		await emitProjectLog(
 			params.projectId,
 			options.emit,
 			params.planningConfirmed
 				? "恢复已确认的规划任务，跳过资料转换和初始 Strategist 会话"
-				: "恢复分阶段确认任务，跳过资料转换和初始 Strategist 会话",
+				: "检测到旧版分阶段确认任务，保留现有规划并切换到完整方案确认",
 			options.workerLease,
 		);
 	} else {
@@ -407,38 +408,17 @@ async function runConfiguredPptMasterAgent(
 					strategistToolCaptureComplete,
 				);
 			}
-			let recommendations = assertPptPlanningRecommendations(
-			options.projectDir,
+			const recommendations = assertPptPlanningRecommendations(
+				options.projectDir,
 				{
 					expectedSlideCount: options.slideCount,
 					allowAiImages: requiresAiImages,
 					skillDir,
 				},
-		);
-		if (
-			params.confirmDesign &&
-			!params.planningConfirmed &&
-			(params.planningConfirmationStage === "design-system" ||
-				params.planningConfirmationStage === "execution")
-		) {
-			recommendations = await runHostedPlanningStageDerivation({
-				params,
-				options,
-				skillDir,
-				promptPath,
-				piConfig,
-				stage: params.planningConfirmationStage,
-				turn: currentTurn + 1,
-				requiresImageManifest: requiresAiImages,
-			});
-			throw new PptPlanningConfirmationRequiredError(
-				"design",
-				params.planningConfirmationStage,
 			);
-		}
 		if (!hasPptPlanningDecision(options.projectDir)) {
 			if (params.confirmDesign && !params.planningConfirmed) {
-				throw new PptPlanningConfirmationRequiredError("design", "direction");
+				throw new PptPlanningConfirmationRequiredError("design");
 			}
 			writeAutomaticPptPlanningDecision(options.projectDir);
 			await emitProjectLog(
@@ -626,10 +606,7 @@ async function runConfiguredPptMasterAgent(
 		assertNativeTemplateFillArtifacts(options.projectDir, options.slideCount, {
 			requiredStatus: "draft",
 		});
-		throw new PptPlanningConfirmationRequiredError(
-			"template-fill",
-			"template-fill",
-		);
+		throw new PptPlanningConfirmationRequiredError("template-fill");
 	}
 
 	if (
@@ -955,114 +932,6 @@ function buildHostedPlanningRecommendationContract(
 	].join("\n");
 }
 
-async function runHostedPlanningStageDerivation(input: {
-	params: GenerationParams;
-	options: RunnerOptions;
-	skillDir: string;
-	promptPath: string;
-	piConfig: PreparedPiAgentConfig;
-	stage: "design-system" | "execution";
-	turn: number;
-	requiresImageManifest: boolean;
-}) {
-	const { params, options, stage } = input;
-	const draft = readPptPlanningDraft(options.projectDir);
-	if (draft.nextStage !== stage) {
-		throw new Error("PPT 分阶段确认草稿与当前恢复阶段不一致。");
-	}
-	const phaseProtection = createHostedPlanningDerivationProtection(options);
-	await updateProject(
-		params.projectId,
-		{
-			status: "STRATEGIZING",
-			currentPhase:
-				stage === "design-system"
-					? "正在根据设计方向推导设计系统"
-					: "正在根据设计系统推导图片与执行方案",
-			progress: 30,
-		},
-		options.workerLease,
-	);
-	const command = resolveAgentCommand(
-		params.projectId,
-		options.projectDir,
-		input.skillDir,
-		input.promptPath,
-		buildHostedPlanningStageDerivationPrompt(
-			options,
-			stage,
-			input.requiresImageManifest,
-		),
-		buildPptPhaseSessionId(params.projectId, `planning-${stage}`),
-		input.piConfig,
-	);
-	await emitProjectLog(
-		params.projectId,
-		options.emit,
-		stage === "design-system"
-			? "根据已确认方向启动独立设计系统推导会话"
-			: "根据已确认设计系统启动独立图片与执行推导会话",
-		options.workerLease,
-	);
-	await runProtectedAgentCommand(
-		params.projectId,
-		command,
-		options,
-		input.turn,
-		phaseProtection,
-		"PPT 规划推导",
-	);
-	const recommendations = assertPptPlanningRecommendations(options.projectDir, {
-		expectedSlideCount: options.slideCount,
-		allowAiImages: input.requiresImageManifest,
-		skillDir: input.skillDir,
-	});
-	assertPptPlanningStageDerived(recommendations, draft, stage);
-	return recommendations;
-}
-
-function buildHostedPlanningStageDerivationPrompt(
-	options: RunnerOptions,
-	stage: "design-system" | "execution",
-	requiresImageManifest: boolean,
-) {
-	const stageInstructions =
-		stage === "design-system"
-			? [
-					"- 读取 hosted_confirmation_draft.json 中用户已确认的 directionId，并从 hosted_confirmation.json 找到对应 direction。",
-					"- 基于该 direction 的 mode、visualStyle、deliveryPurpose，以及完整资料，重新推导 3 套 palette 和 3 套 typography。不得沿用未确认方向产生的下游候选。",
-					"- 保留 directions、imageStrategies 与 pagePlan；保留用户选中的 direction id。更新推荐 palette/typography id。",
-					"- 写入 derivation={stage:\"design-system\",directionId:<已确认 id>,derivedAt:<ISO 时间>}。",
-				]
-			: [
-					"- 读取 hosted_confirmation_draft.json 中用户已确认的 directionId、paletteId 与 typographyId，并从 hosted_confirmation.json 找到对应候选。",
-					`- 基于这三项实际选择重新推导图片策略和逐页 pagePlan。${requiresImageManifest ? "必须给出 3 套使用 AI 的图片风格候选。" : "不得引入 AI 图片策略。"}`,
-					"- 保留 directions、palettes、typography 以及已确认 id；更新推荐 imageStrategy id。pagePlan 必须保持目标页数，但节奏与构图职责要服从最终设计系统。",
-					"- 写入 derivation={stage:\"execution\",directionId:<已确认 id>,paletteId:<已确认 id>,typographyId:<已确认 id>,derivedAt:<ISO 时间>}。",
-				];
-	return [
-		"# PPT Master Hosted Staged Confirmation Derivation",
-		"",
-		"这是服务器托管的分阶段设计推导会话。只更新 analysis/hosted_confirmation.json，不进入 Executor。",
-		"",
-		"## Required Reads",
-		"",
-		`- ${options.projectDir}/sources/source.md`,
-		`- ${options.projectDir}/analysis/hosted_confirmation.json`,
-		`- ${options.projectDir}/analysis/hosted_confirmation_draft.json`,
-		`- ${options.projectDir}/design_spec.md`,
-		`- ${options.projectDir}/spec_lock.md`,
-		"",
-		"## Hard Requirements",
-		"",
-		...stageInstructions,
-		"- hosted_confirmation.json 必须继续严格符合 ppt_hosted_planning_recommendations.v1，所有候选 id 唯一，recommended id 必须指向现有候选。",
-		"- 不得修改资料、design_spec.md、spec_lock.md、确认草稿、图片清单、SVG、notes 或 exports。不得调用图片 API。",
-		"- 写完 JSON 后立即结束，不要向用户提问。",
-		"",
-	].join("\n");
-}
-
 function buildPlanningRefinementPrompt(
 	params: GenerationParams,
 	options: RunnerOptions,
@@ -1108,7 +977,8 @@ function buildFreshExecutionPrompt(
 		"# PPT Master Fresh Executor Session",
 		"",
 		"这是与 Strategist 完全隔离的全新执行会话。先阅读 `.ppt-master-skill/SKILL.md` 和 `.ppt-master-skill/workflows/resume-execute.md`，从官方 Step 6 开始，不要重新规划。",
-		"确认 design_spec.md 和 spec_lock.md 存在，然后读取它们；如果 analysis/content_brief.md、analysis/source_index.json 或 analysis/source_profile.json 存在也必须读取。生成具体页面内容时重新读取 sources/source.md，不能只依赖大纲摘要。",
+		"确认 design_spec.md 和 spec_lock.md 存在，然后读取它们与 analysis/hosted_confirmation_result.json；如果 analysis/content_brief.md、analysis/source_index.json 或 analysis/source_profile.json 存在也必须读取。生成具体页面内容时重新读取 sources/source.md，不能只依赖大纲摘要。",
+		"hosted_confirmation_result.json 中存在 pagePlan 时，它是用户确认后的逐页标题、内容目标、节奏与页面类型，必须逐页执行，不得恢复为确认前大纲。",
 		hasGeneratedImages
 			? "服务器已完成图片生成。读取 images/image_prompts.json、images/image_prompts.md 和 analysis/image_analysis.csv；只使用 status=Generated 且文件实际存在的图片，不得重新生成、搜索或替换图片。"
 			: "本任务未启用 AI 图片。只可使用项目内已有用户图片；没有可用图片时使用文字、原生图形、图表和留白完成叙事。",
@@ -1477,7 +1347,6 @@ function createInitialAgentPhaseProtection(
 	const templateDecisionPath = getPptTemplateFillDecisionPath(options.projectDir);
 	const hostOwnedPaths = [
 		getPptPlanningDecisionPath(options.projectDir),
-		getPptPlanningDraftPath(options.projectDir),
 		templateDecisionPath,
 		getPptStrategistEvidencePath(options.projectDir),
 		getPptImagePromptEvidencePath(options.projectDir),
@@ -1566,38 +1435,6 @@ function createInitialAgentPhaseProtection(
 						join(options.projectDir, "analysis", "content_brief.md"),
 					])
 				: [],
-	};
-}
-
-function createHostedPlanningDerivationProtection(
-	options: RunnerOptions,
-): PptAgentPhaseProtection {
-	return {
-		files: snapshotFileStates([
-			join(options.projectDir, "design_spec.md"),
-			join(options.projectDir, "spec_lock.md"),
-			join(options.projectDir, "agent-task.md"),
-		]),
-		directories: [
-			...snapshotProjectDirectoryTrees(options.projectDir, [
-				"sources",
-				"templates",
-				"images",
-				"svg_output",
-				"svg_final",
-				"notes",
-				"exports",
-				"validation",
-				".preview",
-				".review",
-			]),
-			snapshotDirectoryTreeFiles(join(options.projectDir, "analysis"), {
-				allowChangesTo: [getPptPlanningRecommendationsPath(options.projectDir)],
-			}),
-		],
-		rollbackFiles: snapshotFileStates([
-			getPptPlanningRecommendationsPath(options.projectDir),
-		]),
 	};
 }
 
