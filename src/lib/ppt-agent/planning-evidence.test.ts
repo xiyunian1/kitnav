@@ -104,6 +104,47 @@ describe("PPT Strategist execution evidence", () => {
 			"charts_index.json",
 		);
 	});
+
+	it("requires the icon library reference before locking an icon inventory", () => {
+		const { root, requiredReads } = createProject();
+		const iconReference = join(
+			root,
+			".ppt-master-skill",
+			"templates",
+			"icons",
+			"README.md",
+		);
+		mkdirSync(join(iconReference, ".."), { recursive: true });
+		writeFileSync(iconReference, "# Icons\n");
+		writeFileSync(
+			join(root, "spec_lock.md"),
+			"## icons\n- library: tabler-outline\n",
+		);
+
+		expect(() =>
+			writePptStrategistEvidence(
+				root,
+				successfulCalls([
+					...requiredReads.map(
+						(path) => ["read", path] as [string, string],
+					),
+					["write", "design_spec.md"],
+					["write", "spec_lock.md"],
+				]),
+			),
+		).toThrow("templates/icons/README.md");
+
+		const evidence = writePptStrategistEvidence(
+			root,
+			successfulCalls([
+				...requiredReads.map((path) => ["read", path] as [string, string]),
+				["read", iconReference],
+				["write", "design_spec.md"],
+				["write", "spec_lock.md"],
+			]),
+		);
+		expect(evidence.requiredReads).toHaveLength(requiredReads.length + 1);
+	});
 });
 
 function createProject() {
