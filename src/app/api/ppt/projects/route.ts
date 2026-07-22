@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
 import { PPT_USER_FAILURE_MESSAGE } from "@/lib/ppt-agent/status";
 import { toPublicPptProject } from "@/lib/ppt-agent/project-public";
-import { canRetryPptProject } from "@/lib/ppt-agent/retry";
+import { canRetryPptProject } from "@/lib/ppt-agent/retry-state";
 
 export async function GET() {
   const session = await auth();

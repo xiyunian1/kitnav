@@ -22,16 +22,13 @@ import {
 	getPptImageUnitCreditCost,
 } from "./image-options";
 import { appendProjectLog } from "./project-log";
-import { clampSlideCount } from "./project-utils";
+import {
+	isCancelledPptFailure,
+	type RetryablePptProjectState,
+} from "./retry-state";
+import { clampSlideCount } from "./slide-count";
 import { PPT_PROCESSING_STATUSES } from "./status";
 import { tryAcquirePptStorageReferenceLock } from "./storage-lock";
-
-interface RetryableProjectState {
-	status: string;
-	error?: string | null;
-	artifactsDeletedAt?: Date | string | null;
-	params?: string | null;
-}
 
 interface StoredRetryParams extends Record<string, unknown> {
 	model?: string;
@@ -46,7 +43,7 @@ interface StoredRetryParams extends Record<string, unknown> {
 	retryAttempt?: number;
 }
 
-interface RetryProjectSnapshot extends RetryableProjectState {
+interface RetryProjectSnapshot extends RetryablePptProjectState {
 	id: string;
 	params: string | null;
 	model: string | null;
@@ -62,15 +59,6 @@ export class PptRetryError extends Error {
 		super(message);
 		this.name = "PptRetryError";
 	}
-}
-
-export function canRetryPptProject(project: RetryableProjectState) {
-	return (
-		project.status === "FAILED" &&
-		!project.artifactsDeletedAt &&
-		project.params !== null &&
-		!isCancelledFailure(project.error)
-	);
 }
 
 export async function retryPptProject(projectId: string, userId: string) {
@@ -204,7 +192,9 @@ export async function retryPptProject(projectId: string, userId: string) {
 	return queued;
 }
 
-function assertRetryable(project: RetryableProjectState & { params?: string | null }) {
+function assertRetryable(
+	project: RetryablePptProjectState & { params?: string | null },
+) {
 	if (project.status !== "FAILED") {
 		throw new PptRetryError(
 			PPT_PROCESSING_STATUSES.includes(
@@ -215,7 +205,7 @@ function assertRetryable(project: RetryableProjectState & { params?: string | nu
 			409,
 		);
 	}
-	if (isCancelledFailure(project.error)) {
+	if (isCancelledPptFailure(project.error)) {
 		throw new PptRetryError("已主动停止的项目不能直接续跑，请重新创建任务。", 409);
 	}
 	if (project.artifactsDeletedAt || !project.params) {
@@ -353,10 +343,6 @@ function unavailableModelError(
 		`原任务使用的${label}模型 ${model} 当前不可用${detail}。请恢复该模型配置后重试。`,
 		409,
 	);
-}
-
-function isCancelledFailure(error: string | null | undefined) {
-	return /用户已停止生成|已主动停止/.test(error || "");
 }
 
 function readModelSource(value: unknown): ModelSource | undefined {

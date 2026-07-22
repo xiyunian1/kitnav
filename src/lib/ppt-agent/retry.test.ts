@@ -53,11 +53,8 @@ vi.mock("@/lib/ppt-agent/project-log", () => ({
 }));
 
 import { ProviderConfigInvalidError } from "@/lib/providers";
-import {
-	canRetryPptProject,
-	PptRetryError,
-	retryPptProject,
-} from "./retry";
+import { canRetryPptProject } from "./retry-state";
+import { PptRetryError, retryPptProject } from "./retry";
 
 describe("retryPptProject", () => {
 	let snapshot: ReturnType<typeof projectSnapshot>;

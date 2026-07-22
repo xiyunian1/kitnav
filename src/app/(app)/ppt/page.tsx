@@ -13,7 +13,7 @@ import { getProjectSvgPreviews } from "@/lib/ppt-agent/paths";
 import { toPublicPptProject } from "@/lib/ppt-agent/project-public";
 import { getPptCreditsPerSlide } from "@/lib/ppt-agent/billing";
 import { PptWorkbench } from "./components/workbench";
-import { canRetryPptProject } from "@/lib/ppt-agent/retry";
+import { canRetryPptProject } from "@/lib/ppt-agent/retry-state";
 
 export const metadata = { title: "PPT 生成" };
 

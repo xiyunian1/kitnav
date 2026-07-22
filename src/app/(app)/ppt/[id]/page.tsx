@@ -24,7 +24,7 @@ import { resolvePptConfirmationTiming } from "@/lib/ppt-agent/timing";
 import { summarizePptProjectInput } from "@/lib/ppt-agent/project-input-summary";
 import { ProjectInputSummaryCard } from "./project-input-summary-card";
 import { RetryProjectButton } from "../components/retry-project-button";
-import { canRetryPptProject } from "@/lib/ppt-agent/retry";
+import { canRetryPptProject } from "@/lib/ppt-agent/retry-state";
 
 export const metadata = { title: "PPT 项目" };
 

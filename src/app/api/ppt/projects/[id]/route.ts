@@ -12,7 +12,7 @@ import {
 } from "@/lib/ppt-agent/status";
 import { hasPptxArtifact } from "@/lib/ppt-agent/project-public";
 import { resolvePptConfirmationTiming } from "@/lib/ppt-agent/timing";
-import { canRetryPptProject } from "@/lib/ppt-agent/retry";
+import { canRetryPptProject } from "@/lib/ppt-agent/retry-state";
 
 export const runtime = "nodejs";
 

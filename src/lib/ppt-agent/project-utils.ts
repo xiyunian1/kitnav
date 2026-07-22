@@ -9,6 +9,8 @@ import {
 	stagePptSourceOriginal,
 } from "./source-converters";
 
+export { clampSlideCount } from "./slide-count";
+
 export const MAX_PPT_SOURCE_MARKDOWN_CHARS = 80_000;
 export const THIN_PPT_SOURCE_MEANINGFUL_CHARS = 500;
 
@@ -250,9 +252,4 @@ export function ensureProjectStructure(
 			"utf-8",
 		);
 	}
-}
-
-export function clampSlideCount(value: number) {
-	if (!Number.isFinite(value)) return 10;
-	return Math.max(3, Math.min(30, Math.round(value)));
 }
