@@ -183,8 +183,7 @@ export async function editTurn(input: {
   count: number;
   model?: string;
   modelSource?: ModelSource;
-  image: File;
-  referenceThumb?: string;
+  images: File[];
 }): Promise<{ turn: Turn; conversationId: string }> {
   const form = new FormData();
   if (input.conversationId) form.append("conversationId", input.conversationId);
@@ -194,8 +193,7 @@ export async function editTurn(input: {
   form.append("count", String(input.count));
   if (input.model) form.append("model", input.model);
   if (input.modelSource) form.append("modelSource", input.modelSource);
-  form.append("image", input.image);
-  if (input.referenceThumb) form.append("referenceThumb", input.referenceThumb);
+  for (const image of input.images) form.append("images", image, image.name);
 
   const res = await fetch("/api/image/turns/edit", { method: "POST", body: form });
   if (!res.ok) throw new Error(await parseError(res, "生成失败"));
@@ -211,8 +209,7 @@ export async function editTurnStream(
     count: number;
     model?: string;
     modelSource?: ModelSource;
-    image: File;
-    referenceThumb?: string;
+    images: File[];
   },
   onEvent: (event: TurnStreamEvent) => void,
   options?: { signal?: AbortSignal }
@@ -225,8 +222,7 @@ export async function editTurnStream(
   form.append("count", String(input.count));
   if (input.model) form.append("model", input.model);
   if (input.modelSource) form.append("modelSource", input.modelSource);
-  form.append("image", input.image);
-  if (input.referenceThumb) form.append("referenceThumb", input.referenceThumb);
+  for (const image of input.images) form.append("images", image, image.name);
 
   const res = await fetch("/api/image/turns/edit/stream", {
     method: "POST",

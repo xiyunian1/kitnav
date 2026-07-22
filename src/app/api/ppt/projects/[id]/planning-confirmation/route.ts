@@ -26,6 +26,8 @@ interface LockedProject {
 	status: string;
 	params: string | null;
 	slideCount: number;
+	updatedAt: Date;
+	confirmationWaitStartedAt: Date | null;
 }
 
 const designSubmissionSchema = pptPlanningDecisionSchema.extend({
@@ -109,11 +111,12 @@ export async function POST(
 	}
 
 	const { id } = await params;
-	let confirmationLabel = "完整设计方案";
+	let confirmationLabel = "设计方案";
 	try {
 		await prisma.$transaction(async (tx) => {
 			const rows = await tx.$queryRaw<LockedProject[]>`
-				SELECT "id", "status"::text AS "status", "params", "slideCount"
+				SELECT "id", "status"::text AS "status", "params", "slideCount",
+				       "updatedAt", "confirmationWaitStartedAt"
 				FROM "PptProject"
 				WHERE "id" = ${id} AND "userId" = ${access.userId}
 				FOR UPDATE
@@ -123,6 +126,27 @@ export async function POST(
 			if (project.status !== "AWAITING_CONFIRMATION") {
 				throw new PlanningApiError("项目当前不在等待方案确认", 409);
 			}
+			const confirmedAt = new Date();
+			const waitStartedAt =
+				project.confirmationWaitStartedAt ?? project.updatedAt;
+			const confirmationWaitSeconds = waitStartedAt
+				? Math.max(
+						0,
+						Math.floor(
+							(confirmedAt.getTime() - waitStartedAt.getTime()) / 1000,
+						),
+					)
+				: 0;
+			const confirmationTimingUpdate = {
+				confirmationWaitStartedAt: null,
+				...(confirmationWaitSeconds > 0
+					? {
+							confirmationWaitSeconds: {
+								increment: confirmationWaitSeconds,
+							},
+						}
+					: {}),
+			};
 			const projectDir = getPptProjectDir(project.id);
 			if (hasStoredTemplate(project.params)) {
 				if (input.kind !== "template-fill") {
@@ -139,6 +163,7 @@ export async function POST(
 						currentPhase: "模板填充方案已确认，等待继续生成",
 						progress: 31,
 						error: null,
+						...confirmationTimingUpdate,
 					},
 				});
 				return;
@@ -161,9 +186,10 @@ export async function POST(
 					params: markStoredPptPlanningConfirmed(project.params),
 					status: "QUEUED",
 					workerLease: null,
-					currentPhase: "完整设计方案已确认，等待继续生成",
+					currentPhase: "设计方案已确认，等待生成完整设计规范",
 					progress: 31,
 					error: null,
+					...confirmationTimingUpdate,
 				},
 			});
 		});

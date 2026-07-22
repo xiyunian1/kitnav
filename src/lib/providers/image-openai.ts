@@ -12,6 +12,7 @@ import {
   readBoundedJsonResponse,
   readBoundedResponseText,
 } from "@/lib/safe-fetch";
+import { MAX_REFERENCE_IMAGE_COUNT } from "@/lib/image-edit-capabilities";
 
 const DEFAULT_IMAGE_REQUEST_TIMEOUT_MS = 180_000;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -197,6 +198,10 @@ export class OpenAIImageProvider implements ImageProvider {
   async edit(params: ImageEditParams): Promise<GenerationResult> {
     const { apiKey, model } = this.creds;
     const url = `${this.baseUrl()}/images/edits`;
+    if (params.images.length < 1) throw new Error("请上传参考图");
+    if (params.images.length > MAX_REFERENCE_IMAGE_COUNT) {
+      throw new Error(`参考图最多上传 ${MAX_REFERENCE_IMAGE_COUNT} 张`);
+    }
 
     let res: Response;
     let elapsedMs = 0;
@@ -207,7 +212,14 @@ export class OpenAIImageProvider implements ImageProvider {
       form.append("n", String(Math.min(Math.max(params.count ?? 1, 1), 10)));
       if (params.size) form.append("size", params.size);
       if (params.quality) form.append("quality", params.quality);
-      form.append("image", params.image, params.imageFilename || "reference.png");
+      if (params.images.length === 1) {
+        const image = params.images[0];
+        form.append("image", image.blob, image.filename || "reference.png");
+      } else {
+        for (const image of params.images) {
+          form.append("image[]", image.blob, image.filename || "reference.png");
+        }
+      }
 
       const out = await this.fetchWithTimeout(
         url,
@@ -239,9 +251,13 @@ export class OpenAIImageProvider implements ImageProvider {
           detail = error instanceof Error ? error.message : "";
         }
         throw new UpstreamImageError(
-          `图生图失败：当前模型「${model}」或当前上游通道可能不支持图片编辑${
-            detail ? `。上游：${detail.slice(0, 150)}` : ""
-          }`,
+          params.images.length > 1
+            ? `多参考图生成失败：上游通道未接受 ${params.images.length} 张参考图，请检查该通道是否完整转发 image[] 字段${
+                detail ? `。上游：${detail.slice(0, 150)}` : ""
+              }`
+            : `图生图失败：当前模型「${model}」或当前上游通道可能不支持图片编辑${
+                detail ? `。上游：${detail.slice(0, 150)}` : ""
+              }`,
           res.status
         );
       }

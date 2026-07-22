@@ -3,7 +3,11 @@ ai.kitnav.com {
 	request_body @credentialLogin {
 		max_size 16KB
 	}
-	@imageMultipart path /api/image/turns/edit /api/image/turns/edit/stream /api/materials/upload /api/materials/prompts
+	@imageEdit path /api/image/turns/edit /api/image/turns/edit/stream
+	request_body @imageEdit {
+		max_size 33MB
+	}
+	@imageMultipart path /api/materials/upload /api/materials/prompts
 	request_body @imageMultipart {
 		max_size 9MB
 	}

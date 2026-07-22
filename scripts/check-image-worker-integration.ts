@@ -18,14 +18,21 @@ process.env.IMAGE_USER_MAX_PENDING = "10";
 
 let upstreamMode: "success" | "failure" = "success";
 let upstreamRequests = 0;
+let upstreamEditRequests = 0;
+let lastEditBody = "";
 const server = createServer((request, response) => {
-  if (request.method !== "POST" || request.url !== "/v1/images/generations") {
+  const isGeneration = request.url === "/v1/images/generations";
+  const isEdit = request.url === "/v1/images/edits";
+  if (request.method !== "POST" || (!isGeneration && !isEdit)) {
     response.writeHead(404).end();
     return;
   }
   upstreamRequests += 1;
-  request.resume();
+  if (isEdit) upstreamEditRequests += 1;
+  const chunks: Buffer[] = [];
+  request.on("data", (chunk: Buffer) => chunks.push(chunk));
   request.on("end", () => {
+    if (isEdit) lastEditBody = Buffer.concat(chunks).toString("latin1");
     response.setHeader("Content-Type", "application/json");
     if (upstreamMode === "failure") {
       response.writeHead(503).end(JSON.stringify({ error: { message: "temporary" } }));
@@ -62,8 +69,53 @@ const {
   executeImageTurn,
   requeueImageTurn,
 } = await import("@/lib/image-workbench");
+const {
+  parseStoredImageInputReferences,
+  readImageEditInput,
+} = await import("@/lib/image-inputs");
 
 const userId = "image-worker-integration-user";
+const png = Uint8Array.from(
+  Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+    "base64",
+  ),
+);
+const editImages = (count: number) =>
+  Array.from({ length: count }, (_, index) => ({
+    blob: new Blob([png], { type: "image/png" }),
+    filename: `${String(index + 1).padStart(2, "0")}.png`,
+  }));
+
+async function storedReferences(turnId: string) {
+  const row = await prisma.imageTurn.findUniqueOrThrow({
+    where: { id: turnId },
+    select: {
+      editInputs: true,
+      editInputPath: true,
+      editInputName: true,
+      referenceThumbs: true,
+    },
+  });
+  return {
+    references: parseStoredImageInputReferences(
+      row.editInputs,
+      row.editInputPath,
+      row.editInputName,
+    ),
+    thumbnails: row.referenceThumbs
+      ? (JSON.parse(row.referenceThumbs) as string[])
+      : [],
+  };
+}
+
+async function assertInputsDeleted(
+  references: Array<{ token: string }>,
+) {
+  for (const reference of references) {
+    await assert.rejects(readImageEditInput(userId, reference.token));
+  }
+}
 
 try {
   await prisma.user.deleteMany({ where: { id: userId } });
@@ -80,7 +132,7 @@ try {
       module: "IMAGE",
       baseUrl: `http://127.0.0.1:${address.port}/v1`,
       apiKey: encrypt("integration-key"),
-      model: "integration-image-model",
+      model: "gpt-image-2",
       enabled: true,
     },
   });
@@ -107,7 +159,7 @@ try {
     quality: "standard",
     count: 2,
     mode: "generate",
-    model: "integration-image-model",
+    model: "gpt-image-2",
     modelSource: "platform",
   });
   assert.equal(queued.status, "PENDING");
@@ -123,20 +175,56 @@ try {
   assert.equal(completed.images.filter((image) => image.status === "success").length, 2);
   assert.equal(upstreamRequests, 2);
 
+  const editQueued = await enqueueImageTurn({
+    userId,
+    prompt: "integration three-image edit",
+    ratio: "1:1",
+    quality: "standard",
+    count: 1,
+    mode: "edit",
+    model: "gpt-image-2",
+    modelSource: "platform",
+    editImages: editImages(3),
+  });
+  const editStored = await storedReferences(editQueued.id);
+  assert.deepEqual(
+    editStored.references.map((reference) => reference.filename),
+    ["01.png", "02.png", "03.png"],
+  );
+  assert.equal(editStored.thumbnails.length, 3);
+  assert(editStored.thumbnails.every((thumbnail) => thumbnail.startsWith("data:image/webp")));
+  const editClaim = await claimNextImageTurn();
+  assert(editClaim);
+  assert.equal(editClaim.id, editQueued.id);
+  const edited = await executeImageTurn(editClaim.id, editClaim.lease);
+  assert.equal(edited?.status, "SUCCESS");
+  assert.equal(upstreamEditRequests, 1);
+  const firstPosition = lastEditBody.indexOf('filename="01.png"');
+  const secondPosition = lastEditBody.indexOf('filename="02.png"');
+  const thirdPosition = lastEditBody.indexOf('filename="03.png"');
+  assert(firstPosition >= 0 && firstPosition < secondPosition && secondPosition < thirdPosition);
+  assert.equal((lastEditBody.match(/name="image\[\]"/g) || []).length, 3);
+  assert(!lastEditBody.includes('name="image"\r\n'));
+  await assertInputsDeleted(editStored.references);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).credits, 70);
+
   const cancelledQueued = await enqueueImageTurn({
     userId,
     prompt: "integration cancel",
     ratio: "1:1",
     quality: "standard",
     count: 1,
-    mode: "generate",
-    model: "integration-image-model",
+    mode: "edit",
+    model: "gpt-image-2",
     modelSource: "platform",
+    editImages: editImages(2),
   });
+  const cancelledStored = await storedReferences(cancelledQueued.id);
   const cancelled = await cancelImageTurn(userId, cancelledQueued.id);
   assert.equal(cancelled.status, "FAILED");
   assert.equal(cancelled.creditsCost, 0);
-  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).credits, 80);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).credits, 70);
+  await assertInputsDeleted(cancelledStored.references);
 
   upstreamMode = "failure";
   const failureQueued = await enqueueImageTurn({
@@ -145,10 +233,12 @@ try {
     ratio: "1:1",
     quality: "standard",
     count: 1,
-    mode: "generate",
-    model: "integration-image-model",
+    mode: "edit",
+    model: "gpt-image-2",
     modelSource: "platform",
+    editImages: editImages(3),
   });
+  const failureStored = await storedReferences(failureQueued.id);
   const failureClaim = await claimNextImageTurn();
   assert(failureClaim);
   assert.equal(failureClaim.id, failureQueued.id);
@@ -156,7 +246,8 @@ try {
   assert(failed);
   assert.equal(failed.status, "FAILED");
   assert.equal(failed.creditsCost, 0);
-  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).credits, 80);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).credits, 70);
+  await assertInputsDeleted(failureStored.references);
 
   upstreamMode = "success";
   const requeueCandidate = await enqueueImageTurn({
@@ -165,25 +256,52 @@ try {
     ratio: "1:1",
     quality: "standard",
     count: 1,
-    mode: "generate",
-    model: "integration-image-model",
+    mode: "edit",
+    model: "gpt-image-2",
     modelSource: "platform",
+    editImages: editImages(2),
   });
+  const requeueStored = await storedReferences(requeueCandidate.id);
   const firstLease = await claimNextImageTurn();
   assert(firstLease);
   assert.equal(firstLease.id, requeueCandidate.id);
   assert.equal(await requeueImageTurn(firstLease.id, firstLease.lease), true);
+  await expectStoredInputs(requeueStored.references);
   const secondLease = await claimNextImageTurn();
   assert(secondLease);
   assert.equal(secondLease.id, requeueCandidate.id);
   assert.notEqual(secondLease.lease, firstLease.lease);
   const retried = await executeImageTurn(secondLease.id, secondLease.lease);
   assert.equal(retried?.status, "SUCCESS");
+  await assertInputsDeleted(requeueStored.references);
+
+  const legacyQueued = await enqueueImageTurn({
+    userId,
+    prompt: "integration legacy single image",
+    ratio: "1:1",
+    quality: "standard",
+    count: 1,
+    mode: "edit",
+    model: "gpt-image-2",
+    modelSource: "platform",
+    editImages: editImages(1),
+  });
+  await prisma.imageTurn.update({
+    where: { id: legacyQueued.id },
+    data: { editInputs: null },
+  });
+  const legacyStored = await storedReferences(legacyQueued.id);
+  assert.equal(legacyStored.references.length, 1);
+  const legacyClaim = await claimNextImageTurn();
+  assert(legacyClaim);
+  const legacyCompleted = await executeImageTurn(legacyClaim.id, legacyClaim.lease);
+  assert.equal(legacyCompleted?.status, "SUCCESS");
+  await assertInputsDeleted(legacyStored.references);
 
   const generations = await prisma.generation.count({
     where: { userId, module: "IMAGE" },
   });
-  assert.equal(generations, 4);
+  assert.equal(generations, 6);
   const refunds = await prisma.creditTransaction.count({
     where: { userId, type: "REFUND" },
   });
@@ -196,6 +314,16 @@ try {
   );
   await prisma.$disconnect();
   await new Promise<void>((resolve) => server.close(() => resolve()));
+}
+
+async function expectStoredInputs(references: Array<{ token: string }>) {
+  for (const reference of references) {
+    await expectBlob(readImageEditInput(userId, reference.token));
+  }
+}
+
+async function expectBlob(value: Promise<Blob>) {
+  assert((await value) instanceof Blob);
 }
 }
 

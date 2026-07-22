@@ -1,12 +1,17 @@
-import { mkdtemp, mkdir, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   deleteImageEditInput,
+  deleteImageEditInputs,
   getImageInputRoot,
   readImageEditInput,
+  readImageEditInputs,
+  parseStoredImageInputReferences,
   saveImageEditInput,
+  saveImageEditInputs,
+  storedImageInputReferences,
   sweepOrphanImageInputs,
 } from "./image-inputs";
 
@@ -39,6 +44,7 @@ describe("image edit input storage", () => {
 
     expect(stored.token).toMatch(/^[0-9a-f-]+\.png$/);
     expect(stored.filename).toBe("参考_图.png");
+    expect(stored.thumbnail).toMatch(/^data:image\/webp;base64,/);
     expect(getImageInputRoot()).toBe(root);
     const blob = await readImageEditInput("user_1", stored.token);
     expect(blob.type).toBe("image/png");
@@ -59,6 +65,63 @@ describe("image edit input storage", () => {
     await expect(readImageEditInput("user_1", "../secret.png")).rejects.toThrow(
       "标识",
     );
+  });
+
+  it("stores, reads, and deletes an ordered reference-image batch", async () => {
+    const stored = await saveImageEditInputs("user_1", [
+      { blob: new Blob([PNG], { type: "image/png" }), filename: "01.png" },
+      { blob: new Blob([PNG], { type: "image/png" }), filename: "02.png" },
+      { blob: new Blob([PNG], { type: "image/png" }), filename: "03.png" },
+    ]);
+    const references = storedImageInputReferences(stored);
+
+    expect(references.map((reference) => reference.filename)).toEqual([
+      "01.png",
+      "02.png",
+      "03.png",
+    ]);
+    expect(stored.every((input) => input.thumbnail.startsWith("data:image/webp"))).toBe(
+      true,
+    );
+    const files = await readImageEditInputs("user_1", references);
+    expect(files.map((file) => file.filename)).toEqual(["01.png", "02.png", "03.png"]);
+    expect(await Promise.all(files.map((file) => file.blob.arrayBuffer()))).toHaveLength(3);
+
+    await deleteImageEditInputs("user_1", references);
+    await expect(readImageEditInput("user_1", references[0]!.token)).rejects.toThrow();
+  });
+
+  it("rolls back files already saved when a later reference is invalid", async () => {
+    await expect(
+      saveImageEditInputs("user_1", [
+        { blob: new Blob([PNG], { type: "image/png" }), filename: "valid.png" },
+        { blob: new Blob([new Uint8Array([1, 2, 3])]), filename: "invalid.png" },
+      ]),
+    ).rejects.toThrow("无效");
+
+    expect(await readdir(join(root, "user_1"))).toEqual([]);
+  });
+
+  it("prefers new metadata and falls back to legacy single-image metadata", () => {
+    expect(
+      parseStoredImageInputReferences(
+        JSON.stringify([
+          { token: "first.png", filename: "first.png" },
+          { token: "second.png", filename: "second.png" },
+        ]),
+        "legacy.png",
+        "legacy.png",
+      ),
+    ).toEqual([
+      { token: "first.png", filename: "first.png" },
+      { token: "second.png", filename: "second.png" },
+    ]);
+    expect(
+      parseStoredImageInputReferences(null, "legacy.png", "legacy name.png"),
+    ).toEqual([{ token: "legacy.png", filename: "legacy name.png" }]);
+    expect(() =>
+      parseStoredImageInputReferences("not-json", "legacy.png", "legacy.png"),
+    ).toThrow("信息无效");
   });
 
   it("removes only expired orphan inputs", async () => {

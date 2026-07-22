@@ -10,7 +10,7 @@ import { useImageWorkbench } from "../hooks/use-image-workbench";
 import { ConversationSidebar } from "./conversation-sidebar";
 import { ResultStream } from "./result-stream";
 import { PromptComposer, type ReferencePreview } from "./prompt-composer";
-import { fileToThumbnail } from "../thumbnail";
+import { prepareReferenceFiles } from "../reference-files";
 import type { ImagePreset } from "@/lib/image-presets";
 import type { MaterialView } from "@/components/materials/material-types";
 import type { PromptOptimizationResult, PromptOptimizeRequest, ReuseTurnInput } from "../types";
@@ -33,15 +33,6 @@ interface Props {
   initialModelSource?: ModelSource;
   initialImageMaterial?: MaterialView | null;
   initialPromptMaterial?: MaterialView | null;
-}
-
-function readAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("读取图片失败"));
-    reader.readAsDataURL(file);
-  });
 }
 
 function qualityValue(value: unknown) {
@@ -111,22 +102,64 @@ export function ImageWorkbench({
   const selectedModel =
     modelOptions.find((option) => option.value === modelValue) ?? modelOptions[0];
   const useOwnKey = selectedModel?.source === "user";
-  const [files, setFiles] = useState<File[]>([]);
   const [references, setReferences] = useState<ReferencePreview[]>([]);
+  const [preparingReferences, setPreparingReferences] = useState(false);
   const [conversationOpen, setConversationOpen] = useState(false);
+  const referencesRef = useRef<ReferencePreview[]>([]);
+  const referencePreparationQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingPreparationsRef = useRef(0);
+  const mountedRef = useRef(true);
 
-  const addFiles = useCallback(async (picked: File[]) => {
-    const images = picked.filter((f) => f.type.startsWith("image/"));
-    if (images.length === 0) return;
-    try {
-      const previews = await Promise.all(
-        images.map(async (f) => ({ name: f.name, dataUrl: await readAsDataUrl(f) }))
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      for (const reference of referencesRef.current) {
+        URL.revokeObjectURL(reference.previewUrl);
+      }
+      referencesRef.current = [];
+    };
+  }, []);
+
+  const addFiles = useCallback((picked: File[]) => {
+    if (picked.length === 0) return Promise.resolve(false);
+
+    pendingPreparationsRef.current += 1;
+    setPreparingReferences(true);
+    const operation = referencePreparationQueueRef.current.then(async () => {
+      const prepared = await prepareReferenceFiles(
+        picked,
+        referencesRef.current.map((reference) => reference.file),
       );
-      setFiles((prev) => [...prev, ...images]);
-      setReferences((prev) => [...prev, ...previews]);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "读取参考图失败");
-    }
+      const additions = prepared.map((file) => ({
+        file,
+        name: file.name,
+        previewUrl: URL.createObjectURL(file),
+      }));
+      if (!mountedRef.current) {
+        for (const reference of additions) URL.revokeObjectURL(reference.previewUrl);
+        return false;
+      }
+      const next = [...referencesRef.current, ...additions];
+      referencesRef.current = next;
+      setReferences(next);
+      return additions.length > 0;
+    });
+    const handled = operation
+      .catch((error) => {
+        if (mountedRef.current) {
+          toast.error(error instanceof Error ? error.message : "读取参考图失败");
+        }
+        return false;
+      })
+      .finally(() => {
+        pendingPreparationsRef.current -= 1;
+        if (mountedRef.current && pendingPreparationsRef.current === 0) {
+          setPreparingReferences(false);
+        }
+      });
+    referencePreparationQueueRef.current = handled.then(() => undefined);
+    return handled;
   }, []);
 
   const addReferenceFromUrl = useCallback(
@@ -139,9 +172,10 @@ export function ImageWorkbench({
         const file = new File([blob], `${title || "material"}.${ext}`, {
           type: blob.type || "image/png",
         });
-        await addFiles([file]);
+        return await addFiles([file]);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "无法读取素材");
+        return false;
       }
     },
     [addFiles]
@@ -176,8 +210,10 @@ export function ImageWorkbench({
       }
 
       setMode("edit");
-      await addReferenceFromUrl(material.url, material.title);
-      toast.success(promptText.trim() || meta ? "已应用素材参数并加入参考图" : "已加入参考图");
+      const added = await addReferenceFromUrl(material.url, material.title);
+      if (added) {
+        toast.success(promptText.trim() || meta ? "已应用素材参数并加入参考图" : "已加入参考图");
+      }
     },
     [addReferenceFromUrl, modelOptions]
   );
@@ -196,15 +232,20 @@ export function ImageWorkbench({
   }, [addReferenceFromUrl, initialReference, initialReferenceTitle]);
 
   const removeReference = useCallback((index: number) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
-    setReferences((prev) => prev.filter((_, i) => i !== index));
+    const removed = referencesRef.current[index];
+    const next = referencesRef.current.filter((_, i) => i !== index);
+    referencesRef.current = next;
+    setReferences(next);
+    if (removed) URL.revokeObjectURL(removed.previewUrl);
   }, []);
 
   const clearComposer = useCallback(() => {
     setPrompt("");
     setCount(1);
-    setFiles([]);
+    const current = referencesRef.current;
+    referencesRef.current = [];
     setReferences([]);
+    for (const reference of current) URL.revokeObjectURL(reference.previewUrl);
   }, []);
 
   const handlePickPreset = useCallback(
@@ -326,18 +367,21 @@ export function ImageWorkbench({
       toast.error("请输入提示词");
       return;
     }
-    if (mode === "edit" && files.length === 0) {
+    if (preparingReferences) {
+      toast.info("参考图仍在处理中，请稍候");
+      return;
+    }
+    if (mode === "edit" && references.length === 0) {
       toast.error("请先上传参考图");
       return;
     }
-
-    let referenceThumb: string | undefined;
-    if (mode === "edit" && files[0]) {
-      try {
-        referenceThumb = await fileToThumbnail(files[0]);
-      } catch {
-        referenceThumb = undefined;
-      }
+    if (
+      mode === "edit" &&
+      references.length > 1 &&
+      !selectedModel?.supportsMultiImageEdit
+    ) {
+      toast.error("当前模型不支持多张参考图，请更换带“多图”标记的模型或删除图片");
+      return;
     }
 
     const ok = await submit({
@@ -348,12 +392,22 @@ export function ImageWorkbench({
       model: selectedModel?.model,
       modelSource: selectedModel?.source,
       mode,
-      image: mode === "edit" ? files[0] : undefined,
-      referenceThumb,
+      images: mode === "edit" ? references.map((reference) => reference.file) : undefined,
     });
 
     if (ok) clearComposer();
-  }, [prompt, mode, files, ratio, quality, count, selectedModel, submit, clearComposer]);
+  }, [
+    prompt,
+    mode,
+    preparingReferences,
+    references,
+    ratio,
+    quality,
+    count,
+    selectedModel,
+    submit,
+    clearComposer,
+  ]);
 
   const selectConversation = useCallback(
     (id: string) => {
@@ -434,6 +488,7 @@ export function ImageWorkbench({
           modelValue={selectedModel?.value ?? ""}
           modelOptions={modelOptions}
           references={references}
+          preparingReferences={preparingReferences}
           submitting={wb.submitting}
           stopping={wb.stopping}
           unitCost={unitCost}

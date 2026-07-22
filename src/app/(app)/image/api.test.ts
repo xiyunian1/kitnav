@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cancelTurn, getConversation } from "./api";
+import { cancelTurn, editTurn, editTurnStream, getConversation } from "./api";
 
 const conversation = {
   id: "conversation-1",
@@ -71,5 +71,58 @@ describe("image workbench API", () => {
     await expect(getConversation("conversation-1")).rejects.toThrow(
       "积分余额响应无效",
     );
+  });
+
+  it("submits every edit image in order using repeated images fields", async () => {
+    const first = new File(["first"], "01.png", { type: "image/png" });
+    const second = new File(["second"], "02.webp", { type: "image/webp" });
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const form = init?.body as FormData;
+      const images = form.getAll("images") as File[];
+      expect(images.map((image) => image.name)).toEqual(["01.png", "02.webp"]);
+      expect(await Promise.all(images.map((image) => image.text()))).toEqual([
+        "first",
+        "second",
+      ]);
+      expect(form.has("image")).toBe(false);
+      expect(form.has("referenceThumb")).toBe(false);
+      return Response.json({ turn, conversationId: conversation.id });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await editTurn({
+      prompt: "edit",
+      ratio: "1:1",
+      count: 1,
+      images: [first, second],
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/image/turns/edit",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("preserves image order in the streaming edit request", async () => {
+    const first = new File(["a"], "a.png", { type: "image/png" });
+    const second = new File(["b"], "b.png", { type: "image/png" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const names = (init?.body as FormData)
+          .getAll("images")
+          .map((entry) => (entry as File).name);
+        expect(names).toEqual(["a.png", "b.png"]);
+        return new Response(
+          `${JSON.stringify({ type: "final", turn, conversationId: conversation.id })}\n`,
+        );
+      }),
+    );
+
+    const events: unknown[] = [];
+    await editTurnStream(
+      { prompt: "edit", ratio: "1:1", count: 1, images: [first, second] },
+      (event) => events.push(event),
+    );
+    expect(events).toHaveLength(1);
   });
 });

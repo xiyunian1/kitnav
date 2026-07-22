@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -37,13 +37,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { PPT_STYLE_PRESETS } from "@/lib/ppt-agent/styles";
-import { CancelProjectButton } from "./cancel-project-button";
-import { formatProjectDurationLabel } from "./duration";
-import {
-	isPptCompletedStatus,
-	PPT_STATUS_LABELS,
-	PPT_USER_FAILURE_MESSAGE,
-} from "@/lib/ppt-agent/status";
 import type { ModuleModelOption } from "@/lib/module-model-options";
 import { cn } from "@/lib/utils";
 import {
@@ -113,11 +106,6 @@ export function GenerationForm({
 		useState<PptTypographyPreference>("auto");
 	const [visualReview, setVisualReview] = useState(false);
 	const [confirmDesign, setConfirmDesign] = useState(false);
-	const [phase, setPhase] = useState("任务正在排队");
-	const [startedAt, setStartedAt] = useState<number | null>(null);
-	const [now, setNow] = useState<number | null>(null);
-	const [activeProjectId, setActiveProjectId] = useState("");
-	const cancelledRef = useRef(false);
 
 	const selectedModel =
 		modelOptions.find((option) => option.value === modelValue) ?? modelOptions[0];
@@ -144,18 +132,6 @@ export function GenerationForm({
 			: 0;
 	const estimatedCost = textEstimatedCost + imageEstimatedCost;
 	const attachmentCount = sourceFiles.length;
-	const phaseLabel = phase || "正在生成 PPT";
-	const durationLabel = formatProjectDurationLabel({
-		startedAt,
-		running: loading,
-		now,
-	});
-
-	useEffect(() => {
-		if (!loading) return;
-		const interval = window.setInterval(() => setNow(Date.now()), 1000);
-		return () => window.clearInterval(interval);
-	}, [loading]);
 
 	function updateSlideCount(value: number) {
 		setSlideCount(Math.max(3, Math.min(30, Math.round(value))));
@@ -181,14 +157,6 @@ export function GenerationForm({
 		}
 
 		setLoading(true);
-		setPhase("任务正在排队");
-		const submitStartedAt = Date.now();
-		setStartedAt(submitStartedAt);
-		setNow(submitStartedAt);
-		setActiveProjectId("");
-		cancelledRef.current = false;
-
-		let projectId = "";
 
 		try {
 			const res = await fetch("/api/ppt/generate", {
@@ -197,7 +165,9 @@ export function GenerationForm({
 				body: JSON.stringify({
 					prompt: normalizedPrompt,
 					sourceFileUrls: contentFiles.map((file) => file.id),
+					sourceFileNames: contentFiles.map((file) => file.name),
 					templateFileUrls: templateFiles.map((file) => file.id),
+					templateFileNames: templateFiles.map((file) => file.name),
 					slideCount,
 					aspectRatio,
 					style: styleSource === "preset" ? style : styleSource,
@@ -205,9 +175,9 @@ export function GenerationForm({
 						styleSource === "custom" ? customStyle.trim() : undefined,
 					model: selectedModel.model,
 					modelSource: selectedModel.source,
-						visualReview:
-							!hasUploadedTemplate && selectedModel.supportsVision && visualReview,
-						confirmDesign,
+					visualReview:
+						!hasUploadedTemplate && selectedModel.supportsVision && visualReview,
+					confirmDesign,
 					...(!hasUploadedTemplate && selectedImageModel
 						? {
 								imageModel: selectedImageModel.model,
@@ -228,77 +198,10 @@ export function GenerationForm({
 			if (!res.ok || !data?.projectId) {
 				throw new Error(data?.error || "创建生成任务失败");
 			}
-			projectId = data.projectId;
-			setActiveProjectId(projectId);
-
-			// 生成已入队，由后台 worker 异步处理；轮询项目状态直到完成或失败。
-			const POLL_INTERVAL_MS = 1500;
-			const MAX_EMPTY_POLLS = 20;
-			let emptyPolls = 0;
-			while (true) {
-				await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-				let status: {
-					status?: string;
-					currentPhase?: string | null;
-					error?: string;
-					createdAt?: string;
-				} | null = null;
-				try {
-					const statusRes = await fetch(`/api/ppt/projects/${projectId}`);
-					const data = await statusRes.json().catch(() => null);
-					if (!statusRes.ok) {
-						throw new Error(data?.error || "读取生成状态失败");
-					}
-					status = data;
-				} catch {
-					status = null;
-				}
-				if (status) {
-					emptyPolls = 0;
-					if (status.createdAt) {
-						const createdTime = new Date(status.createdAt).getTime();
-						if (Number.isFinite(createdTime)) setStartedAt(createdTime);
-					}
-					if (status.currentPhase) {
-						setPhase(status.currentPhase);
-					} else if (status.status) {
-						setPhase(PPT_STATUS_LABELS[status.status] ?? "正在生成 PPT");
-					}
-					if (isPptCompletedStatus(status.status)) {
-						toast.success("PPT 生成完成。");
-						router.push(`/ppt/${projectId}`);
-						router.refresh();
-						return;
-					}
-					if (status.status === "AWAITING_CONFIRMATION") {
-						toast.info("设计方案已生成，请确认后继续。");
-						router.push(`/ppt/${projectId}`);
-						router.refresh();
-						return;
-					}
-					if (status.status === "FAILED") {
-						// 用户主动停止也会落到 FAILED：用 cancelledRef 区分提示文案。
-						if (cancelledRef.current) {
-							toast.info("已停止生成");
-							router.refresh();
-						} else {
-							throw new Error(status.error || PPT_USER_FAILURE_MESSAGE);
-						}
-						return;
-					}
-				} else {
-					emptyPolls += 1;
-					if (emptyPolls >= MAX_EMPTY_POLLS) {
-						throw new Error("暂时无法读取生成状态，请稍后在最近项目中查看结果。");
-					}
-				}
-			}
+			router.push(`/ppt/${data.projectId}`);
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : "生成失败");
-			if (projectId) router.refresh();
-		} finally {
 			setLoading(false);
-			setActiveProjectId("");
 		}
 	}
 
@@ -884,39 +787,6 @@ export function GenerationForm({
 						</div>
 					</div>
 
-					{loading && (
-						<div className="border-t px-4 py-3 sm:px-5">
-							<div className="flex items-center justify-between gap-3 text-sm">
-								<div className="flex min-w-0 items-center gap-3">
-									<Loader2 className="size-4 shrink-0 animate-spin text-primary" />
-									<div className="min-w-0">
-										<p
-											className="truncate font-medium"
-											role="status"
-											aria-live="polite"
-										>
-											{phaseLabel}
-										</p>
-										{durationLabel && (
-											<p className="mt-0.5 text-xs text-muted-foreground">
-												{durationLabel}
-											</p>
-										)}
-									</div>
-								</div>
-								{activeProjectId && (
-									<CancelProjectButton
-										projectId={activeProjectId}
-										size="sm"
-										variant="destructive"
-										onCancelled={() => {
-											cancelledRef.current = true;
-										}}
-									/>
-								)}
-							</div>
-						</div>
-					)}
 				</section>
 			</div>
 		</form>

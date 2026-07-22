@@ -39,12 +39,16 @@ import {
 } from "@/lib/image-worker-config";
 import type { ModelSource } from "@/lib/module-model-options";
 import {
-  deleteImageEditInput,
-  readImageEditInput,
-  saveImageEditInput,
+  deleteImageEditInputs,
+  ImageInputValidationError,
+  parseStoredImageInputReferences,
+  readImageEditInputs,
+  saveImageEditInputs,
+  storedImageInputReferences,
 } from "@/lib/image-inputs";
 import { logger } from "@/lib/logger";
 import { checkImageQueueCapacity } from "@/lib/queue-capacity";
+import { supportsNativeMultiImageEdit } from "@/lib/image-edit-capabilities";
 
 export interface TurnImage {
   id: string;
@@ -91,8 +95,7 @@ export interface EnqueueImageTurnOptions {
   model?: string;
   modelSource?: ModelSource;
   mode: "generate" | "edit";
-  editImage?: { blob: Blob; filename: string };
-  referenceThumbs?: string[];
+  editImages?: Array<{ blob: Blob; filename: string }>;
 }
 
 export interface ClaimedImageTurn {
@@ -313,7 +316,7 @@ function normalizedReferenceThumbs(value: string[] | undefined) {
         /^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(item) &&
         item.length <= 512 * 1024,
     )
-    .slice(0, 1);
+    .slice(0, 16);
   return accepted.length > 0 ? JSON.stringify(accepted) : null;
 }
 
@@ -346,8 +349,18 @@ export async function enqueueImageTurn(
   if (mode === "edit" && typeof resolved.provider.edit !== "function") {
     throw new TurnError(400, "当前图片服务不支持图生图");
   }
-  if (mode === "edit" && !options.editImage) {
+  if (mode === "edit" && !options.editImages?.length) {
     throw new TurnError(400, "请上传参考图");
+  }
+  if (
+    mode === "edit" &&
+    (options.editImages?.length ?? 0) > 1 &&
+    !supportsNativeMultiImageEdit(resolved.model)
+  ) {
+    throw new TurnError(
+      400,
+      `当前模型「${resolved.model}」不支持多张参考图，请更换支持多图的模型或删除图片`,
+    );
   }
 
   const qualityMeta = IMAGE_QUALITY_META[quality];
@@ -364,17 +377,23 @@ export async function enqueueImageTurn(
     options.conversationId,
     prompt,
   );
-  let editInput:
-    | Awaited<ReturnType<typeof saveImageEditInput>>
-    | undefined;
+  let storedEditInputs: Awaited<ReturnType<typeof saveImageEditInputs>> = [];
   try {
-    if (mode === "edit" && options.editImage) {
-      editInput = await saveImageEditInput(
-        userId,
-        options.editImage.blob,
-        options.editImage.filename,
-      );
+    if (mode === "edit" && options.editImages?.length) {
+      try {
+        storedEditInputs = await saveImageEditInputs(
+          userId,
+          options.editImages,
+        );
+      } catch (error) {
+        if (error instanceof ImageInputValidationError) {
+          throw new TurnError(400, error.message);
+        }
+        throw error;
+      }
     }
+    const editInputReferences = storedImageInputReferences(storedEditInputs);
+    const firstEditInput = storedEditInputs[0];
 
     const initialImages: TurnImage[] = Array.from(
       { length: count },
@@ -421,9 +440,15 @@ export async function enqueueImageTurn(
           count,
           status: "PENDING",
           images: JSON.stringify(initialImages),
-          referenceThumbs: normalizedReferenceThumbs(options.referenceThumbs),
-          editInputPath: editInput?.token,
-          editInputName: editInput?.filename,
+          referenceThumbs: normalizedReferenceThumbs(
+            storedEditInputs.map((input) => input.thumbnail),
+          ),
+          editInputs:
+            editInputReferences.length > 0
+              ? JSON.stringify(editInputReferences)
+              : undefined,
+          editInputPath: firstEditInput?.token,
+          editInputName: firstEditInput?.filename,
           creditsCost: totalCost,
           usedOwnKey: resolved.useOwnKey,
         },
@@ -436,7 +461,10 @@ export async function enqueueImageTurn(
     });
     return serializeTurn(turn);
   } catch (error) {
-    await deleteImageEditInput(userId, editInput?.token ?? null).catch(
+    await deleteImageEditInputs(
+      userId,
+      storedImageInputReferences(storedEditInputs),
+    ).catch(
       () => undefined,
     );
     if (conversation.created) {
@@ -610,15 +638,19 @@ async function finalizeImageTurn({
     finalized ?? (await prisma.imageTurn.findUnique({ where: { id: turn.id } }));
   if (!current) throw new Error("图片任务不存在");
   if (current.status !== "PENDING") {
-    await deleteImageEditInput(
-      turn.conversation.userId,
-      turn.editInputPath,
-    ).catch((cleanupError) => {
+    try {
+      const references = parseStoredImageInputReferences(
+        turn.editInputs,
+        turn.editInputPath,
+        turn.editInputName,
+      );
+      await deleteImageEditInputs(turn.conversation.userId, references);
+    } catch (cleanupError) {
       logger.warn("image-worker", "清理图生图参考文件失败", {
         turnId: turn.id,
         error: cleanupError,
       });
-    });
+    }
   }
   return serializeTurn(current);
 }
@@ -752,8 +784,23 @@ export async function executeImageTurn(
       .filter((index) => index >= 0);
 
     if (turn.mode === "edit") {
-      if (!turn.editInputPath) throw new Error("图生图参考文件已过期，请重新提交");
-      const editImage = await readImageEditInput(userId, turn.editInputPath);
+      const editInputReferences = parseStoredImageInputReferences(
+        turn.editInputs,
+        turn.editInputPath,
+        turn.editInputName,
+      );
+      if (editInputReferences.length === 0) {
+        throw new Error("图生图参考文件已过期，请重新提交");
+      }
+      if (
+        editInputReferences.length > 1 &&
+        !supportsNativeMultiImageEdit(resolved.model)
+      ) {
+        throw new Error(
+          `当前模型「${resolved.model}」不支持多张参考图，请更换支持多图的模型后重新提交`,
+        );
+      }
+      const editImages = await readImageEditInputs(userId, editInputReferences);
       for (const index of pendingIndices) {
         results[index] = {
           id: String(index),
@@ -768,8 +815,7 @@ export async function executeImageTurn(
           () =>
             resolved.provider.edit!({
               prompt: turn.prompt,
-              image: editImage,
-              imageFilename: turn.editInputName || "reference.png",
+              images: editImages,
               size: RATIO_TO_PIXEL[ratio],
               quality: qualityMeta.providerQuality,
               count: pendingIndices.length,

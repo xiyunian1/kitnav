@@ -230,25 +230,32 @@ export const TurnCard = memo(function TurnCard({
         </div>
 
         {turn.referenceThumbs.length > 0 && (
-          <div className="flex gap-2 border-b px-4 py-3">
-            <span className="text-xs text-muted-foreground">参考图</span>
-            {turn.referenceThumbs.map((thumb, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => setPreview({ src: thumb, alt: `参考图 ${i + 1}` })}
-                className="rounded-md outline-none ring-offset-background transition-opacity hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                title="查看参考图"
-                aria-label={`查看参考图 ${i + 1}`}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={thumb}
-                  alt={`参考图 ${i + 1}`}
-                  className="size-12 rounded-md border object-cover"
-                />
-              </button>
-            ))}
+          <div className="flex flex-wrap items-start gap-2 border-b px-4 py-3">
+            <span className="pt-1 text-xs text-muted-foreground">
+              参考图 {turn.referenceThumbs.length} 张
+            </span>
+            <div className="flex min-w-0 flex-1 flex-wrap gap-2">
+              {turn.referenceThumbs.map((thumb, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setPreview({ src: thumb, alt: `参考图 ${i + 1}` })}
+                  className="relative rounded-md outline-none ring-offset-background transition-opacity hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  title="查看参考图"
+                  aria-label={`查看参考图 ${i + 1}`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={thumb}
+                    alt={`参考图 ${i + 1}`}
+                    className="size-12 rounded-md border object-cover"
+                  />
+                  <span className="pointer-events-none absolute left-1 top-1 flex size-4 items-center justify-center rounded bg-black/70 text-[9px] font-medium text-white">
+                    {i + 1}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 

@@ -4,12 +4,16 @@ export function formatProjectDurationLabel({
 	startedAt,
 	completedAt,
 	updatedAt,
+	pausedDurationMs = 0,
+	pausedAt,
 	running,
 	now,
 }: {
 	startedAt: TimeValue;
 	completedAt?: TimeValue;
 	updatedAt?: TimeValue;
+	pausedDurationMs?: number | null;
+	pausedAt?: TimeValue;
 	running: boolean;
 	now: number | null | undefined;
 }) {
@@ -22,7 +26,17 @@ export function formatProjectDurationLabel({
 	if (endMs === null) return "";
 	if (endMs < startMs) return "";
 
-	const duration = formatDurationMs(endMs - startMs);
+	const storedPauseMs = Number.isFinite(pausedDurationMs)
+		? Math.max(0, pausedDurationMs ?? 0)
+		: 0;
+	const openPauseStartedMs = toTimeMs(pausedAt);
+	const openPauseMs =
+		openPauseStartedMs === null
+			? 0
+			: Math.max(0, endMs - Math.max(startMs, openPauseStartedMs));
+	const duration = formatDurationMs(
+		Math.max(0, endMs - startMs - storedPauseMs - openPauseMs),
+	);
 	return `${running ? "已用时" : "用时"} ${duration}`;
 }
 

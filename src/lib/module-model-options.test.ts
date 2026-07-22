@@ -59,6 +59,7 @@ describe("buildModuleModelOptions", () => {
         sourceLabel: "平台",
         creditCost: 12,
         supportsVision: true,
+        supportsMultiImageEdit: false,
         note: "高清模型",
       },
     ]);
@@ -81,5 +82,22 @@ describe("buildModuleModelOptions", () => {
     expect(options).toHaveLength(1);
     expect(options[0]?.value).toBe(moduleModelValue("platform", "legacy-platform-model"));
     expect(options[0]?.supportsVision).toBe(false);
+    expect(options[0]?.supportsMultiImageEdit).toBe(false);
+  });
+
+  it("marks supported image-edit models without conflating similar names", () => {
+    const options = buildModuleModelOptions([
+      {
+        source: "user",
+        enabled: true,
+        model: "gpt-image-2",
+        models: JSON.stringify(["gpt-image-2", "gpt-image-2-preview"]),
+      },
+    ]);
+
+    expect(options.map((option) => option.supportsMultiImageEdit)).toEqual([
+      true,
+      false,
+    ]);
   });
 });

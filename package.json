@@ -18,7 +18,7 @@
     "ppt-requirements:lock": "sh scripts/compile-ppt-requirements.sh",
     "ppt-requirements:check": "sh scripts/compile-ppt-requirements.sh --check",
     "ppt-worker:build": "esbuild scripts/start-ppt-worker.ts --bundle --platform=node --target=node22 --format=cjs --minify-syntax --outfile=.next/ppt-worker.cjs --metafile=.next/ppt-worker-meta.json --external:@prisma/client --external:sharp",
-    "ppt-worker:dev": "tsx scripts/start-ppt-worker.ts",
+    "ppt-worker:dev": "tsx --env-file=.env scripts/start-ppt-worker.ts",
     "image-worker:build": "esbuild scripts/start-image-worker.ts --bundle --platform=node --target=node22 --format=cjs --outfile=.next/image-worker.cjs --metafile=.next/image-worker-meta.json --external:@prisma/client --external:sharp",
     "image-worker:dev": "tsx scripts/start-image-worker.ts",
     "worker-bundles:check": "node scripts/check-worker-bundles.mjs",

@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { PptProjectStatus, Prisma } from "@prisma/client";
 import { Search } from "lucide-react";
 import { prisma } from "@/lib/db";
+import { resolvePptConfirmationTiming } from "@/lib/ppt-agent/timing";
 import {
   Table,
   TableBody,
@@ -70,9 +71,26 @@ function formatDate(value: Date | null) {
   return value.toLocaleString("zh-CN");
 }
 
-function formatDuration(start: Date, end: Date | null) {
+function formatDuration(
+  start: Date,
+  end: Date | null,
+  confirmationWaitDurationMs: number,
+  confirmationWaitStartedAt: Date | null,
+) {
   if (!end) return "-";
-  const seconds = Math.max(0, Math.round((end.getTime() - start.getTime()) / 1000));
+  const openWaitMs = confirmationWaitStartedAt
+    ? Math.max(0, end.getTime() - confirmationWaitStartedAt.getTime())
+    : 0;
+  const seconds = Math.max(
+    0,
+    Math.round(
+      (end.getTime() -
+        start.getTime() -
+        confirmationWaitDurationMs -
+        openWaitMs) /
+        1000,
+    ),
+  );
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
@@ -240,6 +258,7 @@ export default async function AdminPptProjectsPage({
                   label: project.status,
                   variant: "outline" as const,
                 };
+                const confirmationTiming = resolvePptConfirmationTiming(project);
                 return (
                   <TableRow key={project.id}>
                     <TableCell>
@@ -276,7 +295,12 @@ export default async function AdminPptProjectsPage({
                     </TableCell>
                     <TableCell className="text-right">{project.creditsCost}</TableCell>
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                      {formatDuration(project.createdAt, project.completedAt)}
+                      {formatDuration(
+                        project.createdAt,
+                        project.completedAt,
+                        confirmationTiming.confirmationWaitDurationMs,
+                        confirmationTiming.confirmationWaitStartedAt,
+                      )}
                     </TableCell>
                     <TableCell className="max-w-72 text-xs text-muted-foreground">
                       <div className="truncate" title={project.error || ""}>

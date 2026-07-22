@@ -23,6 +23,10 @@ import type { MaterialView } from "@/components/materials/material-types";
 import { cn } from "@/lib/utils";
 import type { PromptOptimizationResult, PromptOptimizeRequest } from "../types";
 import type { ModuleModelOption } from "@/lib/module-model-options";
+import {
+  MAX_REFERENCE_IMAGE_COUNT,
+  REFERENCE_IMAGE_MIME_TYPES,
+} from "@/lib/image-edit-capabilities";
 
 const PromptOptimizerDialog = dynamic(
   () => import("./prompt-optimizer-dialog").then((mod) => mod.PromptOptimizerDialog),
@@ -38,8 +42,9 @@ const RATIO_LABELS: Record<string, string> = {
 };
 
 export interface ReferencePreview {
+  file: File;
   name: string;
-  dataUrl: string;
+  previewUrl: string;
 }
 
 interface Props {
@@ -51,6 +56,7 @@ interface Props {
   modelValue: string;
   modelOptions: ModuleModelOption[];
   references: ReferencePreview[];
+  preparingReferences: boolean;
   submitting: boolean;
   stopping: boolean;
   unitCost: number;
@@ -78,6 +84,7 @@ export function PromptComposer({
   modelValue,
   modelOptions,
   references,
+  preparingReferences,
   submitting,
   stopping,
   unitCost,
@@ -103,10 +110,21 @@ export function PromptComposer({
   const [optimizerMounted, setOptimizerMounted] = useState(false);
   const activeModel =
     modelOptions.find((option) => option.value === modelValue) ?? modelOptions[0];
+  const visiblePreview =
+    preview &&
+    references.some((reference) => reference.previewUrl === preview.previewUrl)
+      ? preview
+      : null;
+  const multiImageUnsupported =
+    mode === "edit" &&
+    references.length > 1 &&
+    !activeModel?.supportsMultiImageEdit;
   const canSubmit =
     prompt.trim().length > 0 &&
     (mode === "generate" || references.length > 0) &&
     Boolean(activeModel) &&
+    !multiImageUnsupported &&
+    !preparingReferences &&
     !submitting;
   const qualityMeta =
     IMAGE_QUALITY_META[quality as keyof typeof IMAGE_QUALITY_META] ?? IMAGE_QUALITY_META.standard;
@@ -124,6 +142,7 @@ export function PromptComposer({
     const files = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/"));
     if (files.length === 0) return;
     e.preventDefault();
+    if (preparingReferences || submitting) return;
     onModeChange("edit");
     onPickFiles(files);
   }
@@ -187,18 +206,23 @@ export function PromptComposer({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept={REFERENCE_IMAGE_MIME_TYPES.join(",")}
                 multiple
+                disabled={preparingReferences || submitting}
                 className="hidden"
                 onChange={(e) => {
                   onPickFiles(Array.from(e.target.files || []));
                   if (fileInputRef.current) fileInputRef.current.value = "";
                 }}
               />
+              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span>参考图</span>
+                <span>{references.length}/{MAX_REFERENCE_IMAGE_COUNT}</span>
+              </div>
               {references.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2" aria-busy={preparingReferences}>
                   {references.map((ref, i) => (
-                    <div key={i} className="relative size-16">
+                    <div key={ref.previewUrl} className="relative size-16">
                       <button
                         type="button"
                         onClick={() => setPreview(ref)}
@@ -207,11 +231,18 @@ export function PromptComposer({
                         aria-label={`查看参考图：${ref.name}`}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={ref.dataUrl} alt={ref.name} className="size-16 rounded-lg border object-cover" />
+                        <img src={ref.previewUrl} alt={ref.name} className="size-16 rounded-lg border object-cover" />
                       </button>
+                      <span className="pointer-events-none absolute left-1 top-1 flex size-5 items-center justify-center rounded bg-black/70 text-[10px] font-medium text-white">
+                        {i + 1}
+                      </span>
                       <button
                         type="button"
-                        onClick={() => onRemoveReference(i)}
+                        disabled={preparingReferences || submitting}
+                        onClick={() => {
+                          if (preview?.previewUrl === ref.previewUrl) setPreview(null);
+                          onRemoveReference(i);
+                        }}
                         className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full border bg-background text-muted-foreground hover:text-destructive"
                         aria-label={`移除参考图：${ref.name}`}
                       >
@@ -221,11 +252,41 @@ export function PromptComposer({
                   ))}
                 </div>
               ) : null}
-              <Button variant="outline" size="sm" className="w-full" onClick={() => fileInputRef.current?.click()}>
-                <ImagePlus className="size-4" />
-                {references.length > 0 ? "继续添加参考图" : "上传参考图"}
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                disabled={
+                  preparingReferences ||
+                  submitting ||
+                  references.length >= MAX_REFERENCE_IMAGE_COUNT
+                }
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {preparingReferences ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <ImagePlus className="size-4" />
+                )}
+                {preparingReferences
+                  ? "正在处理参考图"
+                  : references.length > 0
+                    ? "继续添加参考图"
+                    : "上传参考图"}
               </Button>
-              <MaterialPicker onPick={onPickMaterial} />
+              <MaterialPicker
+                onPick={onPickMaterial}
+                disabled={
+                  preparingReferences ||
+                  submitting ||
+                  references.length >= MAX_REFERENCE_IMAGE_COUNT
+                }
+              />
+              {multiImageUnsupported && (
+                <p className="text-xs text-destructive">
+                  当前模型不支持多张参考图，请更换带“多图”标记的模型或删除至 1 张。
+                </p>
+              )}
             </div>
           )}
 
@@ -321,17 +382,27 @@ export function PromptComposer({
                                 >
                                   {option.sourceLabel}
                                 </span>
+                                {option.supportsMultiImageEdit && (
+                                  <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                                    多图
+                                  </span>
+                                )}
                               </span>
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     ) : (
-                      <div className="flex items-center justify-between gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+                      <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
                         <span className="min-w-0 truncate">{activeModel?.model}</span>
-                        <span className="shrink-0 text-xs text-muted-foreground">
+                        <span className="ml-auto shrink-0 text-xs text-muted-foreground">
                           {activeModel?.sourceLabel}
                         </span>
+                        {activeModel?.supportsMultiImageEdit && (
+                          <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                            多图
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -383,16 +454,16 @@ export function PromptComposer({
         </div>
       </div>
 
-      <Dialog open={!!preview} onOpenChange={(open) => !open && setPreview(null)}>
+      <Dialog open={!!visiblePreview} onOpenChange={(open) => !open && setPreview(null)}>
         <DialogContent className="max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] overflow-hidden p-3 sm:max-w-5xl">
-          <DialogTitle className="sr-only">{preview?.name ?? "参考图预览"}</DialogTitle>
+          <DialogTitle className="sr-only">{visiblePreview?.name ?? "参考图预览"}</DialogTitle>
           <DialogDescription className="sr-only">预览当前选中的参考图。</DialogDescription>
-          {preview && (
+          {visiblePreview && (
             <div className="flex max-h-[calc(100vh-5rem)] items-center justify-center">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={preview.dataUrl}
-                alt={preview.name}
+                src={visiblePreview.previewUrl}
+                alt={visiblePreview.name}
                 className="max-h-[calc(100vh-5rem)] max-w-full rounded-md object-contain"
               />
             </div>

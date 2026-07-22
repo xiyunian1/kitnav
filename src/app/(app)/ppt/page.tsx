@@ -55,6 +55,8 @@ export default async function PptPage() {
         createdAt: true,
         completedAt: true,
         updatedAt: true,
+        confirmationWaitStartedAt: true,
+        confirmationWaitSeconds: true,
         pptxPath: true,
         artifactsDeletedAt: true,
       },

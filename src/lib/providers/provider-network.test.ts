@@ -35,6 +35,110 @@ describe("provider transport wiring", () => {
     expect(mocks.request.mock.calls[0]?.[2]).toBe("public");
   });
 
+  it("keeps the legacy image field for a single edit reference", async () => {
+    mocks.request.mockResolvedValue(
+      Response.json({ data: [{ url: "https://cdn.example.com/edited.png" }] }),
+    );
+    const provider = new OpenAIImageProvider({
+      baseUrl: "https://api.example.com/v1",
+      apiKey: "secret",
+      model: "legacy-edit-model",
+      networkPolicy: "public",
+    });
+
+    await provider.edit({
+      prompt: "edit",
+      images: [{ blob: new Blob(["one"], { type: "image/png" }), filename: "one.png" }],
+    });
+    const body = mocks.request.mock.calls[0]?.[1]?.body as FormData;
+    expect(body.getAll("image")).toHaveLength(1);
+    expect(body.getAll("image[]")).toHaveLength(0);
+  });
+
+  it("sends every multi-image edit reference as ordered image[] fields", async () => {
+    mocks.request.mockResolvedValue(
+      Response.json({ data: [{ url: "https://cdn.example.com/edited.png" }] }),
+    );
+    const provider = new OpenAIImageProvider({
+      baseUrl: "https://api.example.com/v1",
+      apiKey: "secret",
+      model: "gpt-image-2",
+      networkPolicy: "public",
+    });
+
+    await provider.edit({
+      prompt: "combine",
+      images: [
+        { blob: new Blob(["first"], { type: "image/png" }), filename: "01.png" },
+        { blob: new Blob(["second"], { type: "image/png" }), filename: "02.png" },
+        { blob: new Blob(["third"], { type: "image/png" }), filename: "03.png" },
+      ],
+    });
+    const body = mocks.request.mock.calls[0]?.[1]?.body as FormData;
+    const images = body.getAll("image[]") as File[];
+    expect(images.map((image) => image.name)).toEqual(["01.png", "02.png", "03.png"]);
+    expect(await Promise.all(images.map((image) => image.text()))).toEqual([
+      "first",
+      "second",
+      "third",
+    ]);
+    expect(body.getAll("image")).toHaveLength(0);
+    expect(body.has("input_fidelity")).toBe(false);
+  });
+
+  it("returns a clear error when an upstream rejects native multi-image fields", async () => {
+    mocks.request.mockResolvedValue(
+      Response.json({ error: { message: "unknown field image[]" } }, { status: 400 }),
+    );
+    const provider = new OpenAIImageProvider({
+      baseUrl: "https://api.example.com/v1",
+      apiKey: "secret",
+      model: "gpt-image-2",
+      networkPolicy: "public",
+    });
+
+    await expect(
+      provider.edit({
+        prompt: "combine",
+        images: [
+          { blob: new Blob(["first"]), filename: "01.png" },
+          { blob: new Blob(["second"]), filename: "02.png" },
+        ],
+      }),
+    ).rejects.toThrow("未接受 2 张参考图");
+    expect(mocks.request).toHaveBeenCalledTimes(1);
+  });
+
+  it("supports sixteen ordered upstream references and rejects a seventeenth", async () => {
+    mocks.request.mockResolvedValue(
+      Response.json({ data: [{ url: "https://cdn.example.com/edited.png" }] }),
+    );
+    const provider = new OpenAIImageProvider({
+      baseUrl: "https://api.example.com/v1",
+      apiKey: "secret",
+      model: "gpt-image-2",
+      networkPolicy: "public",
+    });
+    const images = Array.from({ length: 16 }, (_, index) => ({
+      blob: new Blob([String(index)], { type: "image/png" }),
+      filename: `${String(index + 1).padStart(2, "0")}.png`,
+    }));
+
+    await provider.edit({ prompt: "combine", images });
+    const body = mocks.request.mock.calls[0]?.[1]?.body as FormData;
+    expect(
+      (body.getAll("image[]") as File[]).map((image) => image.name),
+    ).toEqual(images.map((image) => image.filename));
+
+    await expect(
+      provider.edit({
+        prompt: "too many",
+        images: [...images, { blob: new Blob(["17"]), filename: "17.png" }],
+      }),
+    ).rejects.toThrow("最多上传 16 张");
+    expect(mocks.request).toHaveBeenCalledTimes(1);
+  });
+
   it("passes trusted policy through text generation", async () => {
     mocks.request.mockResolvedValue(
       Response.json({ choices: [{ message: { content: "OK" } }] }),

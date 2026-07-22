@@ -4,6 +4,7 @@ import {
   isModelEnabled,
   type ModelMetaMap,
 } from "@/lib/model-meta";
+import { supportsNativeMultiImageEdit } from "@/lib/image-edit-capabilities";
 
 export const MODEL_SOURCES = ["user", "platform"] as const;
 
@@ -16,6 +17,7 @@ export interface ModuleModelOption {
   sourceLabel: "我的 API" | "平台";
   creditCost: number | null;
   supportsVision: boolean;
+  supportsMultiImageEdit: boolean;
   note?: string;
 }
 
@@ -52,6 +54,7 @@ export function buildModuleModelOptions(
         creditCost:
           config.source === "platform" ? getModelCreditCost(meta, model) : null,
         supportsVision: config.visionModels?.includes(model) ?? false,
+        supportsMultiImageEdit: supportsNativeMultiImageEdit(model),
         note: config.source === "platform" ? meta[model]?.note : undefined,
       }));
   });

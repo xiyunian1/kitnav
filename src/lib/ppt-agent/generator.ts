@@ -254,13 +254,14 @@ export async function generatePPT(
 			const waitingForTemplate = error.kind === "template-fill";
 			const confirmationLabel = waitingForTemplate
 				? "模板填充方案"
-				: "完整设计方案";
+				: "设计方案";
 			await emitProjectLog(
 				params.projectId,
 				emit,
 				`${confirmationLabel}候选已生成，等待用户确认后继续`,
 				params.workerLease,
 			);
+			const confirmationWaitStartedAt = new Date();
 			await updateProject(
 				params.projectId,
 				{
@@ -269,6 +270,7 @@ export async function generatePPT(
 					currentPhase: `等待确认${confirmationLabel}`,
 					progress: 30,
 					error: null,
+					confirmationWaitStartedAt,
 				},
 				params.workerLease,
 			);
@@ -305,8 +307,6 @@ export async function preparePptRunSource(
 	);
 	const automaticResumeArtifacts = [
 		sourcePath,
-		join(projectDir, "design_spec.md"),
-		join(projectDir, "spec_lock.md"),
 		getPptPlanningRecommendationsPath(projectDir),
 		getPptPlanningDecisionPath(projectDir),
 	];
@@ -325,8 +325,6 @@ export async function preparePptRunSource(
 					]
 				: [
 						sourcePath,
-						join(projectDir, "design_spec.md"),
-						join(projectDir, "spec_lock.md"),
 						getPptPlanningRecommendationsPath(projectDir),
 						...(params.planningConfirmed || resumeAutomaticPlanning
 							? [getPptPlanningDecisionPath(projectDir)]

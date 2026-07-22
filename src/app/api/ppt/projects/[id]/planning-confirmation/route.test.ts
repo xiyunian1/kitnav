@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
 	auth: vi.fn(),
@@ -71,6 +71,8 @@ describe("PPT planning confirmation route", () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-07-21T01:04:34.000Z"));
 		status = "AWAITING_CONFIRMATION";
 		mocks.auth.mockResolvedValue({ user: { id: "user-1" } });
 		mocks.assertModule.mockResolvedValue(undefined);
@@ -85,6 +87,8 @@ describe("PPT planning confirmation route", () => {
 				status,
 				params: JSON.stringify({ confirmDesign: true }),
 				slideCount: 3,
+				updatedAt: new Date("2026-07-21T01:00:00.000Z"),
+				confirmationWaitStartedAt: new Date("2026-07-21T01:00:00.000Z"),
 			},
 		]);
 		mocks.update.mockImplementation(async ({ data }) => {
@@ -97,6 +101,10 @@ describe("PPT planning confirmation route", () => {
 				pptProject: { update: mocks.update },
 			}),
 		);
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
 	});
 
 	it("stores the complete edited design and requeues once", async () => {
@@ -119,12 +127,14 @@ describe("PPT planning confirmation route", () => {
 				status: "QUEUED",
 				workerLease: null,
 				params: expect.stringContaining('"planningConfirmed":true'),
-				currentPhase: "完整设计方案已确认，等待继续生成",
+				currentPhase: "设计方案已确认，等待生成完整设计规范",
+				confirmationWaitStartedAt: null,
+				confirmationWaitSeconds: { increment: 274 },
 			}),
 		});
 		expect(mocks.appendLog).toHaveBeenCalledWith(
 			"project-1",
-			"用户已确认完整设计方案，原任务重新入队",
+			"用户已确认设计方案，原任务重新入队",
 		);
 	});
 
@@ -170,6 +180,8 @@ describe("PPT planning confirmation route", () => {
 					templateFileUrls: ["/uploads/template.pptx"],
 				}),
 				slideCount: 2,
+				updatedAt: new Date("2026-07-21T01:00:00.000Z"),
+				confirmationWaitStartedAt: new Date("2026-07-21T01:00:00.000Z"),
 			},
 		]);
 		const input = {

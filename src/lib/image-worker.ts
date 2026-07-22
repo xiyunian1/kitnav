@@ -5,7 +5,10 @@ import {
   getImageWorkerConcurrency,
 } from "@/lib/image-worker-config";
 import { boundedIntegerEnv } from "@/lib/runtime-config";
-import { sweepOrphanImageInputs } from "@/lib/image-inputs";
+import {
+  parseStoredImageInputReferences,
+  sweepOrphanImageInputs,
+} from "@/lib/image-inputs";
 import {
   sweepOrphanUploadStorage,
   type UploadStorageSweepRunResult,
@@ -212,12 +215,19 @@ async function processClaimedTurn(
 async function sweepImageInputs() {
   try {
     const active = await prisma.imageTurn.findMany({
-      where: { status: "PENDING", editInputPath: { not: null } },
-      select: { editInputPath: true },
+      where: {
+        status: "PENDING",
+        OR: [{ editInputs: { not: null } }, { editInputPath: { not: null } }],
+      },
+      select: { editInputs: true, editInputPath: true, editInputName: true },
     });
     const activeTokens = new Set(
       active.flatMap((turn) =>
-        turn.editInputPath ? [turn.editInputPath] : [],
+        parseStoredImageInputReferences(
+          turn.editInputs,
+          turn.editInputPath,
+          turn.editInputName,
+        ).map((reference) => reference.token),
       ),
     );
     const result = await sweepOrphanImageInputs(

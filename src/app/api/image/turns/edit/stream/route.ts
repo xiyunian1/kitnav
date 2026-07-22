@@ -7,6 +7,10 @@ import {
   enforceUserRequestLimit,
   REQUEST_LIMITS,
 } from "@/lib/request-limits";
+import {
+  parseReferenceImageUploads,
+  ReferenceImageRequestError,
+} from "@/lib/image-edit-request";
 
 export const runtime = "nodejs";
 
@@ -29,9 +33,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "请求格式错误" }, { status: 400 });
   }
 
-  const image = form.get("image");
-  if (!(image instanceof Blob) || image.size === 0) {
-    return NextResponse.json({ error: "请上传参考图" }, { status: 400 });
+  let images: ReturnType<typeof parseReferenceImageUploads>;
+  try {
+    images = parseReferenceImageUploads(form);
+  } catch (error) {
+    if (error instanceof ReferenceImageRequestError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    throw error;
   }
 
   const parsed = editTurnFieldsSchema.safeParse({
@@ -50,11 +59,6 @@ export async function POST(req: Request) {
     );
   }
 
-  const filename = image instanceof File && image.name ? image.name : "reference.png";
-  const thumb = form.get("referenceThumb");
-  const referenceThumbs =
-    typeof thumb === "string" && thumb.startsWith("data:") ? [thumb] : undefined;
-
   try {
     const turn = await enqueueImageTurn({
       userId,
@@ -66,8 +70,7 @@ export async function POST(req: Request) {
       model: parsed.data.model,
       modelSource: parsed.data.modelSource,
       mode: "edit",
-      editImage: { blob: image, filename },
-      referenceThumbs,
+      editImages: images,
     });
     return createImageTurnStreamResponse(turn, req.signal);
   } catch (error) {

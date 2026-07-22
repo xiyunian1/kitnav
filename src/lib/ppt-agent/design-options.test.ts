@@ -22,6 +22,15 @@ describe("PPT design preferences", () => {
     expect(instruction).toContain("spec_lock.md");
   });
 
+  it("keeps recommendation prompts out of the full contract phase", () => {
+    const instruction = buildPptDesignPreferenceInstruction({
+      phase: "recommendation",
+    });
+
+    expect(instruction).toContain("只把色板与字体组合写入候选 JSON");
+    expect(instruction).not.toContain("spec_lock.md");
+  });
+
   it("falls back for unknown persisted values", () => {
     expect(getPptColorPreferenceOption("unknown").id).toBe("auto");
     expect(getPptTypographyPreferenceOption("unknown").id).toBe("auto");

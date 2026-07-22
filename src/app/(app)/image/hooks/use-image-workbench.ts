@@ -44,8 +44,7 @@ export interface SubmitInput {
   model?: string;
   modelSource?: ModelSource;
   mode: "generate" | "edit";
-  image?: File;
-  referenceThumb?: string;
+  images?: File[];
 }
 
 export function useImageWorkbench(initialBalance: number) {
@@ -430,7 +429,7 @@ export function useImageWorkbench(initialBalance: number) {
           }
         };
 
-        if (input.mode === "edit" && input.image) {
+        if (input.mode === "edit" && input.images?.length) {
           await editTurnStream(
             {
                 conversationId: activeIdRef.current ?? undefined,
@@ -440,8 +439,7 @@ export function useImageWorkbench(initialBalance: number) {
                 count: input.count,
                 model: input.model,
                 modelSource: input.modelSource,
-                image: input.image,
-                referenceThumb: input.referenceThumb,
+                images: input.images,
             },
             handleEvent,
             { signal: controller.signal }

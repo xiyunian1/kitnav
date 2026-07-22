@@ -14,6 +14,8 @@ describe("public PPT project data", () => {
       id: "project_1",
       title: "测试项目",
       artifactsDeletedAt: null,
+      confirmationWaitDurationMs: 0,
+      confirmationWaitStartedAt: null,
       hasPptx: true,
     });
     expect(project).not.toHaveProperty("pptxPath");
@@ -27,5 +29,22 @@ describe("public PPT project data", () => {
       }),
     ).toBe(false);
     expect(hasPptxArtifact({ pptxPath: null })).toBe(false);
+  });
+
+  it("exposes normalized confirmation timing without leaking logs", () => {
+    const project = toPublicPptProject({
+      id: "project_2",
+      pptxPath: null,
+      logs: [
+        "[2026-07-21T01:00:00.000Z] 设计方案候选已生成，等待用户确认后继续",
+        "[2026-07-21T01:04:34.000Z] 用户已确认设计方案，原任务重新入队",
+      ].join("\n"),
+      confirmationWaitSeconds: 274,
+      confirmationWaitStartedAt: null,
+    });
+
+    expect(project.confirmationWaitDurationMs).toBe(274_000);
+    expect(project).not.toHaveProperty("logs");
+    expect(project).not.toHaveProperty("confirmationWaitSeconds");
   });
 });

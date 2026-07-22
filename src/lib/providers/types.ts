@@ -11,8 +11,7 @@ export interface ImageGenerationParams {
 
 export interface ImageEditParams {
   prompt: string;
-  image: Blob;
-  imageFilename?: string;
+  images: Array<{ blob: Blob; filename: string }>;
   size?: string;
   quality?: ImageProviderQuality;
   count?: number;

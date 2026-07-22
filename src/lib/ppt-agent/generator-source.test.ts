@@ -38,13 +38,23 @@ describe("preparePptRunSource", () => {
 		expect(readFileSync(sourcePath, "utf-8")).toBe(original);
 	});
 
-	it("fails closed when any confirmation artifact is missing", async () => {
+	it("fails closed when a confirmed candidate artifact is missing", async () => {
 		const root = createConfirmedProject();
-		rmSync(join(root, "spec_lock.md"));
+		rmSync(join(root, "analysis", "hosted_confirmation.json"));
 
 		await expect(
 			preparePptRunSource(params({ planningConfirmed: true }), root),
 		).rejects.toThrow("设计确认资料不完整");
+	});
+
+	it("resumes a newly confirmed candidate before full contracts exist", async () => {
+		const root = createConfirmedProject();
+		rmSync(join(root, "design_spec.md"));
+		rmSync(join(root, "spec_lock.md"));
+
+		await expect(
+			preparePptRunSource(params({ planningConfirmed: true }), root),
+		).resolves.toEqual({ sourceMd: "# source", resumed: true });
 	});
 
 	it("preserves an intermediate legacy confirmation task without reconverting sources", async () => {
@@ -80,6 +90,20 @@ describe("preparePptRunSource", () => {
 			),
 		).resolves.toEqual({
 			sourceMd: original,
+			resumed: true,
+			resumePlanning: true,
+		});
+	});
+
+	it("resumes an automatic candidate before full contracts exist", async () => {
+		const root = createConfirmedProject();
+		rmSync(join(root, "design_spec.md"));
+		rmSync(join(root, "spec_lock.md"));
+
+		await expect(
+			preparePptRunSource(params(), root),
+		).resolves.toEqual({
+			sourceMd: "# source",
 			resumed: true,
 			resumePlanning: true,
 		});

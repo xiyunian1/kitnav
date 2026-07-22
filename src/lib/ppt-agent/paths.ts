@@ -1,6 +1,12 @@
 import { lstat, readdir, realpath } from "fs/promises";
 import { join, resolve, sep, basename, isAbsolute } from "path";
 
+export interface ProjectSvgPreview {
+  filename: string;
+  url: string;
+  revision: string;
+}
+
 export const PPT_PROJECTS_ROOT = resolve(
   /* turbopackIgnore: true */ process.env.PPT_PROJECTS_ROOT ||
     join(process.cwd(), "data", "ppt-projects"),
@@ -68,18 +74,35 @@ export async function getProjectSvgPreviews(projectId: string) {
   try {
     const info = await lstat(svgDir);
     if (!info.isDirectory() || info.isSymbolicLink()) return [];
+
+    const files = (await readdir(svgDir))
+      .filter((file) => file.toLowerCase().endsWith(".svg"))
+      .sort((a, b) => a.localeCompare(b, "zh-CN", { numeric: true }))
+      .slice(0, 30);
+
+    const previews = await Promise.all(
+      files.map(async (file): Promise<ProjectSvgPreview | null> => {
+        try {
+          const fileInfo = await lstat(join(svgDir, file));
+          if (!fileInfo.isFile() || fileInfo.isSymbolicLink()) return null;
+          const revision = `${Math.trunc(fileInfo.mtimeMs)}-${fileInfo.size}`;
+          return {
+            filename: file,
+            url: `/api/ppt/projects/${projectId}/files/svg_output/${encodeURIComponent(file)}?v=${encodeURIComponent(revision)}`,
+            revision,
+          };
+        } catch {
+          // A page may be atomically replaced while a status poll is running.
+          return null;
+        }
+      }),
+    );
+    return previews.filter(
+      (preview): preview is ProjectSvgPreview => preview !== null,
+    );
   } catch {
     return [];
   }
-
-  const files = (await readdir(svgDir))
-    .filter((file) => file.toLowerCase().endsWith(".svg"))
-    .sort((a, b) => a.localeCompare(b, "zh-CN", { numeric: true }));
-
-  return files.map((file) => ({
-    filename: file,
-    url: `/api/ppt/projects/${projectId}/files/svg_output/${encodeURIComponent(file)}`,
-  }));
 }
 
 export function safeDownloadName(title: string) {

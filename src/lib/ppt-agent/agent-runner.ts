@@ -292,8 +292,6 @@ async function runConfiguredPptMasterAgent(
 	let result = emptyCommandResult();
 	const executorToolCalls: PptAgentToolCall[] = [];
 	let executorToolCaptureComplete = true;
-	const strategistToolCalls: PptAgentToolCall[] = [];
-	let strategistToolCaptureComplete = true;
 	let initialPhaseProtection: PptAgentPhaseProtection | null = null;
 	let executorPhaseProtection: PptAgentPhaseProtection | null = null;
 	const resumeExistingPlanning =
@@ -307,7 +305,7 @@ async function runConfiguredPptMasterAgent(
 			params.projectId,
 			options.emit,
 			params.planningConfirmed
-				? "恢复已确认的规划任务，跳过资料转换和初始 Strategist 会话"
+				? "恢复已确认的规划任务，跳过资料转换和确认前方案推荐"
 				: "检测到旧版分阶段确认任务，保留现有规划并切换到完整方案确认",
 			options.workerLease,
 		);
@@ -329,26 +327,22 @@ async function runConfiguredPptMasterAgent(
 				currentPhase:
 					options.workflow === "template-fill"
 						? "正在分析上传模板结构"
-						: "正在规划内容与视觉方向",
+						: "正在准备可选设计方案",
 				progress: 12,
 			},
-				options.workerLease,
-			);
-			initialPhaseProtection = createInitialAgentPhaseProtection(params, options);
-			result = await runProtectedAgentCommand(
-				params.projectId,
-				command,
-				options,
-				currentTurn,
-				initialPhaseProtection,
-				options.workflow === "template-fill"
-					? "PPT 原生模板流程"
-					: "PPT 初始 Strategist",
-			);
-			if (options.workflow === "svg") {
-				appendPptToolCalls(strategistToolCalls, result.toolCalls);
-				strategistToolCaptureComplete &&= result.toolCaptureComplete;
-			}
+			options.workerLease,
+		);
+		initialPhaseProtection = createInitialAgentPhaseProtection(params, options);
+		result = await runProtectedAgentCommand(
+			params.projectId,
+			command,
+			options,
+			currentTurn,
+			initialPhaseProtection,
+			options.workflow === "template-fill"
+				? "PPT 原生模板流程"
+				: "PPT 确认前方案推荐",
+		);
 	}
 	if (options.workflow === "svg") {
 		const requiresAiImages = shouldGeneratePptImages(params, options);
@@ -356,8 +350,10 @@ async function runConfiguredPptMasterAgent(
 		const maxPlanningTurns = 4;
 		while (
 			!resumeExistingPlanning &&
-			(!hasPptPlanningArtifacts(options.projectDir, requiresContentBrief) ||
-				!hasPptPlanningRecommendations(options.projectDir)) &&
+			!hasPptPlanningCandidateArtifacts(
+				options.projectDir,
+				requiresContentBrief,
+			) &&
 			currentTurn < maxPlanningTurns
 		) {
 			currentTurn += 1;
@@ -366,10 +362,10 @@ async function runConfiguredPptMasterAgent(
 				options.projectDir,
 				skillDir,
 				promptPath,
-					buildPlanningContinuePrompt(
-						params,
-						requiresAiImages,
-						requiresContentBrief,
+				buildPlanningContinuePrompt(
+					params,
+					requiresAiImages,
+					requiresContentBrief,
 				),
 				result.sessionId,
 				piConfig,
@@ -377,45 +373,39 @@ async function runConfiguredPptMasterAgent(
 			await emitProjectLog(
 				params.projectId,
 				options.emit,
-				`规划会话第 ${currentTurn} 轮继续完成设计契约与资源意图`,
+				`方案推荐第 ${currentTurn} 轮继续补齐候选内容`,
 				options.workerLease,
 			);
-				result = await runProtectedAgentCommand(
-					params.projectId,
-					planningCommand,
-					options,
-					currentTurn,
-					initialPhaseProtection,
-					"PPT Strategist 续跑",
-				);
-				appendPptToolCalls(strategistToolCalls, result.toolCalls);
-				strategistToolCaptureComplete &&= result.toolCaptureComplete;
-			}
+			result = await runProtectedAgentCommand(
+				params.projectId,
+				planningCommand,
+				options,
+				currentTurn,
+				initialPhaseProtection,
+				"PPT 方案推荐续跑",
+			);
+		}
 
-			if (!hasPptPlanningArtifacts(options.projectDir, requiresContentBrief)) {
+		if (
+			!hasPptPlanningCandidateArtifacts(
+				options.projectDir,
+				requiresContentBrief,
+			)
+		) {
 			throw new Error(
 				requiresContentBrief
-					? "PPT Master 未在规划阶段生成 design_spec.md、spec_lock.md 和 analysis/content_brief.md。"
-					: "PPT Master 未在规划阶段生成 design_spec.md 和 spec_lock.md。",
-				);
-			}
-			if (resumeExistingPlanning) {
-				assertPptStrategistEvidence(options.projectDir);
-			} else {
-				writePptStrategistEvidence(
-					options.projectDir,
-					strategistToolCalls,
-					strategistToolCaptureComplete,
-				);
-			}
-			const recommendations = assertPptPlanningRecommendations(
-				options.projectDir,
-				{
-					expectedSlideCount: options.slideCount,
-					allowAiImages: requiresAiImages,
-					skillDir,
-				},
+					? "PPT Master 未在确认前生成设计候选和 analysis/content_brief.md。"
+					: "PPT Master 未在确认前生成设计候选。",
 			);
+		}
+		const recommendations = assertPptPlanningRecommendations(
+			options.projectDir,
+			{
+				expectedSlideCount: options.slideCount,
+				allowAiImages: requiresAiImages,
+				skillDir,
+			},
+		);
 		if (!hasPptPlanningDecision(options.projectDir)) {
 			if (params.confirmDesign && !params.planningConfirmed) {
 				throw new PptPlanningConfirmationRequiredError("design");
@@ -424,24 +414,26 @@ async function runConfiguredPptMasterAgent(
 			await emitProjectLog(
 				params.projectId,
 				options.emit,
-				"设计确认未启用，已自动采用 Strategist 推荐方案",
+				"设计确认未启用，已自动采用推荐方案",
 				options.workerLease,
 			);
 		}
 		const decision = readPptPlanningResult(options.projectDir);
 		resolvePptPlanningSelection(recommendations, decision);
+
 		let planningDecisionAlreadyApplied = false;
 		try {
 			assertPptPlanningDecisionApplied(options.projectDir);
+			assertPptStrategistEvidence(options.projectDir);
 			planningDecisionAlreadyApplied = true;
 		} catch {
-			// The independent refinement session applies any newly confirmed choices.
+			// A fresh Strategist session creates or updates the confirmed contracts.
 		}
 		if (planningDecisionAlreadyApplied) {
 			await emitProjectLog(
 				params.projectId,
 				options.emit,
-				"已复用应用完成的设计契约，跳过重复规划修订",
+				"已复用应用完成的设计契约，跳过重复规划",
 				options.workerLease,
 			);
 		} else {
@@ -449,39 +441,83 @@ async function runConfiguredPptMasterAgent(
 				params.projectId,
 				{
 					status: "STRATEGIZING",
-					currentPhase: "正在应用已确认的设计方案",
+					currentPhase: "正在生成已确认方案的完整设计规范",
 					progress: 32,
 				},
 				options.workerLease,
 			);
-			const refinementCommand = resolveAgentCommand(
-				params.projectId,
-				options.projectDir,
-				skillDir,
-				promptPath,
-				buildPlanningRefinementPrompt(params, options),
-				buildPptPhaseSessionId(params.projectId, "planning-refinement"),
-				piConfig,
-			);
 			await emitProjectLog(
 				params.projectId,
 				options.emit,
-				"启动独立规划修订会话，将确认结果写入执行契约",
+				"启动正式 Strategist 会话，将确认结果生成完整执行契约",
 				options.workerLease,
 			);
-			const refinementProtection = createPlanningRefinementProtection(options);
-			result = await runProtectedAgentCommand(
+			const finalPlanningProtection = createPlanningRefinementProtection(options);
+			const finalPlanningToolCalls: PptAgentToolCall[] = [];
+			let finalPlanningToolCaptureComplete = true;
+			let finalPlanningTurn = 1;
+			let finalPlanningSessionId = buildPptPhaseSessionId(
 				params.projectId,
-				refinementCommand,
-				options,
-				currentTurn + 1,
-				refinementProtection,
-				"PPT 规划修订",
+				"confirmed-planning",
+			);
+			const maxFinalPlanningTurns = 3;
+			do {
+				const finalPlanningCommand = resolveAgentCommand(
+					params.projectId,
+					options.projectDir,
+					skillDir,
+					promptPath,
+					finalPlanningTurn === 1
+						? buildConfirmedPlanningPrompt(params, options)
+						: buildConfirmedPlanningContinuePrompt(),
+					finalPlanningSessionId,
+					piConfig,
+				);
+				if (finalPlanningTurn > 1) {
+					await emitProjectLog(
+						params.projectId,
+						options.emit,
+						`正式规划第 ${finalPlanningTurn} 轮继续补齐设计规范`,
+						options.workerLease,
+					);
+				}
+				result = await runProtectedAgentCommand(
+					params.projectId,
+					finalPlanningCommand,
+					options,
+					currentTurn + finalPlanningTurn,
+					finalPlanningProtection,
+					"PPT 已确认方案规划",
+				);
+				appendPptToolCalls(finalPlanningToolCalls, result.toolCalls);
+				finalPlanningToolCaptureComplete &&= result.toolCaptureComplete;
+				finalPlanningSessionId = result.sessionId || finalPlanningSessionId;
+				finalPlanningTurn += 1;
+			} while (
+				!hasAppliedPptPlanningArtifacts(
+					options.projectDir,
+					requiresContentBrief,
+				) &&
+				finalPlanningTurn <= maxFinalPlanningTurns
+			);
+			if (
+				!hasAppliedPptPlanningArtifacts(
+					options.projectDir,
+					requiresContentBrief,
+				)
+			) {
+				throw new Error("生成已确认方案的完整设计规范后，规划文件不完整或未应用确认结果。");
+			}
+			writePptStrategistEvidence(
+				options.projectDir,
+				finalPlanningToolCalls,
+				finalPlanningToolCaptureComplete,
 			);
 		}
 		if (!hasPptPlanningArtifacts(options.projectDir, requiresContentBrief)) {
-			throw new Error("应用设计确认结果后规划文件不完整。");
+			throw new Error("已确认方案的规划文件不完整。");
 		}
+		assertPptStrategistEvidence(options.projectDir);
 		assertPptPlanningDecisionApplied(options.projectDir);
 		const removedSpecLockMetadata = normalizePptSpecLock(options.projectDir);
 		if (removedSpecLockMetadata > 0) {
@@ -504,7 +540,7 @@ async function runConfiguredPptMasterAgent(
 			});
 			await runSelectedImageGeneration(params, options, skillDir);
 		}
-			executorPhaseProtection = createExecutorPhaseProtection(options);
+		executorPhaseProtection = createExecutorPhaseProtection(options);
 
 		currentTurn = 1;
 		await updateProject(
@@ -778,38 +814,34 @@ function buildSvgGenerationPrompt(
 	const thinSource = isThinPptSource(options.sourceMd);
 	const imageInstructions = params.imageModel
 		? [
-					`- 本任务已选择图片生成模型。规划阶段只在 design_spec.md §VIII 安排 1-${params.imageCountLimit || 1} 张真正有助于叙事的 Acquire Via: ai 父图，不得提前创建 images/image_prompts.json。`,
-					"- 每个 ai 资源行使用安全的英文、数字、下划线或短横线文件名并以 .png 结尾；Reference 只写主体、意图与构图，不重复风格词或 HEX 色值，具体提示词由 Step 5 独立 Image_Generator 组装。",
-					"- 图片数量上限只计算真正调用图片模型的父图。同一视觉家族需要 3 个以上小型点缀插画时，必须优先按官方 Illustration Sheet + slice 工作流合并为一张父图，不得把每个切片元素写成独立 ai 行。",
-					"- 插画表在 design_spec.md 写一条 ai / Illustration Sheet 父行和逐个 slice 元素行；spec_lock.md 只列可放置的切片元素，不得列父插画表。Image_Generator 将在 Step 5 决定 slice_grid、slice_names 与完整提示词。",
-					"- 第一阶段只完成 design_spec.md、spec_lock.md 与图片资源意图。不要创建图片 manifest，不要调用 image_gen.py、网页搜图或图片 API，不要生成 SVG 或导出 PPTX。",
-					"- 官方图片路径锁定为 host-native；服务器将在最终设计确认后启动独立 Image_Generator，并补齐 image_prompts.json、image_prompts.md 与 image_analysis.csv。",
-					"- 图片 API 由服务器在两阶段之间调用。不要查找、读取、请求或记录任何图片 API Key。",
+					`- 本任务已选择图片生成模型。候选中提供 3 种使用 AI 图片的策略，最终完整规划最多安排 ${params.imageCountLimit || 1} 张真正有助于叙事的父图。`,
+					"- 当前只推荐图片用途、rendering 与 palette，不创建图片资源表、manifest，不调用 image_gen.py、网页搜图或图片 API。",
 				]
 			: [
-					"- 本任务未启用 AI 图片。不得创建 ai 或 web 类型图片任务，不得调用 image_gen.py 或 image_search.py；项目内已有用户图片可标记为 provided/user，否则 image_usage 锁定为 none。",
-					"- 第一阶段只完成 design_spec.md 和 spec_lock.md。不要生成 SVG，不要导出 PPTX；完成规划文件后立即结束本轮。",
+					"- 本任务未启用 AI 图片。候选不得包含 ai 或 web 图片任务；有用户图片时可推荐 provided，否则 image usage 为 none。",
+					"- 当前不创建图片资源表，不调用 image_gen.py、image_search.py 或任何图片 API。",
 				];
 	return [
 		"# PPT Master Server Task",
 		"",
-		"你是服务器内置的 PPT Master Strategist。当前只执行规划阶段，后续 Executor 将在全新会话中继续。",
+		"你是服务器内置的 PPT Master 方案推荐器。当前只执行确认前候选阶段；用户确认后，正式 Strategist 才会生成完整设计契约。",
 		"",
 		"## Hard Requirements",
 		"",
-		"- 先完整阅读 PPT Master skill 文件，再执行工作流。",
-		`- 写入 design_spec.md 或 spec_lock.md 前，必须通过 read 工具完整读取 ${skillDir}/references/strategist.md、${skillDir}/references/modes/_index.md、${skillDir}/references/visual-styles/_index.md、${skillDir}/templates/charts/charts_index.json、${skillDir}/templates/icons/README.md、${skillDir}/templates/design_spec_reference.md 和 ${skillDir}/templates/spec_lock_reference.md；不得用 ls、find 或 bash 代替，宿主会校验实际 read 工具记录。`,
-		`- 选定 mode 与 visual_style 后、首次写入设计契约前，还必须通过 read 工具完整读取 ${skillDir}/references/modes/<mode>.md 与 ${skillDir}/references/visual-styles/<visual_style>.md。`,
-		`- 如果 spec_lock.md 将包含 images 或 image_rendering/image_palette，首次写入设计契约前还必须完整读取 ${skillDir}/references/image-renderings/_index.md、${skillDir}/references/image-palettes/_index.md 和 ${skillDir}/references/image-layout-patterns.md；如果项目 templates/ 中存在 design_spec.md，也必须先逐个完整读取。`,
+		`- 先通过 read 工具完整阅读 ${skillDir}/SKILL.md，再执行候选推荐。`,
+		`- 写入候选前，必须通过 read 工具完整读取 ${skillDir}/references/modes/_index.md、${skillDir}/references/visual-styles/_index.md 与 sources/source.md。当前不要读取 strategist、charts、icons、design_spec/spec_lock 模板或具体 mode/style 详情；这些由确认后的正式 Strategist 读取。`,
+		params.imageModel
+			? `- 还必须完整读取 ${skillDir}/references/image-renderings/_index.md 与 ${skillDir}/references/image-palettes/_index.md，用官方 id 形成图片策略候选。`
+			: "",
 		"- 如果 analysis/source_index.json 存在，必须先读取它，再按其中 markdownPath 读取每份完整转换稿；如果 analysis/source_profile.json 存在，还必须读取该 PPTX intake 索引，并按需读取 identity 与 slide_library。",
-			"- 用户已在站内表单确认画布、页数、受众、文字量、语气、模型和是否使用 AI 图片；这些是不可改写的硬约束。",
-			"- 本站接管 PPT Master Step 4 的交互界面。不要启动 `confirm_ui/server.py`，不要等待本地网页，也不要在回复中向用户提问。",
-			"- 必须把创意方向候选写入 analysis/hosted_confirmation.json。服务器会自动采用推荐项，或暂停任务交给用户选择。",
-		"- `mode` 与 `visual_style` 必须使用官方目录 id。参数为 auto 时，先读对应 `_index.md` 后选择并锁定一个 id；参数非 auto 时直接锁定，不得改写为站内中文风格名。",
+		"- 用户已在站内表单确认画布、页数、受众、文字量、语气、模型和是否使用 AI 图片；这些是不可改写的硬约束。",
+		"- 本站接管 PPT Master Step 4 的交互界面。不要启动 `confirm_ui/server.py`，不要等待本地网页，也不要在回复中向用户提问。",
+		"- Hosted pre-confirmation override：SKILL 中要求 Strategist 立即写入设计契约的步骤延后到用户完成站内选择之后；本轮不得提前执行。",
+		"- 必须把创意方向候选写入 analysis/hosted_confirmation.json。服务器会自动采用推荐项，或立即暂停任务交给用户选择。",
+		"- `mode` 与 `visual_style` 必须使用官方目录 id。参数为 auto 时，读对应 `_index.md` 后形成候选；参数非 auto 时直接采用，不得改写为站内中文风格名。",
 		"- 所有可见幻灯片文字必须使用简体中文。只有 AI、API、LLM、SaaS、PPTX 等无法自然翻译的产品名或技术缩写可以保留英文。",
-		"- 本会话不得生成任何 SVG、notes、图片 manifest 或 PPTX；只允许完成内容简报、design_spec.md、spec_lock.md、设计候选和 §VIII 图片资源意图。",
-		"- 在 design_spec.md 的逐页大纲中为每页指定明确的叙事职责、page_rhythm 和主构图家族，避免把所有页面规划成卡片阵列。",
-		"- `spec_lock.md` 的 typography 段只允许字体族和不带单位的数字 px 字号；formula_policy 与 body_size_unit 只属于规划说明，不得写入该段。",
+		"- 本会话只允许写入 analysis/hosted_confirmation.json，以及资料较少时的 analysis/content_brief.md。严禁创建 design_spec.md、spec_lock.md、SVG、notes、图片 manifest 或 PPTX。",
+		"- pagePlan 只需锁定每页标题、叙事职责、page_rhythm 和主构图家族；不要提前扩写完整逐页文案。",
 		"- 不要修改项目目录以外的任何文件。只允许写入当前 PPT 项目目录。",
 		"- `.ppt-master-skill/` 是服务器提供的只读工具副本；不得修改其中任何文件。如果工具脚本失败，记录原因并终止，不要尝试绕过。",
 		"- Hosted-mode override: 本站前端会直接预览 `svg_output/`，不要启动长期运行的 `svg_editor/server.py` live preview 服务；这一步视为由站内 SSE 预览替代。",
@@ -824,7 +856,7 @@ function buildSvgGenerationPrompt(
 		"",
 		"## Confirmed Parameters",
 		"",
-			"USER CONFIRMS: I approve the hosted constraints, split generation mode, and refine_spec=false. Produce the hosted creative recommendations without opening another Confirm UI or asking a question.",
+		"USER CONFIRMS: I approve the hosted constraints and split generation mode. Produce only the hosted creative recommendations without opening another Confirm UI or asking a question.",
 		`- Canvas: ${options.aspectRatio} (${options.canvasFormat})`,
 		`- Target slide count: ${options.slideCount}`,
 		`- Style: ${options.styleLabel || styleLabel(options.style)}`,
@@ -846,17 +878,19 @@ function buildSvgGenerationPrompt(
 		"## Style Requirements",
 		"",
 		options.stylePrompt,
+		"- 上述风格要求当前只用于形成候选；其中如提及写入或锁定 design_spec.md、spec_lock.md，一律延后到确认后的正式 Strategist 会话。",
 		buildPptDesignPreferenceInstruction({
 			colorPreference: params.colorPreference,
 			typographyPreference: params.typographyPreference,
+			phase: "recommendation",
 		}),
 		"",
-			buildHostedCompositionQualityContract(options.slideCount),
-			"",
-			buildHostedPlanningRecommendationContract(
-				options.slideCount,
-				Boolean(params.imageModel),
-			),
+		buildHostedCompositionQualityContract(options.slideCount),
+		"",
+		buildHostedPlanningRecommendationContract(
+			options.slideCount,
+			Boolean(params.imageModel),
+		),
 		"",
 		"## Content Requirements",
 		"",
@@ -870,9 +904,9 @@ function buildSvgGenerationPrompt(
 					"",
 					"## Thin Source Preparation",
 					"",
-					"用户提供的资料较少。在写 design_spec.md 前，先把受众目标、核心观点、可验证的通用知识、具体示例、逐页叙事职责和事实边界写入 analysis/content_brief.md。",
+					"用户提供的资料较少。把受众目标、核心观点、可验证的通用知识、具体示例、逐页叙事职责和事实边界写入 analysis/content_brief.md。",
 					"不得杜撰统计数字、研究结论、机构、客户案例或引用；没有来源支持的具体数据不要写入幻灯片。",
-					"内容简报必须让各页承担不同职责，例如开场、问题、关键洞察、示例、方法、应用与行动，而不是围绕主题重复改写。",
+					"内容简报控制在 800-1500 个简体中文字符，足以支持候选选择即可；让各页承担不同职责，不要扩写成完整逐页稿。",
 				].join("\n")
 			: "",
 		"",
@@ -886,28 +920,28 @@ function buildSvgGenerationPrompt(
 		"",
 		"## Completion Signal",
 		"",
-			"When design_spec.md, spec_lock.md, analysis/hosted_confirmation.json, and analysis/content_brief.md when required are complete, print a concise planning-complete line and stop.",
+		"When analysis/hosted_confirmation.json and analysis/content_brief.md when required are complete, print a concise recommendation-complete line and stop immediately.",
 		"",
 	].join("\n");
 }
 
 function buildPlanningContinuePrompt(
 	params: GenerationParams,
-	requiresImageManifest: boolean,
+	requiresAiImages: boolean,
 	requiresContentBrief: boolean,
 ) {
 	return [
-		"继续完成 PPT Master 规划阶段，不要进入 SVG、notes 或 PPTX 生成。",
-		"站内确认仍然有效；不要启动 confirm_ui/server.py，不要再次请求确认。",
-			"保留已有 design_spec.md 和 spec_lock.md；如果缺少则补齐。",
-			"必须补齐并校验 analysis/hosted_confirmation.json，候选数量、字段和逐页计划必须符合 agent-task.md 的 Hosted Planning Recommendation Contract。",
+		"继续完成 PPT Master 确认前方案推荐，不要进入正式 Strategist、SVG、notes 或 PPTX 生成。",
+		"不要启动 confirm_ui/server.py，不要请求确认；宿主会在候选完成后显示确认页面。",
+		"严禁创建 design_spec.md 或 spec_lock.md；这两个执行契约只允许在用户确认后的独立会话生成。",
+		"必须补齐并校验 analysis/hosted_confirmation.json，候选数量、字段和逐页计划必须符合 agent-task.md 的 Hosted Planning Recommendation Contract。",
 		requiresContentBrief
-			? "本任务资料较少，必须补齐 analysis/content_brief.md，明确事实边界、具体示例和逐页叙事职责。"
+			? "本任务资料较少，必须补齐 800-1500 个简体中文字符的 analysis/content_brief.md，明确事实边界、具体示例和逐页叙事职责，不要写成完整逐页稿。"
 			: "本任务不要求额外生成 analysis/content_brief.md。",
-		requiresImageManifest
-			? `必须在 design_spec.md §VIII 规划 1-${params.imageCountLimit || 1} 张实际调用图片模型的 Acquire Via: ai 父图；Reference 只写主体、意图与构图。需要 3 个以上同家族小插画时使用一个 ai / Illustration Sheet 父行，并同步补齐 slice 元素行与 spec_lock.md 中的可放置切片元素。不得创建 images/image_prompts.json。`
-			: "本任务未启用 AI 图片，不要创建图片生成清单。",
-		"不要创建或修改图片 manifest，不要调用 image_gen.py、网页搜图或任何图片 API。规划文件齐全后立即结束本轮。",
+		requiresAiImages
+			? `图片策略候选必须使用 AI，最终完整规划的父图上限是 ${params.imageCountLimit || 1} 张；当前不要创建任何图片资源表。`
+			: "本任务未启用 AI 图片，候选不得依赖 AI 或网页图片。",
+		"不要创建或修改图片 manifest，不要调用 image_gen.py、网页搜图或任何图片 API。候选齐全后立即结束本轮。",
 	].join("\n");
 }
 
@@ -932,18 +966,45 @@ function buildHostedPlanningRecommendationContract(
 	].join("\n");
 }
 
-function buildPlanningRefinementPrompt(
+function buildConfirmedPlanningPrompt(
 	params: GenerationParams,
 	options: RunnerOptions,
 ) {
 	const recommendations = readPptPlanningRecommendations(options.projectDir);
 	const decision = readPptPlanningResult(options.projectDir);
 	const selected = resolvePptPlanningSelection(recommendations, decision);
+	const selectedModePath = `.ppt-master-skill/references/modes/${selected.direction.mode}.md`;
+	const selectedStylePath = `.ppt-master-skill/references/visual-styles/${selected.direction.visualStyle}.md`;
+	const requiresImageReferences = selected.imageStrategy.usage.some(
+		(usage) => usage !== "none",
+	);
 	return [
-		"# PPT Master Confirmed Planning Refinement",
+		"# PPT Master Confirmed Planning",
 		"",
-		"这是独立的规划修订会话，不是 Executor。先读取 `.ppt-master-skill/SKILL.md`、design_spec.md、spec_lock.md、analysis/hosted_confirmation.json 和 analysis/hosted_confirmation_result.json。",
-		"用户或服务器已经完成 Step 4 选择。必须按下面的选择重写 design_spec.md 与 spec_lock.md；不得生成 SVG、notes 或 PPTX，不得再次请求确认。",
+		"这是用户确认后的正式 Strategist 会话，不是 Executor。确认前会话只负责快速推荐，本会话才负责创建完整设计执行契约。",
+		"用户或服务器已经完成 Step 4 选择。必须按下面的选择创建或重写 design_spec.md 与 spec_lock.md；不得生成 SVG、notes、图片 manifest 或 PPTX，不得再次请求确认。",
+		"",
+		"## Required Reads Before Contract Writes",
+		"",
+		"在首次 write/edit design_spec.md 或 spec_lock.md 前，必须通过 read 工具完整读取以下文件，不得用 ls、find 或 bash 代替：",
+		"- `.ppt-master-skill/SKILL.md`",
+		"- `.ppt-master-skill/references/strategist.md`",
+		"- `.ppt-master-skill/references/modes/_index.md`",
+		"- `.ppt-master-skill/references/visual-styles/_index.md`",
+		"- `.ppt-master-skill/templates/charts/charts_index.json`",
+		"- `.ppt-master-skill/templates/icons/README.md`",
+		"- `.ppt-master-skill/templates/design_spec_reference.md`",
+		"- `.ppt-master-skill/templates/spec_lock_reference.md`",
+		`- \`${selectedModePath}\``,
+		`- \`${selectedStylePath}\``,
+		"- `sources/source.md`",
+		"- `analysis/hosted_confirmation.json`",
+		"- `analysis/hosted_confirmation_result.json`",
+		"如果存在 analysis/content_brief.md、analysis/source_index.json、analysis/source_profile.json 或 analysis/image_analysis.csv，也必须完整读取；source_index 中列出的转换稿必须按 markdownPath 逐份完整读取。",
+		"如果项目 templates/ 中存在 design_spec.md，也必须逐个完整读取。",
+		requiresImageReferences
+			? "还必须完整读取 `.ppt-master-skill/references/image-renderings/_index.md`、`.ppt-master-skill/references/image-palettes/_index.md` 和 `.ppt-master-skill/references/image-layout-patterns.md`。"
+			: "未选择任何图片时，不得添加 ai、web 或 provided 图片资源。",
 		"",
 		"## Confirmed Selection",
 		"",
@@ -951,20 +1012,50 @@ function buildPlanningRefinementPrompt(
 		JSON.stringify(selected, null, 2),
 		"```",
 		"",
+		"## Confirmed Task Constraints",
+		"",
+		`- Canvas: ${options.aspectRatio} (${options.canvasFormat})`,
+		`- Target slide count: ${options.slideCount}`,
+		`- Text volume: ${getPptTextVolumeOption(params.textVolume).label}`,
+		`- Target audience: ${getPptAudienceOption(params.audience).label}`,
+		`- Tone: ${getPptToneOption(params.tone).label}`,
+		"- Output language: Simplified Chinese for all visible slide text",
+		`- Template hint/path: ${params.template || "(none, free design)"}`,
+		"",
+		options.stylePrompt,
+		"",
+		buildPptContentInstruction({
+			textVolume: params.textVolume,
+			audience: params.audience,
+			tone: params.tone,
+		}),
+		"",
+		buildHostedCompositionQualityContract(options.slideCount),
+		"",
 		"## Hard Application Rules",
 		"",
+		"- 完整遵循官方 design_spec_reference.md 与 spec_lock_reference.md 的结构；spec_lock.md 只能包含可执行数据，不得复制说明块或占位值。",
 		"- spec_lock.md 必须写入选中 direction 的 mode 与 visual_style。",
 		"- colors 必须至少使用精确键 bg、secondary_bg、primary、accent、text，并逐字写入选中色值。",
 		"- typography 必须使用选中的 heading/body 字体栈，body 必须等于选中的 bodySize；其余字号按官方比例推导。",
 		`- page_rhythm 必须包含 P01 到 P${String(options.slideCount).padStart(2, "0")}，逐页值与 pagePlan 完全一致。`,
 		"- design_spec.md 的逐页大纲必须保持 pagePlan 的标题、职责、节奏和主构图家族，同时补足具体内容；不得把不同构图重新改成统一卡片公式。",
 		selected.imageStrategy.usage.includes("ai")
-			? "- colors 中写入精确的 image_rendering 与 image_palette；按最终逐页用途修订 design_spec.md §VIII 的 ai 资源意图、page_role 与 text_policy。保留并校验 Illustration Sheet 父行、slice 元素行，以及 spec_lock.md 中仅包含可放置切片元素的契约；不得创建或修改 images/image_prompts.json。"
+			? `- colors 中写入精确的 image_rendering 与 image_palette；在 design_spec.md §VIII 规划最多 ${params.imageCountLimit || 1} 张真正有助于叙事的 ai 父图及 page_role、text_policy。需要 3 个以上同家族小插画时使用官方 Illustration Sheet + slice 工作流；spec_lock.md 只列可放置切片元素，不列父图。不得创建或修改 images/image_prompts.json。`
 			: "- 删除设计规范中对 AI 图片的依赖；仅可使用用户提供的项目图片或无图片方案。",
 		"- 保留来源事实、受众和内容边界，不得在修订设计时增加无来源数据。",
-		"- spec_lock.md 只能包含可执行数据，不得复制模板中的说明块或占位值。",
 		`- 图片模型选择：${params.imageModel || "未启用"}。`,
-		"完成两个规范文件修订后，输出 planning-refinement-complete 并停止。",
+		"完成并自检两个规范文件后，输出 confirmed-planning-complete 并立即停止。",
+	].join("\n");
+}
+
+function buildConfirmedPlanningContinuePrompt() {
+	return [
+		"继续完成用户已确认方案的正式 Strategist 规划，不要进入 Executor。",
+		"检查 design_spec.md 与 spec_lock.md；缺少或不完整时继续补齐，并保持 analysis/hosted_confirmation_result.json 中的选择与逐页计划不变。",
+		"如果首次写入设计契约前的官方必读文件尚未完整读取，必须先用 read 工具补齐；不得用 ls、find 或 bash 代替。",
+		"不得修改候选、确认结果、来源、模板或图片文件，不得生成 SVG、notes、图片 manifest 或 PPTX。",
+		"两个规范文件完整并自检通过后，输出 confirmed-planning-complete 并立即停止。",
 	].join("\n");
 }
 
@@ -1387,6 +1478,12 @@ function createInitialAgentPhaseProtection(
 		files: snapshotFileStates([
 			...hostOwnedPaths,
 			join(options.projectDir, "agent-task.md"),
+			...(options.workflow === "svg"
+				? [
+						join(options.projectDir, "design_spec.md"),
+						join(options.projectDir, "spec_lock.md"),
+					]
+				: []),
 		]),
 		directories: [
 			...snapshotProjectDirectoryTrees(options.projectDir, [
@@ -1662,6 +1759,30 @@ function hasPptPlanningArtifacts(
 		(!requiresContentBrief ||
 			existsSync(join(projectDir, "analysis", "content_brief.md")))
 	);
+}
+
+function hasPptPlanningCandidateArtifacts(
+	projectDir: string,
+	requiresContentBrief: boolean,
+) {
+	return (
+		hasPptPlanningRecommendations(projectDir) &&
+		(!requiresContentBrief ||
+			existsSync(join(projectDir, "analysis", "content_brief.md")))
+	);
+}
+
+function hasAppliedPptPlanningArtifacts(
+	projectDir: string,
+	requiresContentBrief: boolean,
+) {
+	if (!hasPptPlanningArtifacts(projectDir, requiresContentBrief)) return false;
+	try {
+		assertPptPlanningDecisionApplied(projectDir);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 function clearPrematureSlideOutputs(projectDir: string) {

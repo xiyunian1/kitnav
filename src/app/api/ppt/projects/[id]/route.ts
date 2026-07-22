@@ -2,12 +2,16 @@ import { rm } from "node:fs/promises";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
-import { getPptProjectDir } from "@/lib/ppt-agent/paths";
+import {
+	getPptProjectDir,
+	getProjectSvgPreviews,
+} from "@/lib/ppt-agent/paths";
 import {
 	getPptUserFailureMessage,
 	PPT_PROCESSING_STATUSES,
 } from "@/lib/ppt-agent/status";
 import { hasPptxArtifact } from "@/lib/ppt-agent/project-public";
+import { resolvePptConfirmationTiming } from "@/lib/ppt-agent/timing";
 
 export const runtime = "nodejs";
 
@@ -51,12 +55,16 @@ export async function GET(
 			completedAt: true,
 			artifactsDeletedAt: true,
 			updatedAt: true,
+			confirmationWaitStartedAt: true,
+			confirmationWaitSeconds: true,
 		},
 	});
 
 	if (!project) {
 		return Response.json({ error: "PPT 项目不存在" }, { status: 404 });
 	}
+	const confirmationTiming = resolvePptConfirmationTiming(project);
+	const previews = await getProjectSvgPreviews(project.id);
 
 	return Response.json({
 		id: project.id,
@@ -74,6 +82,8 @@ export async function GET(
 		creditsCost: project.creditsCost,
 		createdAt: project.createdAt,
 		completedAt: project.completedAt,
+		...confirmationTiming,
+		previews,
 		artifactsDeletedAt: project.artifactsDeletedAt,
 		updatedAt: project.updatedAt,
 	});

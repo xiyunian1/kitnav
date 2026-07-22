@@ -37,6 +37,8 @@ export interface ProjectListItem {
   createdAt: Date | string;
   completedAt: Date | string | null;
   updatedAt?: Date | string;
+  confirmationWaitDurationMs?: number;
+  confirmationWaitStartedAt?: Date | string | null;
   hasPptx: boolean;
   coverUrl?: string | null;
   error?: string | null;
@@ -219,6 +221,8 @@ export function ProjectList({ projects }: Props) {
               startedAt: project.createdAt,
               completedAt: project.completedAt,
               updatedAt: project.updatedAt,
+              pausedDurationMs: project.confirmationWaitDurationMs,
+              pausedAt: project.confirmationWaitStartedAt,
               running: isProcessing,
               now,
             });

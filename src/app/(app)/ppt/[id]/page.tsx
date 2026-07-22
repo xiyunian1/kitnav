@@ -9,7 +9,6 @@ import {
 import { ModuleUnavailable } from "@/components/module-unavailable";
 import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
 import { Download, RefreshCw } from "lucide-react";
 import { getProjectSvgPreviews } from "@/lib/ppt-agent/paths";
 import { CancelProjectButton } from "../components/cancel-project-button";
@@ -21,6 +20,9 @@ import {
 	PPT_STATUS_LABELS,
 	PPT_USER_FAILURE_MESSAGE,
 } from "@/lib/ppt-agent/status";
+import { resolvePptConfirmationTiming } from "@/lib/ppt-agent/timing";
+import { summarizePptProjectInput } from "@/lib/ppt-agent/project-input-summary";
+import { ProjectInputSummaryCard } from "./project-input-summary-card";
 
 export const metadata = { title: "PPT 项目" };
 
@@ -53,6 +55,10 @@ export default async function PptProjectPage({
 
 	const previews = await getProjectSvgPreviews(project.id);
 	const isProcessing = isPptProcessingStatus(project.status);
+	const confirmationTiming = resolvePptConfirmationTiming(project);
+	const inputSummary = isPptCompletedStatus(project.status)
+		? summarizePptProjectInput(project)
+		: null;
 
 	return (
 		<div className="mx-auto w-full max-w-[1600px] space-y-6">
@@ -113,31 +119,20 @@ export default async function PptProjectPage({
 					createdAt: project.createdAt.toISOString(),
 					completedAt: project.completedAt?.toISOString() ?? null,
 					updatedAt: project.updatedAt.toISOString(),
+					confirmationWaitDurationMs:
+						confirmationTiming.confirmationWaitDurationMs,
+					confirmationWaitStartedAt:
+						confirmationTiming.confirmationWaitStartedAt?.toISOString() ?? null,
+					slideCount: project.slideCount,
+					aspectRatio: project.aspectRatio,
 				}}
-			/>
+				initialPreviews={previews}
+			>
+				{inputSummary && <ProjectInputSummaryCard summary={inputSummary} />}
+			</ProjectStatusCard>
 
 			{project.status === "AWAITING_CONFIRMATION" && (
 				<PlanningConfirmationPanel projectId={project.id} />
-			)}
-
-			{previews.length > 0 && (
-				<div className="grid gap-4 md:grid-cols-2">
-					{previews.map((preview, index) => (
-						<Card key={preview.url} className="overflow-hidden p-0">
-							<div className="border-b px-4 py-2 text-sm font-medium">
-								第 {index + 1} 页
-							</div>
-							<div className="bg-muted/30 p-3">
-								{/* eslint-disable-next-line @next/next/no-img-element */}
-								<img
-									src={preview.url}
-									alt={`第 ${index + 1} 页预览`}
-									className="w-full rounded border bg-white"
-								/>
-							</div>
-						</Card>
-					))}
-				</div>
 			)}
 
 		</div>

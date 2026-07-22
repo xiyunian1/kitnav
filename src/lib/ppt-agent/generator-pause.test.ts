@@ -92,6 +92,7 @@ describe("generatePPT planning pause", () => {
 				status: "AWAITING_CONFIRMATION",
 				workerLease: null,
 				error: null,
+				confirmationWaitStartedAt: expect.any(Date),
 			}),
 			"lease-1",
 		);

@@ -108,6 +108,7 @@ export function getPptTypographyPreferenceOption(value?: string) {
 export function buildPptDesignPreferenceInstruction(input: {
   colorPreference?: PptColorPreference;
   typographyPreference?: PptTypographyPreference;
+  phase?: "recommendation" | "planning";
 }) {
   const color = getPptColorPreferenceOption(input.colorPreference);
   const typography = getPptTypographyPreferenceOption(
@@ -117,6 +118,8 @@ export function buildPptDesignPreferenceInstruction(input: {
   return [
     `- 配色偏好（${color.label}）：${color.prompt}`,
     `- 字体偏好（${typography.label}）：${typography.prompt}`,
-    "- 将最终色板、中文/拉丁字体和正文基准字号写入 design_spec.md 与 spec_lock.md；Executor 必须严格使用锁定值。",
+    input.phase === "recommendation"
+      ? "- 当前只把色板与字体组合写入候选 JSON；完整设计契约在用户确认后生成。"
+      : "- 将最终色板、中文/拉丁字体和正文基准字号写入 design_spec.md 与 spec_lock.md；Executor 必须严格使用锁定值。",
   ].join("\n");
 }

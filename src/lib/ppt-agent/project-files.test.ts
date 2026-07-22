@@ -4,6 +4,7 @@ import {
   realpath,
   rm,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
@@ -65,5 +66,53 @@ describe("PPT project file resolution", () => {
     } finally {
       await rm(outsideProject, { recursive: true, force: true });
     }
+  });
+});
+
+describe("PPT SVG previews", () => {
+  it("returns regular SVG files in page order with cache revisions", async () => {
+    const svgDir = join(root, "project_1", "svg_output");
+    await mkdir(svgDir, { recursive: true });
+    await writeFile(join(svgDir, "10_slide.svg"), "<svg>10</svg>");
+    await writeFile(join(svgDir, "2_slide.svg"), "<svg>2</svg>");
+    await writeFile(join(svgDir, "notes.txt"), "ignore");
+    await mkdir(join(svgDir, "3_slide.svg"));
+    await symlink("10_slide.svg", join(svgDir, "4_slide.svg"));
+    await utimes(
+      join(svgDir, "2_slide.svg"),
+      new Date("2026-07-22T00:00:00.000Z"),
+      new Date("2026-07-22T00:00:00.000Z"),
+    );
+    const { getProjectSvgPreviews } = await import("./paths");
+
+    const previews = await getProjectSvgPreviews("project_1");
+
+    expect(previews.map((preview) => preview.filename)).toEqual([
+      "2_slide.svg",
+      "10_slide.svg",
+    ]);
+    expect(previews[0]).toMatchObject({
+      revision: `${Date.parse("2026-07-22T00:00:00.000Z")}-12`,
+    });
+    expect(previews[0]?.url).toContain(
+      `2_slide.svg?v=${Date.parse("2026-07-22T00:00:00.000Z")}-12`,
+    );
+  });
+
+  it("changes the revision when a generated page is rewritten", async () => {
+    const svgDir = join(root, "project_1", "svg_output");
+    const file = join(svgDir, "01_slide.svg");
+    await mkdir(svgDir, { recursive: true });
+    await writeFile(file, "<svg/>");
+    await utimes(file, new Date(1_000), new Date(1_000));
+    const { getProjectSvgPreviews } = await import("./paths");
+    const before = await getProjectSvgPreviews("project_1");
+
+    await writeFile(file, "<svg>fixed</svg>");
+    await utimes(file, new Date(2_000), new Date(2_000));
+    const after = await getProjectSvgPreviews("project_1");
+
+    expect(after[0]?.revision).not.toBe(before[0]?.revision);
+    expect(after[0]?.url).not.toBe(before[0]?.url);
   });
 });

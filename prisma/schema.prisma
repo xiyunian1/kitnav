@@ -386,6 +386,7 @@ model ImageTurn {
   status            GenerationStatus @default(PENDING)
   images            String? // JSON 数组：[{id,status,url?,error?}]，与前端 StoredImage 对齐
   referenceThumbs   String? // JSON 数组：图生图参考图的压缩缩略 data URL（仅展示用，可空）
+  editInputs        String? // JSON 数组：有序图生图原始文件 [{token,filename}]
   editInputPath     String? // 图生图原始参考图的不透明私有文件 token
   editInputName     String? // 上游 multipart 使用的原始文件名快照
   error             String?
@@ -614,10 +615,12 @@ model PptProject {
   creditsCost Int     @default(0)
   usedOwnKey  Boolean @default(false)
 
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  completedAt        DateTime?
-  artifactsDeletedAt DateTime? // 生成文件按保留策略清理时间，项目元数据仍保留
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+  completedAt               DateTime?
+  confirmationWaitStartedAt DateTime? // 进入方案确认等待的时间；确认完成后清空
+  confirmationWaitSeconds   Int       @default(0) // 累计等待用户确认的时间，不计入生成用时
+  artifactsDeletedAt        DateTime? // 生成文件按保留策略清理时间，项目元数据仍保留
 
   user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   slides PptSlide[]
