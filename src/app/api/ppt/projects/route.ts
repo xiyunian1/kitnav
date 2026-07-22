@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
 import { PPT_USER_FAILURE_MESSAGE } from "@/lib/ppt-agent/status";
 import { toPublicPptProject } from "@/lib/ppt-agent/project-public";
+import { canRetryPptProject } from "@/lib/ppt-agent/retry";
 
 export async function GET() {
   const session = await auth();
@@ -39,13 +40,18 @@ export async function GET() {
       confirmationWaitSeconds: true,
       pptxPath: true,
       artifactsDeletedAt: true,
+      error: true,
     },
   });
 
   return Response.json({
-    projects: projects.map((project) => ({
-      ...toPublicPptProject(project),
-      error: project.status === "FAILED" ? PPT_USER_FAILURE_MESSAGE : null,
-    })),
+    projects: projects.map((project) => {
+      const canRetry = canRetryPptProject(project);
+      return {
+        ...toPublicPptProject(project),
+        error: project.status === "FAILED" ? PPT_USER_FAILURE_MESSAGE : null,
+        canRetry,
+      };
+    }),
   });
 }

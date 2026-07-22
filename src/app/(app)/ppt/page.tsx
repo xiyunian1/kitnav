@@ -13,6 +13,7 @@ import { getProjectSvgPreviews } from "@/lib/ppt-agent/paths";
 import { toPublicPptProject } from "@/lib/ppt-agent/project-public";
 import { getPptCreditsPerSlide } from "@/lib/ppt-agent/billing";
 import { PptWorkbench } from "./components/workbench";
+import { canRetryPptProject } from "@/lib/ppt-agent/retry";
 
 export const metadata = { title: "PPT 生成" };
 
@@ -59,6 +60,7 @@ export default async function PptPage() {
         confirmationWaitSeconds: true,
         pptxPath: true,
         artifactsDeletedAt: true,
+        error: true,
       },
     }),
     getModuleModelOptions(session!.user.id, "PPT"),
@@ -73,9 +75,11 @@ export default async function PptPage() {
   const recentProjects = await Promise.all(
     projectRows.map(async (project) => {
       const previews = await getProjectSvgPreviews(project.id);
+      const canRetry = canRetryPptProject(project);
       return {
         ...toPublicPptProject(project),
         coverUrl: previews[0]?.url ?? null,
+        canRetry,
       };
     }),
   );

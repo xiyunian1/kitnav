@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { CancelProjectButton } from "./cancel-project-button";
 import { DeleteProjectButton } from "./delete-project-button";
+import { RetryProjectButton } from "./retry-project-button";
 import {
   isPptCompletedStatus,
   isPptProcessingStatus,
@@ -42,6 +43,7 @@ export interface ProjectListItem {
   hasPptx: boolean;
   coverUrl?: string | null;
   error?: string | null;
+  canRetry?: boolean;
 }
 
 interface Props {
@@ -127,6 +129,24 @@ export function ProjectList({ projects }: Props) {
   const handleDeleted = (projectId: string) => {
     setPolledItems((current) =>
       (current ?? projects).filter((project) => project.id !== projectId),
+    );
+  };
+  const handleRetried = (projectId: string) => {
+    statusRef.current.set(projectId, "QUEUED");
+    setPolledItems((current) =>
+      (current ?? projects).map((project) =>
+        project.id === projectId
+          ? {
+              ...project,
+              status: "QUEUED",
+              currentPhase: "已请求重试，等待从现有进度继续",
+              completedAt: null,
+              updatedAt: new Date().toISOString(),
+              error: null,
+              canRetry: false,
+            }
+          : project,
+      ),
     );
   };
 
@@ -314,6 +334,13 @@ export function ProjectList({ projects }: Props) {
                       </Link>
                     </Button>
                     {isProcessing && <CancelProjectButton projectId={project.id} />}
+                    {project.canRetry && (
+                      <RetryProjectButton
+                        projectId={project.id}
+                        iconOnly
+                        onRetried={() => handleRetried(project.id)}
+                      />
+                    )}
                     {isPptCompletedStatus(project.status) && project.hasPptx && (
                       <Button asChild variant="outline" size="icon" className="size-8" title="下载 PPTX">
                         <a href={`/api/ppt/projects/${project.id}/export`} aria-label="下载 PPTX">

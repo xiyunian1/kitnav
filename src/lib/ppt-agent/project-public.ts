@@ -13,30 +13,37 @@ export function hasPptxArtifact(project: PptxArtifactState) {
 }
 
 export function toPublicPptProject<
-  T extends PptxArtifactState & PptConfirmationTimingState,
+  T extends PptxArtifactState &
+    PptConfirmationTimingState & { error?: unknown; params?: unknown },
 >(project: T) {
-  const {
-    pptxPath,
-    logs,
-    confirmationWaitSeconds,
-    confirmationWaitStartedAt,
-    ...publicProject
-  } = project;
+  const publicProject = { ...project } as Record<string, unknown>;
+  for (const key of [
+    "pptxPath",
+    "logs",
+    "confirmationWaitSeconds",
+    "confirmationWaitStartedAt",
+    "error",
+    "params",
+  ]) {
+    delete publicProject[key];
+  }
   const timing = resolvePptConfirmationTiming({
-    logs,
-    confirmationWaitSeconds,
-    confirmationWaitStartedAt,
+    logs: project.logs,
+    confirmationWaitSeconds: project.confirmationWaitSeconds,
+    confirmationWaitStartedAt: project.confirmationWaitStartedAt,
   });
   return {
     ...publicProject,
     ...timing,
-    hasPptx: Boolean(pptxPath && !project.artifactsDeletedAt),
+    hasPptx: Boolean(project.pptxPath && !project.artifactsDeletedAt),
   } as Omit<
     T,
     | "pptxPath"
     | "logs"
     | "confirmationWaitSeconds"
     | "confirmationWaitStartedAt"
+    | "error"
+    | "params"
   > &
     ReturnType<typeof resolvePptConfirmationTiming> & { hasPptx: boolean };
 }

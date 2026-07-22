@@ -12,6 +12,7 @@ import {
 } from "@/lib/ppt-agent/status";
 import { hasPptxArtifact } from "@/lib/ppt-agent/project-public";
 import { resolvePptConfirmationTiming } from "@/lib/ppt-agent/timing";
+import { canRetryPptProject } from "@/lib/ppt-agent/retry";
 
 export const runtime = "nodejs";
 
@@ -85,6 +86,7 @@ export async function GET(
 		...confirmationTiming,
 		previews,
 		artifactsDeletedAt: project.artifactsDeletedAt,
+		canRetry: canRetryPptProject(project),
 		updatedAt: project.updatedAt,
 	});
 }

@@ -8,6 +8,8 @@ describe("public PPT project data", () => {
       title: "测试项目",
       pptxPath: "/app/data/ppt-projects/project_1/deck.pptx",
       artifactsDeletedAt: null,
+      error: "private upstream failure",
+      params: '{"model":"private-model"}',
     });
 
     expect(project).toEqual({
@@ -19,6 +21,8 @@ describe("public PPT project data", () => {
       hasPptx: true,
     });
     expect(project).not.toHaveProperty("pptxPath");
+    expect(project).not.toHaveProperty("error");
+    expect(project).not.toHaveProperty("params");
   });
 
   it("marks expired or missing artifacts unavailable", () => {
