@@ -71,6 +71,7 @@ export interface GenerationParams {
 	imageCountLimit?: number;
 	imageUnitCreditCost?: number;
 	textCreditsCost?: number;
+	retryAttempt?: number;
 	visualReview?: boolean;
 	confirmDesign?: boolean;
 	planningConfirmed?: boolean;

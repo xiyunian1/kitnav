@@ -68,6 +68,17 @@ describe("findSvgTextLayoutIssues", () => {
 		expect(findSvgTextLayoutIssues(s)).toEqual([]);
 	});
 
+	it("连续 tspan 的 dy 应相对上一行累计", () => {
+		const s = svg(`
+      <text x="64" y="188" font-size="72">
+        <tspan x="64">第一行</tspan>
+        <tspan x="64" dy="88">第二行</tspan>
+        <tspan x="64" dy="88">第三行</tspan>
+      </text>
+    `);
+		expect(findSvgTextLayoutIssues(s)).toEqual([]);
+	});
+
 	it("text-anchor=middle / end 的水平位置应正确", () => {
 		// middle 锚点：文字以 x 为中心，右侧 start 锚点文字与之重叠应检出。
 		const s = svg(`
@@ -75,6 +86,16 @@ describe("findSvgTextLayoutIssues", () => {
       <text x="180" y="100" font-size="32">起始锚点标题文字</text>
     `);
 		expect(findSvgTextLayoutIssues(s).length).toBeGreaterThan(0);
+	});
+
+	it("检出相邻流程节点中肉眼会连在一起的辅助文字", () => {
+		const s = svg(`
+      <text x="652" y="446" text-anchor="middle" font-size="18">合并或变基，以约定为准</text>
+      <text x="814" y="446" text-anchor="middle" font-size="18">请求评审并回归主线</text>
+    `);
+		expect(findSvgTextLayoutIssues(s)).toEqual([
+			'"合并或变基，以约定为准" 与 "请求评审并回归主线" 可能重叠',
+		]);
 	});
 
 	it("过短文字（<2 字符）不参与检测", () => {

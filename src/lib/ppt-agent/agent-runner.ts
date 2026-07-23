@@ -3,6 +3,7 @@ import {
 	type ChildProcessWithoutNullStreams,
 	type SpawnOptionsWithoutStdio,
 } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
 	appendFileSync,
 	closeSync,
@@ -93,6 +94,7 @@ import {
 	hasPptPlanningDecision,
 	hasPptPlanningRecommendations,
 	isLegacyPptPlanningConfirmationStage,
+	normalizeStoredPptPlanningTypography,
 	PptPlanningConfirmationRequiredError,
 	readPptPlanningRecommendations,
 	readPptPlanningResult,
@@ -138,6 +140,37 @@ import {
 	writePptImagePromptEvidence,
 } from "./image-prompt-planning";
 import { runPptPostExecutionGates } from "./post-execution";
+import {
+	AgentResultMetadataCollector,
+	buildPptAttemptSessionId,
+	buildPptExecutorContinuePrompt,
+	createPptArtifactWatchdogState,
+	createPptExecutorProgressState,
+	createPptStageProgressState,
+	isPptArtifactWatchdogExpired,
+	isPptExecutorStalled,
+	isPptStageProgressStalled,
+	recordPptArtifactWatchdogProgress,
+	recordPptExecutorProgress,
+	recordPptStageProgress,
+	resolvePptExecutorMaxNoProgressTurns,
+	resolvePptNoArtifactTimeoutMs,
+	resolvePptTemplateMaxNoProgressTurns,
+	sanitizePptAgentSessionId,
+	type PptExecutorProgressState,
+	type PptStageProgressState,
+} from "./agent-runtime";
+import {
+	PptAgentLogLineBuffer,
+	PptPendingLogWrites,
+} from "./agent-log-lines";
+import {
+	discardPptExecutionCheckpoint,
+	loadPptExecutionCheckpoint,
+	restorePptExecutionCheckpoint,
+	savePptExecutionCheckpoint,
+	type PptExecutionCheckpoint,
+} from "./execution-checkpoint";
 
 export interface AgentRunResult {
 	pptxPath: string;
@@ -165,6 +198,7 @@ interface AgentCommand {
 	command: string;
 	args: string[];
 	cwd: string;
+	sessionId: string;
 	stdin?: string;
 	display: string;
 	skillDir: string;
@@ -276,11 +310,13 @@ async function runConfiguredPptMasterAgent(
 		skillDir,
 		promptPath,
 		prompt,
-		undefined,
+		buildPptPhaseSessionId(params, "initial"),
 		piConfig,
 	);
 
 	const maxTurns = resolveMaxTurns(options);
+	const maxExecutorNoProgressTurns = resolvePptExecutorMaxNoProgressTurns();
+	const maxTemplateNoProgressTurns = resolvePptTemplateMaxNoProgressTurns();
 	await emitProjectLog(
 		params.projectId,
 		options.emit,
@@ -294,6 +330,102 @@ async function runConfiguredPptMasterAgent(
 	let executorToolCaptureComplete = true;
 	let initialPhaseProtection: PptAgentPhaseProtection | null = null;
 	let executorPhaseProtection: PptAgentPhaseProtection | null = null;
+	let executorProgress = createPptExecutorProgressState();
+	let executorQualityValid = false;
+	let executorQualityErrors: string[] = [];
+	let executorCheckpoint: PptExecutionCheckpoint | null = null;
+	let templateProgress: PptStageProgressState = createPptStageProgressState(
+		getTemplateArtifactStage(options.projectDir),
+	);
+	const runExecutorTurn = async (
+		executorCommand: AgentCommand,
+		turn: number,
+		operationName: string,
+	) => {
+		const previousToolCallCount = executorToolCalls.length;
+		const previousToolCaptureComplete = executorToolCaptureComplete;
+		try {
+			const turnResult = await runProtectedAgentCommand(
+				params.projectId,
+				executorCommand,
+				options,
+				turn,
+				executorPhaseProtection,
+				operationName,
+			);
+			appendPptToolCalls(executorToolCalls, turnResult.toolCalls);
+			executorToolCaptureComplete &&= turnResult.toolCaptureComplete;
+			const svgCount = countSvgSlides(options.projectDir);
+			executorQualityValid = false;
+			executorQualityErrors = [];
+			if (svgCount > 0) {
+				const checkpointQuality = await checkSvgQuality(
+					options.projectDir,
+					skillDir,
+				);
+				executorQualityErrors = checkpointQuality.errors;
+				executorQualityValid = checkpointQuality.errors.length === 0;
+				if (executorQualityValid) {
+					const savedCheckpoint = savePptExecutionCheckpoint({
+						projectDir: options.projectDir,
+						sessionId: turnResult.sessionId,
+						stopReason: turnResult.stopReason,
+						turn,
+						expectedSlideCount: options.slideCount,
+						toolCalls: executorToolCalls,
+						toolCaptureComplete: executorToolCaptureComplete,
+					});
+					if (savedCheckpoint) executorCheckpoint = savedCheckpoint;
+				} else {
+					await emitProjectLog(
+						params.projectId,
+						options.emit,
+						`本轮 SVG 尚有 ${checkpointQuality.errors.length} 项质量错误，未覆盖最近的有效检查点，将在当前任务内继续修复`,
+						options.workerLease,
+					);
+				}
+			}
+			executorPhaseProtection = createExecutorPhaseProtection(options);
+			executorProgress = await recordExecutorTurnProgress(
+				params.projectId,
+				options,
+				executorProgress,
+				maxExecutorNoProgressTurns,
+				executorQualityValid,
+				svgCount > 0 ? executorQualityErrors.length : null,
+			);
+			return turnResult;
+		} catch (error) {
+			executorToolCalls.splice(previousToolCallCount);
+			executorToolCaptureComplete = previousToolCaptureComplete;
+			try {
+				if (executorCheckpoint) {
+					restorePptExecutionCheckpoint(options.projectDir, executorCheckpoint);
+					executorQualityValid = true;
+					executorQualityErrors = [];
+				} else {
+					clearPrematureSlideOutputs(options.projectDir);
+					executorQualityValid = false;
+					executorQualityErrors = [];
+				}
+			} catch (restoreError) {
+				try {
+					discardPptExecutionCheckpoint(options.projectDir);
+					clearPrematureSlideOutputs(options.projectDir);
+				} catch {
+					// Preserve the recovery error below; cleanup is best effort.
+				}
+				executorCheckpoint = null;
+				executorQualityValid = false;
+				executorQualityErrors = [];
+				throw new Error(
+					`PPT Executor 失败后无法恢复检查点：${getPptInternalErrorMessage(restoreError)}`,
+					{ cause: error },
+				);
+			}
+			throw error;
+		}
+	};
 	const resumeExistingPlanning =
 		options.workflow === "svg" &&
 		Boolean(
@@ -342,6 +474,15 @@ async function runConfiguredPptMasterAgent(
 			options.workflow === "template-fill"
 				? "PPT 原生模板流程"
 				: "PPT 确认前方案推荐",
+		);
+	}
+	if (options.workflow === "template-fill") {
+		templateProgress = await recordTemplateTurnProgress(
+			params.projectId,
+			params,
+			options,
+			templateProgress,
+			maxTemplateNoProgressTurns,
 		);
 	}
 	if (options.workflow === "svg") {
@@ -396,6 +537,16 @@ async function runConfiguredPptMasterAgent(
 				requiresContentBrief
 					? "PPT Master 未在确认前生成设计候选和 analysis/content_brief.md。"
 					: "PPT Master 未在确认前生成设计候选。",
+			);
+		}
+		const normalizedTypographyCount =
+			normalizeStoredPptPlanningTypography(options.projectDir);
+		if (normalizedTypographyCount > 0) {
+			await emitProjectLog(
+				params.projectId,
+				options.emit,
+				`已将 ${normalizedTypographyCount} 个候选字体栈规范化为 PowerPoint 安全字体`,
+				options.workerLease,
 			);
 		}
 		const recommendations = assertPptPlanningRecommendations(
@@ -457,7 +608,7 @@ async function runConfiguredPptMasterAgent(
 			let finalPlanningToolCaptureComplete = true;
 			let finalPlanningTurn = 1;
 			let finalPlanningSessionId = buildPptPhaseSessionId(
-				params.projectId,
+				params,
 				"confirmed-planning",
 			);
 			const maxFinalPlanningTurns = 3;
@@ -528,7 +679,64 @@ async function runConfiguredPptMasterAgent(
 				options.workerLease,
 			);
 		}
-		clearPrematureSlideOutputs(options.projectDir);
+		try {
+			executorCheckpoint = loadPptExecutionCheckpoint(
+				options.projectDir,
+				options.slideCount,
+			);
+			if (executorCheckpoint) {
+				restorePptExecutionCheckpoint(options.projectDir, executorCheckpoint);
+				const restoredQuality = await checkSvgQuality(
+					options.projectDir,
+					skillDir,
+				);
+				if (restoredQuality.errors.length > 0) {
+					throw new Error(
+						`恢复页面仍有 ${restoredQuality.errors.length} 项 SVG 质量错误。`,
+					);
+				}
+				executorQualityValid = true;
+				executorQualityErrors = [];
+			}
+		} catch (error) {
+			await emitProjectLog(
+				params.projectId,
+				options.emit,
+				`已有 Executor 检查点不可恢复，改用干净会话：${getPptInternalErrorMessage(error)}`,
+				options.workerLease,
+			);
+			discardPptExecutionCheckpoint(options.projectDir);
+			executorCheckpoint = null;
+			executorQualityValid = false;
+			executorQualityErrors = [];
+		}
+		if (executorCheckpoint) {
+			executorToolCalls.push(
+				...executorCheckpoint.toolCalls.map((call) => ({ ...call })),
+			);
+			executorToolCaptureComplete = executorCheckpoint.toolCaptureComplete;
+			executorProgress = createPptExecutorProgressState(
+				executorCheckpoint.svgCount,
+				executorCheckpoint.speakerNotesComplete,
+				true,
+				captureExecutorArtifactContentSignature(options.projectDir),
+				0,
+			);
+			result = {
+				...emptyCommandResult(),
+				sessionId: executorCheckpoint.sessionId,
+				stopReason: executorCheckpoint.stopReason,
+			};
+			currentTurn = 0;
+			await emitProjectLog(
+				params.projectId,
+				options.emit,
+				`已恢复 Executor 检查点：${executorCheckpoint.svgCount}/${options.slideCount} 页，继续原 Pi 会话`,
+				options.workerLease,
+			);
+		} else {
+			clearPrematureSlideOutputs(options.projectDir);
+		}
 		if (requiresAiImages) {
 			await runHostedImagePromptPlanning({
 				params,
@@ -542,42 +750,41 @@ async function runConfiguredPptMasterAgent(
 		}
 		executorPhaseProtection = createExecutorPhaseProtection(options);
 
-		currentTurn = 1;
 		await updateProject(
 			params.projectId,
 			{
 				status: "EXECUTING",
-				currentPhase: "正在用全新会话逐页生成",
+				currentPhase: executorCheckpoint
+					? `正在从检查点继续生成（${executorCheckpoint.svgCount}/${options.slideCount} 页）`
+					: "正在用全新会话逐页生成",
 				progress: 45,
 			},
 			options.workerLease,
 		);
-		const executorCommand = resolveAgentCommand(
-			params.projectId,
-			options.projectDir,
-			skillDir,
-			promptPath,
-			buildFreshExecutionPrompt(params, options, requiresAiImages),
-			buildPptPhaseSessionId(params.projectId, "executor"),
-			piConfig,
-		);
-		await emitProjectLog(
-			params.projectId,
-			options.emit,
-			"规划阶段已完成，启动全新 Executor 会话逐页生成 PPT",
-			options.workerLease,
-		);
-			result = await runProtectedAgentCommand(
+		if (!executorCheckpoint) {
+			currentTurn = 1;
+			const executorCommand = resolveAgentCommand(
 				params.projectId,
+				options.projectDir,
+				skillDir,
+				promptPath,
+				buildFreshExecutionPrompt(params, options, requiresAiImages),
+				buildPptExecutorSessionId(params),
+				piConfig,
+			);
+			await emitProjectLog(
+				params.projectId,
+				options.emit,
+				"规划阶段已完成，启动全新 Executor 会话逐页生成 PPT",
+				options.workerLease,
+			);
+			result = await runExecutorTurn(
 				executorCommand,
-				options,
 				currentTurn,
-				executorPhaseProtection,
 				"PPT Executor",
 			);
 			assertPptPlanningDecisionApplied(options.projectDir);
-		appendPptToolCalls(executorToolCalls, result.toolCalls);
-		executorToolCaptureComplete &&= result.toolCaptureComplete;
+		}
 	}
 
 	for (
@@ -587,11 +794,9 @@ async function runConfiguredPptMasterAgent(
 	) {
 		throwIfPptCancelled(options.signal);
 		if (isTemplateFillConfirmationReady(params, options)) break;
-		const needsContinue = shouldContinueAgent(
-			options.projectDir,
-			result,
-			options,
-		);
+		const needsContinue =
+			(options.workflow === "svg" && !executorQualityValid) ||
+			shouldContinueAgent(options.projectDir, result, options);
 		if (!needsContinue) break;
 		const continuePrompt = buildContinuePrompt(
 			options.projectDir,
@@ -599,6 +804,7 @@ async function runConfiguredPptMasterAgent(
 			options,
 			result,
 			params,
+			executorQualityErrors,
 		);
 		const continueCommand = resolveAgentCommand(
 			params.projectId,
@@ -615,23 +821,28 @@ async function runConfiguredPptMasterAgent(
 			`agent 第 ${turn} 轮继续执行：${describeContinueState(options.projectDir, options)}`,
 			options.workerLease,
 		);
-		const phaseProtection =
-			options.workflow === "svg"
-				? executorPhaseProtection
-				: initialPhaseProtection;
-		result = await runProtectedAgentCommand(
-			params.projectId,
-			continueCommand,
-			options,
-			turn,
-			phaseProtection,
-			options.workflow === "svg"
-				? "PPT Executor 续跑"
-				: "PPT 原生模板流程续跑",
-		);
 		if (options.workflow === "svg") {
-			appendPptToolCalls(executorToolCalls, result.toolCalls);
-			executorToolCaptureComplete &&= result.toolCaptureComplete;
+			result = await runExecutorTurn(
+				continueCommand,
+				turn,
+				"PPT Executor 续跑",
+			);
+		} else {
+			result = await runProtectedAgentCommand(
+				params.projectId,
+				continueCommand,
+				options,
+				turn,
+				initialPhaseProtection,
+				"PPT 原生模板流程续跑",
+			);
+			templateProgress = await recordTemplateTurnProgress(
+				params.projectId,
+				params,
+				options,
+				templateProgress,
+				maxTemplateNoProgressTurns,
+			);
 		}
 	}
 
@@ -647,7 +858,8 @@ async function runConfiguredPptMasterAgent(
 
 	if (
 		!hasPptx(options.projectDir) &&
-		shouldContinueAgent(options.projectDir, result, options)
+		((options.workflow === "svg" && !executorQualityValid) ||
+			shouldContinueAgent(options.projectDir, result, options))
 	) {
 		if (options.workflow === "template-fill") {
 			throw new Error(
@@ -771,6 +983,18 @@ async function runConfiguredPptMasterAgent(
 		options.slideCount,
 		skillDir,
 	);
+	if (options.workflow === "svg") {
+		try {
+			discardPptExecutionCheckpoint(options.projectDir);
+		} catch (error) {
+			await emitProjectLog(
+				params.projectId,
+				options.emit,
+				`最终文件已校验，但清理 Executor 检查点失败：${getPptInternalErrorMessage(error)}`,
+				options.workerLease,
+			);
+		}
+	}
 
 	return {
 		pptxPath,
@@ -828,7 +1052,7 @@ function buildSvgGenerationPrompt(
 		"",
 		"## Hard Requirements",
 		"",
-		`- 先通过 read 工具完整阅读 ${skillDir}/SKILL.md，再执行候选推荐。`,
+		`- 当前确认前会话禁止读取 ${skillDir}/SKILL.md；宿主已把本阶段所需约束完整写入 agent-task.md。完整 SKILL.md 由用户确认后的正式 Strategist 与 Executor 分别读取。`,
 		`- 写入候选前，必须通过 read 工具完整读取 ${skillDir}/references/modes/_index.md、${skillDir}/references/visual-styles/_index.md 与 sources/source.md。当前不要读取 strategist、charts、icons、design_spec/spec_lock 模板或具体 mode/style 详情；这些由确认后的正式 Strategist 读取。`,
 		params.imageModel
 			? `- 还必须完整读取 ${skillDir}/references/image-renderings/_index.md 与 ${skillDir}/references/image-palettes/_index.md，用官方 id 形成图片策略候选。`
@@ -957,6 +1181,7 @@ function buildHostedPlanningRecommendationContract(
 		"- directions 恰好 3 项（稳妥、适度变化、大胆），每项包含 id、label、mode、visualStyle、deliveryPurpose、rationale；mode 与 visualStyle 必须是官方参考目录 id，deliveryPurpose 只能为 text/balanced/presentation。",
 		"- palettes 恰好 3 项，每项包含 id、label、background、secondaryBackground、primary、accent、bodyText、rationale；所有颜色必须是 #RRGGBB。",
 		"- typography 恰好 3 项，每项包含 id、label、heading、body、bodySize、rationale；heading/body 是可直接写入 SVG 的完整字体栈，bodySize 是 16-40 的整数 px。",
+		'- heading/body 只能使用 PowerPoint 安全字体："Microsoft YaHei"、SimHei、SimSun、FangSong、KaiTi、PingFang SC、Arial、"Arial Black"、Calibri、"Segoe UI"、Verdana、"Trebuchet MS"、"Times New Roman"、Georgia、Cambria、Palatino、Garamond、Consolas、"Courier New"、Impact；不得使用 Aptos、Microsoft YaHei UI、Noto/Source Han/Inter/HarmonyOS 等需要额外安装的字体。',
 		useAiImages
 			? '- imageStrategies 恰好 3 项且每项包含 id、label、usage、rendering、palette、rationale；usage 必须是包含 "ai" 的 JSON 数组，例如 ["ai"] 或 ["ai", "provided"]，绝不能写成字符串；rendering/palette 使用官方图片参考 id。'
 			: '- imageStrategies 提供 1-3 项且每项完整包含 id、label、usage、rendering、palette、rationale；不得包含 ai。usage 必须是 JSON 数组：有用户图片时写 ["provided"]，没有时写 ["none"]，绝不能写成字符串。没有图片时 rendering 与 palette 均写 "not-applicable"。',
@@ -1068,7 +1293,7 @@ function buildFreshExecutionPrompt(
 		"# PPT Master Fresh Executor Session",
 		"",
 		"这是与 Strategist 完全隔离的全新执行会话。先阅读 `.ppt-master-skill/SKILL.md` 和 `.ppt-master-skill/workflows/resume-execute.md`，从官方 Step 6 开始，不要重新规划。",
-		"确认 design_spec.md 和 spec_lock.md 存在，然后读取它们与 analysis/hosted_confirmation_result.json；如果 analysis/content_brief.md、analysis/source_index.json 或 analysis/source_profile.json 存在也必须读取。生成具体页面内容时重新读取 sources/source.md，不能只依赖大纲摘要。",
+		"确认 design_spec.md 和 spec_lock.md 存在，然后读取它们与 analysis/hosted_confirmation_result.json；如果 analysis/source_index.json 或 analysis/source_profile.json 存在也必须读取。analysis/content_brief.md 是已被 Strategist 吸收的规划中间产物，Executor 不要求重复读取。生成具体页面内容时重新读取 sources/source.md，不能只依赖大纲摘要。",
 		"hosted_confirmation_result.json 中存在 pagePlan 时，它是用户确认后的逐页标题、内容目标、节奏与页面类型，必须逐页执行，不得恢复为确认前大纲。",
 		hasGeneratedImages
 			? "服务器已完成图片生成。读取 images/image_prompts.json、images/image_prompts.md 和 analysis/image_analysis.csv；只使用 status=Generated 且文件实际存在的图片，不得重新生成、搜索或替换图片。"
@@ -1127,7 +1352,7 @@ async function runHostedVisualReview(input: {
 		allBackups.map((backup) => [backup.svgPath, backup]),
 	);
 	let previous = input.previous;
-	const reviewSessionId = buildPptPhaseSessionId(params.projectId, "review");
+	const reviewSessionId = buildPptPhaseSessionId(params, "review");
 
 	await emitProjectLog(
 		params.projectId,
@@ -1277,7 +1502,7 @@ async function runHostedChartVerification(input: {
 			input.promptPath,
 			buildHostedChartCalculatorRequestPrompt(options, input.skillDir),
 			buildPptPhaseSessionId(
-				params.projectId,
+				params,
 				input.sessionPhase || "chart-verification",
 			),
 			input.piConfig,
@@ -1614,6 +1839,7 @@ function createExecutorPhaseProtection(
 				"images",
 				"exports",
 				"svg_final",
+				"validation",
 				".preview",
 				".review",
 			]),
@@ -1874,7 +2100,7 @@ async function runHostedImagePromptPlanning(input: {
 						lastError,
 					),
 					attempt === 1
-						? buildPptPhaseSessionId(params.projectId, "image-generator")
+						? buildPptPhaseSessionId(params, "image-generator")
 						: previous.sessionId,
 					input.piConfig,
 				);
@@ -2204,7 +2430,7 @@ function resolveAgentCommand(
 	if (!piConfig) {
 		throw new Error("PPT pi agent 配置未准备。");
 	}
-	const sessionId = sanitizeAgentSessionId(resumeSessionId || projectId);
+	const sessionId = sanitizePptAgentSessionId(resumeSessionId || projectId);
 	const sessionDir = join(projectDir, ".pi-sessions");
 	mkdirSync(sessionDir, { recursive: true });
 	const extensionPath = join(process.cwd(), "scripts", "ppt-agent-extension.mjs");
@@ -2240,6 +2466,7 @@ function resolveAgentCommand(
 		command: "pi",
 		args,
 		cwd: projectDir,
+		sessionId,
 		stdin: prompt,
 		display: `pi -p --mode json --provider ${piConfig.provider} --model ${piConfig.model} --skill <ppt-master> --session-id ${sessionId} <agent-task.md>`,
 		skillDir,
@@ -2253,58 +2480,20 @@ function buildContinuePrompt(
 	options: RunnerOptions,
 	previous: CommandResult,
 	params: GenerationParams,
+	qualityErrors: string[] = [],
 ) {
 	if (options.workflow === "template-fill") {
 		return buildTemplateFillContinuePrompt(projectDir, turn, previous, params);
 	}
 
-	const svgCount = countSvgSlides(projectDir);
-	const nextSlide = Math.min(svgCount + 1, options.slideCount);
-	const interruptedByToolUse = previous.stopReason === "tool_use";
-
-	if (svgCount >= options.slideCount) {
-		return [
-			"确认继续。当前目标页数的 SVG 页面已经生成，请不要重新开始，也不要重写已有 SVG。",
-			"完成 notes/total.md 并运行 svg_quality_checker.py；修复全部 error 后立即停止。不要执行 Step 7，不要运行 total_md_split.py、finalize_svg.py 或 svg_to_pptx.py。",
-			"不要请求确认，也不要自行启动 visual_review.py 或 live-preview server；图表校准、可选视觉复核和最终导出由服务器接管。",
-		].join("\n");
-	}
-
-	if (svgCount > 0) {
-		return [
-			"确认继续。不要重新开始，不要重写已有 SVG。",
-			`当前 svg_output/ 已有 ${svgCount}/${options.slideCount} 页。请从第 ${nextSlide} 页继续逐页生成，直到第 ${options.slideCount} 页全部完成。`,
-			"每页生成前必须重新读取 spec_lock.md。全部 SVG 完成后生成 notes/total.md，运行质量检查并修复，然后立即停止；不要执行 Step 7。",
-			interruptedByToolUse
-				? "上一轮停在工具调用边界；如果上一条工具写入没有落盘，请重新发起对应写入或 Bash 工具调用。"
-				: "",
-			"完成前不要停止，不要请求确认。",
-		]
-			.filter(Boolean)
-			.join("\n");
-	}
-
-	const hasSpecLock = existsSync(join(projectDir, "spec_lock.md"));
-	if (hasSpecLock) {
-		return [
-			"确认继续。design_spec.md 和 spec_lock.md 已经存在，请不要重新规划，不要重写这两个文件。",
-			`当前还没有 SVG 落盘。请从第 1 页开始，逐页生成 svg_output/*.svg，目标页数 ${options.slideCount}。`,
-			"每页生成前必须重新读取 spec_lock.md。全部 SVG 完成后生成 notes/total.md，运行质量检查并修复，然后立即停止；不要执行 Step 7。",
-			interruptedByToolUse
-				? "上一轮停在未完成的工具调用边界；请先完成或重做上一条 SVG Write 工具调用。"
-				: "",
-			"完成前不要停止，不要请求确认。",
-		]
-			.filter(Boolean)
-			.join("\n");
-	}
-
-	return [
-		"我确认并批准上一轮 Strategist confirmation stage 的全部站内参数。",
-		`这是服务器自动续跑第 ${turn} 轮，等价于用户明确回复“确认，继续”。`,
-		"请立刻继续执行 PPT Master 规划与 Executor 流程：写入 design_spec.md 和 spec_lock.md，按需跳过无可用环境的可选图片生成，顺序逐页生成 svg_output/*.svg，生成 notes/total.md，运行质量检查并修复，然后立即停止；不要执行 Step 7。",
-		"不要再输出确认问题。不要只输出计划。完成前不要停止。",
-	].join("\n");
+	return buildPptExecutorContinuePrompt({
+		turn,
+		slideCount: options.slideCount,
+		svgCount: countSvgSlides(projectDir),
+		hasSpecLock: existsSync(join(projectDir, "spec_lock.md")),
+		stopReason: previous.stopReason,
+		qualityErrors,
+	});
 }
 
 function buildTemplateFillContinuePrompt(
@@ -2364,13 +2553,17 @@ function shouldSkipSkillCopy(source: string, sourceSkillDir: string) {
 }
 
 
-function sanitizeAgentSessionId(value: string) {
-	const sanitized = value.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 96);
-	return sanitized || `ppt-${Date.now()}`;
+function buildPptPhaseSessionId(params: GenerationParams, phase: string) {
+	return buildPptAttemptSessionId({
+		projectId: params.projectId,
+		phase,
+		retryAttempt: params.retryAttempt,
+		workerLease: params.workerLease,
+	});
 }
 
-function buildPptPhaseSessionId(projectId: string, phase: string) {
-	return sanitizeAgentSessionId(`${projectId}-${phase}`);
+function buildPptExecutorSessionId(params: GenerationParams) {
+	return buildPptPhaseSessionId(params, "executor");
 }
 
 function appendPptToolCalls(
@@ -2445,6 +2638,7 @@ async function runCommand(
 
 	return new Promise<CommandResult>((resolvePromise, reject) => {
 		const toolCollector = new PptAgentToolCallCollector();
+		const metadataCollector = new AgentResultMetadataCollector(command.sessionId);
 		const spawnTarget = resolveExecutable(command.command);
 		const spawnArgs = buildSpawnArgs(spawnTarget, command.args);
 		const proc: ChildProcessWithoutNullStreams = spawn(
@@ -2458,10 +2652,10 @@ async function runCommand(
 			} satisfies SpawnOptionsWithoutStdio,
 		);
 
-			let output = "";
-			let settled = false;
-			let terminationError: Error | null = null;
-			const startedAt = Date.now();
+		let output = "";
+		let settled = false;
+		let terminationError: Error | null = null;
+		const startedAt = Date.now();
 		let logBytes = existsSync(logPath) ? statSync(logPath).size : 0;
 		let logLimitReached = logBytes >= MAX_AGENT_LOG_BYTES;
 		const appendAgentLog = (text: string) => {
@@ -2491,8 +2685,17 @@ async function runCommand(
 			].join("\n"),
 		);
 
+		const artifactWatchKind = resolveAgentArtifactWatchKind(command, options);
+		const noArtifactTimeoutMs = resolvePptNoArtifactTimeoutMs();
+		let artifactWatchdogState = artifactWatchKind
+			? createPptArtifactWatchdogState(
+					captureAgentArtifactSignature(options.projectDir, artifactWatchKind),
+					startedAt,
+				)
+			: null;
 		const timer = setInterval(() => {
-			const elapsed = Date.now() - startedAt;
+			const now = Date.now();
+			const elapsed = now - startedAt;
 			const progress = Math.min(
 				88,
 				12 + Math.floor((elapsed / timeoutMs) * 72),
@@ -2502,68 +2705,81 @@ async function runCommand(
 				onError("agent-runner", "更新进度失败"),
 			);
 			emitPreviews(projectId, options);
-		}, 15_000);
-
-			const terminate = (error: Error) => {
-				if (settled || terminationError) return;
-				terminationError = error;
-				clearInterval(timer);
-				clearTimeout(timeout);
-				options.signal?.removeEventListener("abort", abort);
-				terminateProcessTree(proc);
-			};
-			const timeout = setTimeout(
-				() =>
+			if (artifactWatchKind && artifactWatchdogState) {
+				artifactWatchdogState = recordPptArtifactWatchdogProgress(
+					artifactWatchdogState,
+					captureAgentArtifactSignature(
+						options.projectDir,
+						artifactWatchKind,
+					),
+					now,
+				);
+				if (
+					isPptArtifactWatchdogExpired(
+						artifactWatchdogState,
+						now,
+						noArtifactTimeoutMs,
+					)
+				) {
 					terminate(
 						new Error(
-							`PPT Master agent 执行超时（${Math.round(timeoutMs / 60000)} 分钟）。`,
+							`PPT Master ${artifactWatchKind === "executor" ? "Executor" : "模板流程"}连续 ${Math.round(noArtifactTimeoutMs / 60_000)} 分钟没有生成或更新关键产物，已停止本轮以避免继续消耗 Token。`,
 						),
-					),
-				timeoutMs,
-			);
-			const abort = () => {
+					);
+				}
+			}
+		}, 15_000);
+
+		const terminate = (error: Error) => {
+			if (settled || terminationError) return;
+			terminationError = error;
+			clearInterval(timer);
+			clearTimeout(timeout);
+			options.signal?.removeEventListener("abort", abort);
+			terminateProcessTree(proc);
+		};
+		const timeout = setTimeout(
+			() =>
 				terminate(
-					options.signal?.reason instanceof Error
-						? options.signal.reason
-						: new Error("用户已停止生成"),
-				);
+					new Error(
+						`PPT Master agent 执行超时（${Math.round(timeoutMs / 60000)} 分钟）。`,
+					),
+				),
+			timeoutMs,
+		);
+		const abort = () => {
+			terminate(
+				options.signal?.reason instanceof Error
+					? options.signal.reason
+					: new Error("用户已停止生成"),
+			);
 		};
 		if (options.signal?.aborted) abort();
 		else options.signal?.addEventListener("abort", abort, { once: true });
 
+		const pendingLogWrites = new PptPendingLogWrites();
 		const processLine = (line: string) => {
 			const message = normalizeAgentLine(line.trim());
 			if (message) {
 				appendAgentLog(`${message}\n`);
-				emitProjectLog(
-					projectId,
-					options.emit,
-					message,
-					options.workerLease,
-				).catch(
-					onError("agent-runner", "写入项目日志失败"),
-				);
-				updatePhaseFromLine(projectId, options, message).catch(
-					onError("agent-runner", "更新阶段失败"),
+				pendingLogWrites.add(
+					emitProjectLog(
+						projectId,
+						options.emit,
+						message,
+						options.workerLease,
+					).catch(onError("agent-runner", "写入项目日志失败")),
 				);
 			}
 		};
-		let stdoutPending = "";
-		let stderrPending = "";
 		let evidencePending = "";
 		let droppingOversizedEvidenceLine = false;
 		const longLineReported = { stdout: false, stderr: false };
-		const boundLine = (stream: "stdout" | "stderr", line: string) => {
-			if (line.length <= MAX_AGENT_PENDING_LINE_CHARS) return line;
-			if (!longLineReported[stream]) {
-				longLineReported[stream] = true;
-				appendAgentLog(
-					`[server] ${stream} 单行超过 ${MAX_AGENT_PENDING_LINE_CHARS} 字符，日志解析仅保留尾部。\n`,
-				);
-			}
-			return line.slice(-MAX_AGENT_PENDING_LINE_CHARS);
+		const logLineBuffers = {
+			stdout: new PptAgentLogLineBuffer(MAX_AGENT_PENDING_LINE_CHARS),
+			stderr: new PptAgentLogLineBuffer(MAX_AGENT_PENDING_LINE_CHARS),
 		};
-		const captureToolEvidence = (chunkText: string) => {
+		const captureJsonEvidence = (chunkText: string) => {
 			let text = chunkText;
 			if (droppingOversizedEvidenceLine) {
 				const newline = text.search(/\r?\n/);
@@ -2579,6 +2795,7 @@ async function runCommand(
 					toolCollector.markIncomplete();
 				} else if (line.trim()) {
 					toolCollector.consumeJsonLine(line);
+					metadataCollector.consumeJsonLine(line);
 				}
 			}
 			if (evidencePending.length > MAX_AGENT_EVIDENCE_LINE_CHARS) {
@@ -2589,34 +2806,33 @@ async function runCommand(
 		};
 		const onChunk = (stream: "stdout" | "stderr", chunk: Buffer) => {
 			const text = chunk.toString("utf-8");
-			if (stream === "stdout") captureToolEvidence(text);
+			if (stream === "stdout") captureJsonEvidence(text);
 			output = (output + text).slice(-MAX_AGENT_OUTPUT_TAIL_CHARS);
-			const pending = stream === "stdout" ? stdoutPending : stderrPending;
-			const lines = (pending + text).split(/\r?\n/);
-			const nextPending = boundLine(stream, lines.pop() || "");
-			if (stream === "stdout") {
-				stdoutPending = nextPending;
-			} else {
-				stderrPending = nextPending;
+			const captured = logLineBuffers[stream].push(text);
+			if (captured.oversized && !longLineReported[stream]) {
+				longLineReported[stream] = true;
+				appendAgentLog(
+					`[server] ${stream} 单行超过 ${MAX_AGENT_PENDING_LINE_CHARS} 字符，已省略详细内容。\n`,
+				);
 			}
-			for (const line of lines) {
-				const boundedLine = boundLine(stream, line);
-				if (boundedLine.trim()) processLine(boundedLine);
+			for (const line of captured.lines) {
+				if (line.trim()) processLine(line);
 			}
 		};
 		const flushPendingLines = () => {
 			if (!droppingOversizedEvidenceLine && evidencePending.trim()) {
 				if (evidencePending.length <= MAX_AGENT_EVIDENCE_LINE_CHARS) {
 					toolCollector.consumeJsonLine(evidencePending);
+					metadataCollector.consumeJsonLine(evidencePending);
 				} else {
 					toolCollector.markIncomplete();
 				}
 			}
-			for (const line of [stdoutPending, stderrPending]) {
-				if (line.trim()) processLine(line);
+			for (const buffer of Object.values(logLineBuffers)) {
+				for (const line of buffer.flush()) {
+					if (line.trim()) processLine(line);
+				}
 			}
-			stdoutPending = "";
-			stderrPending = "";
 		};
 
 		proc.stdout.on("data", (chunk) => onChunk("stdout", chunk));
@@ -2636,20 +2852,21 @@ async function runCommand(
 			reject(new Error(`无法启动 PPT Master agent：${error.message}`));
 		});
 
-			proc.on("close", async (code) => {
+		proc.on("close", async (code) => {
 			options.signal?.removeEventListener("abort", abort);
 			clearInterval(timer);
 			clearTimeout(timeout);
 			if (settled) return;
-				settled = true;
-				flushPendingLines();
-				emitPreviews(projectId, options);
-				if (terminationError) {
-					reject(terminationError);
-					return;
-				}
-				if (code === 0) {
-				const metadata = extractResultMetadata(output);
+			settled = true;
+			flushPendingLines();
+			await pendingLogWrites.drain();
+			emitPreviews(projectId, options);
+			if (terminationError) {
+				reject(terminationError);
+				return;
+			}
+			if (code === 0) {
+				const metadata = metadataCollector.getMetadata();
 				if (metadata.errorMessage) {
 					await emitProjectLog(
 						projectId,
@@ -2683,7 +2900,7 @@ async function runCommand(
 					"agent 在最后阶段退出，检测到可恢复输出，继续由服务器完成导出。",
 					options.workerLease,
 				).catch(onError("agent-runner", "发出项目日志失败"));
-				const metadata = extractResultMetadata(output);
+				const metadata = metadataCollector.getMetadata();
 				resolvePromise({
 					output,
 					...metadata,
@@ -2696,6 +2913,97 @@ async function runCommand(
 			reject(new Error(`PPT Master agent 退出码 ${code}。\n${tail}`));
 		});
 	});
+}
+
+type AgentArtifactWatchKind = "executor" | "template-fill";
+
+function resolveAgentArtifactWatchKind(
+	command: AgentCommand,
+	options: RunnerOptions,
+): AgentArtifactWatchKind | null {
+	if (options.workflow === "template-fill") return "template-fill";
+	return /(?:^|-)executor(?:-|$)/i.test(command.sessionId)
+		? "executor"
+		: null;
+}
+
+function captureAgentArtifactSignature(
+	projectDir: string,
+	kind: AgentArtifactWatchKind,
+) {
+	if (kind === "executor") {
+		return [
+			...captureDirectoryFileSignatures(join(projectDir, "svg_output"), ".svg"),
+			captureFileSignature(join(projectDir, "notes", "total.md")),
+		].join("|");
+	}
+	return [
+		captureFileSignature(join(projectDir, "analysis", "slide_library.json")),
+		captureFileSignature(join(projectDir, "analysis", "fill_plan.json")),
+		captureFileSignature(join(projectDir, "analysis", "check_report.json")),
+		...captureDirectoryFileSignatures(join(projectDir, "exports"), ".pptx"),
+	].join("|");
+}
+
+function captureDirectoryFileSignatures(path: string, extension: string) {
+	if (!existsSync(path)) return [];
+	try {
+		return readdirSync(path, { withFileTypes: true })
+			.filter(
+				(entry) =>
+					entry.isFile() && entry.name.toLowerCase().endsWith(extension),
+			)
+			.map((entry) => captureFileSignature(join(path, entry.name)))
+			.sort();
+	} catch {
+		return [];
+	}
+}
+
+function captureFileSignature(path: string) {
+	try {
+		const stat = statSync(path);
+		return `${path}:${stat.size}:${stat.mtimeMs}`;
+	} catch {
+		return `${path}:missing`;
+	}
+}
+
+function captureExecutorArtifactContentSignature(projectDir: string) {
+	const files = [
+		...listDirectoryFiles(join(projectDir, "svg_output"), ".svg"),
+		join(projectDir, "notes", "total.md"),
+	];
+	const hash = createHash("sha256");
+	let captured = false;
+	for (const path of files) {
+		if (!existsSync(path)) continue;
+		try {
+			hash.update(path.slice(projectDir.length));
+			hash.update("\0");
+			hash.update(readFileSync(path));
+			hash.update("\0");
+			captured = true;
+		} catch {
+			// A transient read failure is not evidence of artifact progress.
+		}
+	}
+	return captured ? hash.digest("hex") : "";
+}
+
+function listDirectoryFiles(path: string, extension: string) {
+	if (!existsSync(path)) return [];
+	try {
+		return readdirSync(path, { withFileTypes: true })
+			.filter(
+				(entry) =>
+					entry.isFile() && entry.name.toLowerCase().endsWith(extension),
+			)
+			.map((entry) => join(path, entry.name))
+			.sort();
+	} catch {
+		return [];
+	}
 }
 
 function resolveExecutable(command: string) {
@@ -2838,69 +3146,6 @@ function normalizePiMessageEvent(event: {
 	return texts.length ? compactLine(texts.join(" ")) : "";
 }
 
-function extractResultMetadata(
-	output: string,
-): Omit<CommandResult, "output" | "toolCalls" | "toolCaptureComplete"> {
-	let sessionId = "";
-	let stopReason = "";
-	let resultText = "";
-	let errorMessage = "";
-	let numTurns = 0;
-	for (const line of output.split(/\r?\n/)) {
-		try {
-			const event = JSON.parse(line);
-			if (typeof event?.session_id === "string") sessionId = event.session_id;
-			if (event?.type === "session" && typeof event.id === "string")
-				sessionId = event.id;
-			if (
-				typeof event?.message?.errorMessage === "string" &&
-				event.message.errorMessage
-			) {
-				errorMessage = event.message.errorMessage;
-			}
-			if (event?.type === "result") {
-				if (typeof event.stop_reason === "string")
-					stopReason = event.stop_reason;
-				if (typeof event.result === "string") resultText = event.result;
-				if (typeof event.num_turns === "number") numTurns = event.num_turns;
-			}
-			if (event?.type === "agent_end") {
-				stopReason = "agent_end";
-				if (Array.isArray(event.messages)) {
-					const lastAssistant = [...event.messages]
-						.reverse()
-						.find((message) => message?.role === "assistant");
-					if (
-						typeof lastAssistant?.errorMessage === "string" &&
-						lastAssistant.errorMessage
-					) {
-						errorMessage = lastAssistant.errorMessage;
-					}
-					const content = lastAssistant?.content;
-					if (Array.isArray(content)) {
-						resultText = content
-							.filter(
-								(item) =>
-									item?.type === "text" && typeof item.text === "string",
-							)
-							.map((item) => item.text)
-							.join("\n");
-					}
-				}
-			}
-		} catch {
-			// Ignore non-JSON lines.
-		}
-	}
-	return {
-		sessionId,
-		stopReason,
-		numTurns,
-		resultText,
-		errorMessage,
-	};
-}
-
 function shouldContinueAgent(
 	projectDir: string,
 	result: CommandResult,
@@ -2909,18 +3154,7 @@ function shouldContinueAgent(
 	if (hasPptx(projectDir)) return false;
 	const text = (result.resultText || result.output).slice(-30_000);
 	if (options.workflow === "template-fill") {
-		const hasProgress = [
-			join(projectDir, "analysis", "slide_library.json"),
-			join(projectDir, "analysis", "fill_plan.json"),
-			join(projectDir, "analysis", "check_report.json"),
-		].some(existsSync);
-		return (
-			result.stopReason === "tool_use" ||
-			hasProgress ||
-			/请确认|确认后|continue|继续|template.fill|fill_plan|check-plan|apply/i.test(
-				text,
-			)
-		);
+		return true;
 	}
 	const svgCount = countSvgSlides(projectDir);
 	if (svgCount >= options.slideCount) {
@@ -2949,6 +3183,152 @@ function resolveMaxTurns(options: RunnerOptions) {
 	const raw =
 		Number.isFinite(configured) && configured > 0 ? configured : recommended;
 	return Math.max(minimumUseful, Math.min(80, Math.round(raw)));
+}
+
+function getTemplateArtifactStage(projectDir: string) {
+	if (hasPptx(projectDir)) return 4;
+	if (existsSync(join(projectDir, "analysis", "check_report.json"))) return 3;
+	if (existsSync(join(projectDir, "analysis", "fill_plan.json"))) return 2;
+	if (existsSync(join(projectDir, "analysis", "slide_library.json"))) return 1;
+	return 0;
+}
+
+async function recordTemplateTurnProgress(
+	projectId: string,
+	params: GenerationParams,
+	options: RunnerOptions,
+	previous: PptStageProgressState,
+	maxNoProgressTurns: number,
+) {
+	const stage = getTemplateArtifactStage(options.projectDir);
+	await updateTemplateProjectPhase(projectId, params, options, stage);
+	const progress = recordPptStageProgress(previous, stage);
+	if (
+		stage === 4 ||
+		isTemplateFillConfirmationReady(params, options) ||
+		progress.consecutiveNoProgressTurns === 0
+	) {
+		return progress;
+	}
+
+	await emitProjectLog(
+		projectId,
+		options.emit,
+		`模板流程本轮未进入下一阶段，连续无进展 ${progress.consecutiveNoProgressTurns}/${maxNoProgressTurns} 轮。`,
+		options.workerLease,
+	);
+	if (isPptStageProgressStalled(progress, maxNoProgressTurns)) {
+		throw new Error(
+			`PPT Master 模板流程连续 ${maxNoProgressTurns} 轮没有推进关键产物，已停止继续消耗 Token。`,
+		);
+	}
+	return progress;
+}
+
+async function updateTemplateProjectPhase(
+	projectId: string,
+	params: GenerationParams,
+	options: RunnerOptions,
+	stage: number,
+) {
+	const confirmed =
+		Boolean(params.planningConfirmed) ||
+		hasPptTemplateFillDecision(options.projectDir);
+	const phase =
+		stage >= 4
+			? {
+					status: "EXPORTING" as const,
+					currentPhase: "正在回读验证模板填充结果",
+					progress: 88,
+				}
+			: stage >= 3 && (!params.confirmDesign || confirmed)
+				? {
+						status: "EXECUTING" as const,
+						currentPhase: confirmed
+							? "正在应用已确认的模板页面方案"
+							: "正在应用模板填充方案",
+						progress: 60,
+					}
+				: stage >= 3
+					? {
+							status: "STRATEGIZING" as const,
+							currentPhase: "模板填充方案已准备",
+							progress: 30,
+						}
+					: stage >= 2
+						? {
+								status: "STRATEGIZING" as const,
+								currentPhase: "正在检查模板内容容量",
+								progress: 26,
+							}
+						: stage >= 1
+							? {
+									status: "STRATEGIZING" as const,
+									currentPhase: "正在编写模板填充方案",
+									progress: 20,
+								}
+							: {
+									status: "STRATEGIZING" as const,
+									currentPhase: "正在分析上传模板结构",
+									progress: 12,
+								};
+	await updateProject(projectId, phase, options.workerLease);
+	options.emit({ type: "phase", data: { phase: phase.status, progress: phase.progress } });
+}
+
+async function recordExecutorTurnProgress(
+	projectId: string,
+	options: RunnerOptions,
+	previous: PptExecutorProgressState,
+	maxNoProgressTurns: number,
+	qualityValid: boolean,
+	qualityErrorCount: number | null,
+) {
+	const svgCount = countSvgSlides(options.projectDir);
+	let speakerNotesComplete = false;
+	if (svgCount >= options.slideCount) {
+		try {
+			assertPptSpeakerNotesSource(options.projectDir, options.slideCount);
+			speakerNotesComplete = true;
+		} catch {
+			// A later Executor continuation can still complete notes/total.md.
+		}
+	}
+	const progress = recordPptExecutorProgress(
+		previous,
+		svgCount,
+		speakerNotesComplete,
+		qualityValid,
+		captureExecutorArtifactContentSignature(options.projectDir),
+		qualityErrorCount,
+	);
+	if (
+		(progress.svgCount >= options.slideCount &&
+			progress.speakerNotesComplete &&
+			progress.qualityValid) ||
+		progress.consecutiveNoProgressTurns === 0
+	) {
+		return progress;
+	}
+
+	await emitProjectLog(
+		projectId,
+		options.emit,
+		`Executor 本轮没有新增或更新 SVG、补齐完整讲稿、减少质量错误或通过质量检查，连续无进展 ${progress.consecutiveNoProgressTurns}/${maxNoProgressTurns} 轮（当前 ${progress.svgCount}/${options.slideCount} 页）。`,
+		options.workerLease,
+	);
+	if (
+		isPptExecutorStalled(
+			progress,
+			options.slideCount,
+			maxNoProgressTurns,
+		)
+	) {
+		throw new Error(
+			`PPT Master Executor 连续 ${maxNoProgressTurns} 轮没有新增或更新 SVG、补齐讲稿、减少质量错误或通过质量检查（当前 ${progress.svgCount}/${options.slideCount} 页），已停止继续消耗 Token。可重试任务并复用最近检查点继续；若仍失败，请更换模型或减少资料。`,
+		);
+	}
+	return progress;
 }
 
 function describeContinueState(projectDir: string, options: RunnerOptions) {
@@ -3010,64 +3390,6 @@ function canRecoverFromAgentExit(
 
 function compactLine(line: string) {
 	return line.replace(/\s+/g, " ").trim().slice(0, 500);
-}
-
-async function updatePhaseFromLine(
-	projectId: string,
-	options: RunnerOptions,
-	line: string,
-) {
-	const lower = line.toLowerCase();
-	if (
-		lower.includes("image") ||
-		line.includes("图像") ||
-		line.includes("素材")
-	) {
-		await updateProject(
-			projectId,
-			{
-				status: "ACQUIRING_IMAGES",
-				currentPhase: "采集或生成素材",
-			},
-			options.workerLease,
-		);
-		options.emit({
-			type: "phase",
-			data: { phase: "ACQUIRING_IMAGES", progress: 35 },
-		});
-		return;
-	}
-	if (
-		lower.includes("svg") ||
-		line.includes("executor") ||
-		line.includes("生成第")
-	) {
-		await updateProject(
-			projectId,
-			{
-				status: "EXECUTING",
-				currentPhase: "逐页生成 SVG",
-			},
-			options.workerLease,
-		);
-		options.emit({ type: "phase", data: { phase: "EXECUTING", progress: 45 } });
-		return;
-	}
-	if (
-		lower.includes("pptx") ||
-		lower.includes("export") ||
-		line.includes("导出")
-	) {
-		await updateProject(
-			projectId,
-			{
-				status: "EXPORTING",
-				currentPhase: "导出 PPTX",
-			},
-			options.workerLease,
-		);
-		options.emit({ type: "phase", data: { phase: "EXPORTING", progress: 88 } });
-	}
 }
 
 function emitPreviews(projectId: string, options: RunnerOptions) {

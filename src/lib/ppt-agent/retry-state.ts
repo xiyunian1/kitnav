@@ -9,7 +9,8 @@ export function canRetryPptProject(project: RetryablePptProjectState) {
 	return (
 		project.status === "FAILED" &&
 		!project.artifactsDeletedAt &&
-		project.params !== null &&
+		typeof project.params === "string" &&
+		project.params.trim().length > 0 &&
 		!isCancelledPptFailure(project.error)
 	);
 }

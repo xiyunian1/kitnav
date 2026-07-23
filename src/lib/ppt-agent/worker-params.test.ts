@@ -17,6 +17,7 @@ describe("rebuildGenerationParams", () => {
 						planningConfirmed: true,
 						planningConfirmationStage: "complete",
 						textCreditsCost: 100,
+						retryAttempt: 2,
 				}),
 				"lease-1",
 			),
@@ -33,6 +34,7 @@ describe("rebuildGenerationParams", () => {
 				planningConfirmed: true,
 				planningConfirmationStage: "complete",
 				textCreditsCost: 100,
+				retryAttempt: 2,
 			});
 	});
 

@@ -1,6 +1,8 @@
 import {
-  resolvePptConfirmationTiming,
-  type PptConfirmationTimingState,
+	resolvePptActiveGenerationTiming,
+	resolvePptConfirmationTiming,
+	type PptActiveGenerationTimingState,
+	type PptConfirmationTimingState,
 } from "./timing";
 
 export interface PptxArtifactState {
@@ -14,7 +16,8 @@ export function hasPptxArtifact(project: PptxArtifactState) {
 
 export function toPublicPptProject<
   T extends PptxArtifactState &
-    PptConfirmationTimingState & { error?: unknown; params?: unknown },
+    PptConfirmationTimingState &
+    PptActiveGenerationTimingState & { error?: unknown; params?: unknown },
 >(project: T) {
   const publicProject = { ...project } as Record<string, unknown>;
   for (const key of [
@@ -22,6 +25,8 @@ export function toPublicPptProject<
     "logs",
     "confirmationWaitSeconds",
     "confirmationWaitStartedAt",
+    "activeGenerationSeconds",
+    "activeGenerationStartedAt",
     "error",
     "params",
   ]) {
@@ -32,9 +37,14 @@ export function toPublicPptProject<
     confirmationWaitSeconds: project.confirmationWaitSeconds,
     confirmationWaitStartedAt: project.confirmationWaitStartedAt,
   });
+  const activeTiming = resolvePptActiveGenerationTiming({
+    activeGenerationSeconds: project.activeGenerationSeconds,
+    activeGenerationStartedAt: project.activeGenerationStartedAt,
+  });
   return {
     ...publicProject,
     ...timing,
+    ...activeTiming,
     hasPptx: Boolean(project.pptxPath && !project.artifactsDeletedAt),
   } as Omit<
     T,
@@ -42,8 +52,11 @@ export function toPublicPptProject<
     | "logs"
     | "confirmationWaitSeconds"
     | "confirmationWaitStartedAt"
+    | "activeGenerationSeconds"
+    | "activeGenerationStartedAt"
     | "error"
     | "params"
   > &
-    ReturnType<typeof resolvePptConfirmationTiming> & { hasPptx: boolean };
+    ReturnType<typeof resolvePptConfirmationTiming> &
+    ReturnType<typeof resolvePptActiveGenerationTiming> & { hasPptx: boolean };
 }

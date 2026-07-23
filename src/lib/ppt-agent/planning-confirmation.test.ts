@@ -13,6 +13,7 @@ import {
 	assertPptPlanningDecisionApplied,
 	assertPptPlanningRecommendations,
 	markStoredPptPlanningConfirmed,
+	normalizeStoredPptPlanningTypography,
 	readPptPlanningRecommendations,
 	readPptPlanningResult,
 	resolvePptPlanningSelection,
@@ -156,6 +157,30 @@ describe("PPT planning confirmation", () => {
 				rationale: "Use native SVG diagrams instead of images.",
 			},
 		]);
+	});
+
+	it("normalizes generated typography to PowerPoint-safe exported fonts", () => {
+		const root = createRecommendations();
+		const path = join(root, "analysis", "hosted_confirmation.json");
+		const raw = JSON.parse(readFileSync(path, "utf-8"));
+		raw.typography[0].heading =
+			"'Aptos Display', 'Microsoft YaHei UI', 'Noto Sans CJK SC', sans-serif";
+		raw.typography[0].body =
+			"Aptos, 'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC', sans-serif";
+		writeFileSync(path, JSON.stringify(raw));
+
+		expect(normalizeStoredPptPlanningTypography(root)).toBe(2);
+		const stored = JSON.parse(readFileSync(path, "utf-8"));
+		expect(stored.typography[0]).toMatchObject({
+			heading:
+				'"Arial Black", "Microsoft YaHei", sans-serif',
+			body:
+				'Arial, "Microsoft YaHei", "PingFang SC", sans-serif',
+		});
+		expect(JSON.stringify(stored.typography)).not.toMatch(
+			/Aptos|YaHei UI|Noto/i,
+		);
+		expect(normalizeStoredPptPlanningTypography(root)).toBe(0);
 	});
 
 	it("keeps incomplete AI image strategies invalid", () => {

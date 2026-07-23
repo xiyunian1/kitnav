@@ -104,7 +104,7 @@ export class PptAgentToolCallCollector {
 	}
 }
 
-export function writePptExecutionEvidence(
+function buildPptExecutionEvidence(
 	projectDir: string,
 	toolCalls: PptAgentToolCall[],
 	expectedSlideCount: number,
@@ -272,19 +272,48 @@ export function writePptExecutionEvidence(
 		};
 	});
 
+	return { pages, requiredReads, batchReads };
+}
+
+export function assertPptExecutionEvidence(
+	projectDir: string,
+	toolCalls: PptAgentToolCall[],
+	expectedSlideCount: number,
+	toolCaptureComplete = true,
+) {
+	return buildPptExecutionEvidence(
+		projectDir,
+		toolCalls,
+		expectedSlideCount,
+		toolCaptureComplete,
+	);
+}
+
+export function writePptExecutionEvidence(
+	projectDir: string,
+	toolCalls: PptAgentToolCall[],
+	expectedSlideCount: number,
+	toolCaptureComplete = true,
+) {
+	const evidence = buildPptExecutionEvidence(
+		projectDir,
+		toolCalls,
+		expectedSlideCount,
+		toolCaptureComplete,
+	);
 	const evidencePath = join(projectDir, "validation", "execution-evidence.json");
 	mkdirSync(join(projectDir, "validation"), { recursive: true });
 	const temporaryPath = `${evidencePath}.${process.pid}.${Date.now()}.tmp`;
 	writeFileSync(
 		temporaryPath,
 		`${JSON.stringify(
-				{
-					schema: "ppt_hosted_execution_evidence.v1",
-					verifiedAt: new Date().toISOString(),
-					expectedSlideCount,
-					requiredReads,
-					batchReads,
-				pages,
+			{
+				schema: "ppt_hosted_execution_evidence.v1",
+				verifiedAt: new Date().toISOString(),
+				expectedSlideCount,
+				requiredReads: evidence.requiredReads,
+				batchReads: evidence.batchReads,
+				pages: evidence.pages,
 			},
 			null,
 			2,
@@ -292,14 +321,13 @@ export function writePptExecutionEvidence(
 		"utf-8",
 	);
 	renameSync(temporaryPath, evidencePath);
-	return { pages, requiredReads, batchReads, evidencePath };
+	return { ...evidence, evidencePath };
 }
 
 function collectRequiredExecutionReads(projectDir: string) {
 	const required = [
 		join(projectDir, "design_spec.md"),
 		join(projectDir, "sources", "source.md"),
-		join(projectDir, "analysis", "content_brief.md"),
 		join(projectDir, "analysis", "source_index.json"),
 		join(projectDir, "analysis", "source_profile.json"),
 		join(projectDir, "analysis", "image_analysis.csv"),

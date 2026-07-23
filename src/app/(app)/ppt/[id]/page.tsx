@@ -20,7 +20,10 @@ import {
 	PPT_STATUS_LABELS,
 	PPT_USER_FAILURE_MESSAGE,
 } from "@/lib/ppt-agent/status";
-import { resolvePptConfirmationTiming } from "@/lib/ppt-agent/timing";
+import {
+	resolvePptActiveGenerationTiming,
+	resolvePptConfirmationTiming,
+} from "@/lib/ppt-agent/timing";
 import { summarizePptProjectInput } from "@/lib/ppt-agent/project-input-summary";
 import { ProjectInputSummaryCard } from "./project-input-summary-card";
 import { RetryProjectButton } from "../components/retry-project-button";
@@ -59,6 +62,7 @@ export default async function PptProjectPage({
 	const isProcessing = isPptProcessingStatus(project.status);
 	const canRetry = canRetryPptProject(project);
 	const confirmationTiming = resolvePptConfirmationTiming(project);
+	const activeGenerationTiming = resolvePptActiveGenerationTiming(project);
 	const inputSummary = isPptCompletedStatus(project.status)
 		? summarizePptProjectInput(project)
 		: null;
@@ -126,13 +130,15 @@ export default async function PptProjectPage({
 					currentPhase: project.currentPhase,
 					error:
 						project.status === "FAILED" ? PPT_USER_FAILURE_MESSAGE : null,
-					createdAt: project.createdAt.toISOString(),
-					completedAt: project.completedAt?.toISOString() ?? null,
 					updatedAt: project.updatedAt.toISOString(),
 					confirmationWaitDurationMs:
 						confirmationTiming.confirmationWaitDurationMs,
 					confirmationWaitStartedAt:
 						confirmationTiming.confirmationWaitStartedAt?.toISOString() ?? null,
+					activeGenerationDurationMs:
+						activeGenerationTiming.activeGenerationDurationMs,
+					activeGenerationStartedAt:
+						activeGenerationTiming.activeGenerationStartedAt?.toISOString() ?? null,
 					slideCount: project.slideCount,
 					aspectRatio: project.aspectRatio,
 				}}

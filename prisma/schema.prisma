@@ -620,6 +620,8 @@ model PptProject {
   completedAt               DateTime?
   confirmationWaitStartedAt DateTime? // 进入方案确认等待的时间；确认完成后清空
   confirmationWaitSeconds   Int       @default(0) // 累计等待用户确认的时间，不计入生成用时
+  activeGenerationStartedAt DateTime? // worker 持有租约并实际执行生成的当前区间起点
+  activeGenerationSeconds   Int       @default(0) // 累计实际执行秒数，不含排队、确认和重试等待
   artifactsDeletedAt        DateTime? // 生成文件按保留策略清理时间，项目元数据仍保留
 
   user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)

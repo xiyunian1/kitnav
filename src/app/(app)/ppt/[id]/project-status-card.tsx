@@ -13,11 +13,11 @@ interface ProjectStatusSnapshot {
 	status: string;
 	currentPhase: string | null;
 	error: string | null;
-	createdAt?: string;
-	completedAt?: string | null;
 	updatedAt?: string;
 	confirmationWaitDurationMs?: number;
 	confirmationWaitStartedAt?: string | null;
+	activeGenerationDurationMs?: number;
+	activeGenerationStartedAt?: string | null;
 	slideCount?: number | null;
 	aspectRatio?: string;
 	previews?: ProjectSvgPreview[];
@@ -51,11 +51,8 @@ export function ProjectStatusCard({
 	const previewAspectClass =
 		snapshot.aspectRatio === "4:3" ? "aspect-[4/3]" : "aspect-video";
 	const durationLabel = formatProjectDurationLabel({
-		startedAt: snapshot.createdAt,
-		completedAt: snapshot.completedAt,
-		updatedAt: snapshot.updatedAt,
-		pausedDurationMs: snapshot.confirmationWaitDurationMs,
-		pausedAt: snapshot.confirmationWaitStartedAt,
+		activeDurationMs: snapshot.activeGenerationDurationMs,
+		activeStartedAt: snapshot.activeGenerationStartedAt,
 		running: isProcessing,
 		now,
 	});

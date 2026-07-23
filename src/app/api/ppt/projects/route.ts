@@ -38,9 +38,12 @@ export async function GET() {
       updatedAt: true,
       confirmationWaitStartedAt: true,
       confirmationWaitSeconds: true,
+      activeGenerationStartedAt: true,
+      activeGenerationSeconds: true,
       pptxPath: true,
       artifactsDeletedAt: true,
       error: true,
+      params: true,
     },
   });
 

@@ -2,23 +2,20 @@ import { describe, expect, it } from "vitest";
 import { formatProjectDurationLabel } from "./duration";
 
 describe("PPT project duration", () => {
-	it("subtracts completed user confirmation waits", () => {
+	it("shows only the accumulated worker lease duration", () => {
 		expect(
 			formatProjectDurationLabel({
-				startedAt: "2026-07-21T01:00:00.000Z",
-				completedAt: "2026-07-21T01:41:11.000Z",
-				pausedDurationMs: 274_000,
+				activeDurationMs: 2_197_000,
 				running: false,
 				now: null,
 			}),
 		).toBe("用时 36 分钟 37 秒");
 	});
 
-	it("freezes active generation time while confirmation is pending", () => {
+	it("adds only the currently open worker lease interval", () => {
 		const input = {
-			startedAt: "2026-07-21T01:00:00.000Z",
-			pausedAt: "2026-07-21T01:02:33.000Z",
-			pausedDurationMs: 0,
+			activeDurationMs: 153_000,
+			activeStartedAt: "2026-07-21T01:05:00.000Z",
 			running: true,
 		};
 
@@ -27,10 +24,15 @@ describe("PPT project duration", () => {
 				...input,
 				now: new Date("2026-07-21T01:07:00.000Z").getTime(),
 			}),
-		).toBe("已用时 2 分钟 33 秒");
+		).toBe("已用时 4 分钟 33 秒");
+	});
+
+	it("does not count queue or confirmation waiting without an active lease", () => {
 		expect(
 			formatProjectDurationLabel({
-				...input,
+				activeDurationMs: 153_000,
+				activeStartedAt: null,
+				running: true,
 				now: new Date("2026-07-21T02:07:00.000Z").getTime(),
 			}),
 		).toBe("已用时 2 分钟 33 秒");

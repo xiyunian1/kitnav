@@ -1,4 +1,5 @@
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
@@ -8,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	assertPptExecutionEvidence,
 	PptAgentToolCallCollector,
 	type PptAgentToolCall,
 	writePptExecutionEvidence,
@@ -40,6 +42,25 @@ describe("PPT hosted execution evidence", () => {
 		);
 
 		expect(evidence.pages.map((page) => page.page)).toEqual([1, 2]);
+	});
+
+	it("can validate execution evidence without writing validation artifacts", () => {
+		const root = createProject(false);
+		const evidence = assertPptExecutionEvidence(
+			root,
+			successfulCalls([
+				["read", "spec_lock.md"],
+				["write", "svg_output/01_slide.svg"],
+				["read", "spec_lock.md"],
+				["write", "svg_output/02_slide.svg"],
+			]),
+			2,
+		);
+
+		expect(evidence.pages.map((page) => page.page)).toEqual([1, 2]);
+		expect(
+			existsSync(join(root, "validation", "execution-evidence.json")),
+		).toBe(false);
 	});
 
 	it("collects successful PI tool calls without retaining write content", () => {
@@ -259,6 +280,30 @@ describe("PPT hosted execution evidence", () => {
 		]);
 		const evidence = writePptExecutionEvidence(root, completeCalls, 1);
 		expect(evidence.requiredReads).toHaveLength(requiredPaths.length);
+	});
+
+	it("does not treat the strategist content brief as an executor prerequisite", () => {
+		const root = createProject(false);
+		mkdirSync(join(root, "analysis"), { recursive: true });
+		mkdirSync(join(root, "sources"), { recursive: true });
+		writeFileSync(join(root, "analysis", "content_brief.md"), "planning only");
+		writeFileSync(join(root, "design_spec.md"), "design");
+		writeFileSync(join(root, "sources", "source.md"), "source");
+
+		const evidence = writePptExecutionEvidence(
+			root,
+			successfulCalls([
+				["read", "design_spec.md"],
+				["read", "sources/source.md"],
+				["read", "spec_lock.md"],
+				["write", "svg_output/01_slide.svg"],
+			]),
+			1,
+		);
+
+		expect(evidence.requiredReads.map((item) => item.path)).not.toContain(
+			"analysis/content_brief.md",
+		);
 	});
 
 	it("accepts chunked full coverage for long source material", () => {

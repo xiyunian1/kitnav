@@ -6,6 +6,16 @@ export interface PptConfirmationTimingState {
 	confirmationWaitSeconds?: number | null;
 }
 
+export interface PptActiveGenerationTimingState {
+	activeGenerationStartedAt?: TimeValue;
+	activeGenerationSeconds?: number | null;
+}
+
+export interface PptActiveGenerationTiming {
+	activeGenerationDurationMs: number;
+	activeGenerationStartedAt: Date | null;
+}
+
 export interface PptConfirmationTiming {
 	confirmationWaitDurationMs: number;
 	confirmationWaitStartedAt: Date | null;
@@ -35,6 +45,18 @@ export function resolvePptConfirmationTiming(
 		confirmationWaitStartedAt: hasDurableTiming
 			? toDate(project.confirmationWaitStartedAt)
 			: legacy.confirmationWaitStartedAt,
+	};
+}
+
+export function resolvePptActiveGenerationTiming(
+	project: PptActiveGenerationTimingState,
+): PptActiveGenerationTiming {
+	const seconds = Number(project.activeGenerationSeconds);
+	return {
+		activeGenerationDurationMs: Number.isFinite(seconds)
+			? Math.max(0, Math.floor(seconds)) * 1000
+			: 0,
+		activeGenerationStartedAt: toDate(project.activeGenerationStartedAt),
 	};
 }
 

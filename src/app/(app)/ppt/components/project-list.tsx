@@ -40,6 +40,8 @@ export interface ProjectListItem {
   updatedAt?: Date | string;
   confirmationWaitDurationMs?: number;
   confirmationWaitStartedAt?: Date | string | null;
+  activeGenerationDurationMs?: number;
+  activeGenerationStartedAt?: Date | string | null;
   hasPptx: boolean;
   coverUrl?: string | null;
   error?: string | null;
@@ -238,11 +240,8 @@ export function ProjectList({ projects }: Props) {
             const StatusIcon = status.icon;
             const isProcessing = isPptProcessingStatus(project.status);
             const durationLabel = formatProjectDurationLabel({
-              startedAt: project.createdAt,
-              completedAt: project.completedAt,
-              updatedAt: project.updatedAt,
-              pausedDurationMs: project.confirmationWaitDurationMs,
-              pausedAt: project.confirmationWaitStartedAt,
+              activeDurationMs: project.activeGenerationDurationMs,
+              activeStartedAt: project.activeGenerationStartedAt,
               running: isProcessing,
               now,
             });

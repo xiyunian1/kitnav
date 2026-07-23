@@ -18,6 +18,8 @@ describe("public PPT project data", () => {
       artifactsDeletedAt: null,
       confirmationWaitDurationMs: 0,
       confirmationWaitStartedAt: null,
+      activeGenerationDurationMs: 0,
+      activeGenerationStartedAt: null,
       hasPptx: true,
     });
     expect(project).not.toHaveProperty("pptxPath");
@@ -50,5 +52,20 @@ describe("public PPT project data", () => {
     expect(project.confirmationWaitDurationMs).toBe(274_000);
     expect(project).not.toHaveProperty("logs");
     expect(project).not.toHaveProperty("confirmationWaitSeconds");
+  });
+
+  it("exposes normalized active generation timing without raw counters", () => {
+    const project = toPublicPptProject({
+      id: "project_3",
+      pptxPath: null,
+      activeGenerationSeconds: 125,
+      activeGenerationStartedAt: new Date("2026-07-23T01:00:00.000Z"),
+    });
+
+    expect(project.activeGenerationDurationMs).toBe(125_000);
+    expect(project.activeGenerationStartedAt?.toISOString()).toBe(
+      "2026-07-23T01:00:00.000Z",
+    );
+    expect(project).not.toHaveProperty("activeGenerationSeconds");
   });
 });

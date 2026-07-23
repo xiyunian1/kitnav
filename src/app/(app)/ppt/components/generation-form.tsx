@@ -483,6 +483,7 @@ export function GenerationForm({
 						</Select>
 
 						<Select
+							key={hasUploadedTemplate ? "template-style" : "free-style"}
 							value={
 								hasUploadedTemplate
 									? "uploaded-template"
@@ -542,6 +543,11 @@ export function GenerationForm({
 									图片模型
 								</label>
 								<Select
+									key={
+										hasUploadedTemplate
+											? "template-image-model"
+											: "free-image-model"
+									}
 									value={
 										hasUploadedTemplate
 											? PPT_IMAGE_MODEL_NONE
@@ -592,6 +598,7 @@ export function GenerationForm({
 									配色
 								</label>
 								<Select
+									key={hasUploadedTemplate ? "template-color" : "free-color"}
 									value={
 										hasUploadedTemplate
 											? "uploaded-template"
@@ -632,6 +639,11 @@ export function GenerationForm({
 									字体
 								</label>
 								<Select
+									key={
+										hasUploadedTemplate
+											? "template-typography"
+											: "free-typography"
+									}
 									value={
 										hasUploadedTemplate
 											? "uploaded-template"

@@ -1,7 +1,10 @@
-import { existsSync, readdirSync } from "fs";
+import { existsSync, readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import { getPptMasterSkillDir } from "./runtime-paths";
 import { runBoundedProcess } from "./bounded-process";
+import { isPptFontSafetyWarning } from "./font-safety";
+import { findSvgTextLayoutIssues } from "./svg-layout-analyze";
+import { findConfirmedPptPageTitleIssues } from "./confirmed-output";
 
 const PYTHON_CMD =
 	process.env.PPT_PYTHON_CMD?.trim() ||
@@ -163,11 +166,24 @@ export async function checkSvgQuality(
 			180_000,
 			skillDir,
 		);
-		const errors = result.stdout.match(/ERROR:.*$/gm) || [];
-		const warnings = result.stdout.match(/WARNING:.*$/gm) || [];
+		const normalizedErrors = parsePptSvgQualityMessages(
+			result.stdout,
+			"error",
+		);
+		const normalizedWarnings = parsePptSvgQualityMessages(
+			result.stdout,
+			"warning",
+		);
 		return {
-			errors: errors.map((item) => item.replace(/^ERROR:\s*/, "")),
-			warnings: warnings.map((item) => item.replace(/^WARNING:\s*/, "")),
+			errors: [
+				...normalizedErrors,
+				...normalizedWarnings
+					.filter(isPptFontSafetyWarning)
+					.map((warning) => `PowerPoint 字体兼容性错误：${warning}`),
+				...findProjectSvgTextLayoutIssues(projectPath),
+				...findConfirmedPptPageTitleIssues(projectPath),
+			],
+			warnings: normalizedWarnings,
 		};
 	} catch (error) {
 		return {
@@ -177,6 +193,40 @@ export async function checkSvgQuality(
 			warnings: [],
 		};
 	}
+}
+
+export function parsePptSvgQualityMessages(
+	output: string,
+	level: "error" | "warning",
+) {
+	const marker = level === "error" ? "ERROR" : "WARN(?:ING)?";
+	const pattern = new RegExp(
+		`^\\s*(?:\\[${marker}\\]|${marker}:)\\s*(.+)$`,
+		"i",
+	);
+	const summary = level === "error" ? /^with errors:/i : /^with warnings:/i;
+	return output
+		.split(/\r?\n/)
+		.flatMap((line) => {
+			const message = line.match(pattern)?.[1]?.trim();
+			return message && !summary.test(message) ? [message] : [];
+		});
+}
+
+export function findProjectSvgTextLayoutIssues(projectPath: string) {
+	const svgDir = join(projectPath, "svg_output");
+	if (!existsSync(svgDir)) return [];
+	const issues: string[] = [];
+	for (const file of readdirSync(svgDir)
+		.filter((item) => item.toLowerCase().endsWith(".svg"))
+		.sort((left, right) => left.localeCompare(right, "zh-CN", { numeric: true }))) {
+		const svg = readFileSync(join(svgDir, file), "utf-8");
+		for (const issue of findSvgTextLayoutIssues(svg)) {
+			issues.push(`${file}：${issue}`);
+			if (issues.length >= 20) return issues;
+		}
+	}
+	return issues;
 }
 
 function buildPptxExportArgs(projectPath: string) {

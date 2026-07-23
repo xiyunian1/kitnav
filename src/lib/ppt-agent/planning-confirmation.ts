@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { normalizePptFontStack } from "./font-safety";
 
 const idSchema = z.string().trim().min(1).max(80).regex(/^[A-Za-z0-9_-]+$/);
 const hexColorSchema = z.string().regex(/^#[0-9A-Fa-f]{6}$/);
@@ -213,14 +214,33 @@ export function hasPptPlanningDecision(projectDir: string) {
 export function readPptPlanningRecommendations(projectDir: string) {
 	const path = getPptPlanningRecommendationsPath(projectDir);
 	try {
-		return pptPlanningRecommendationsSchema.parse(
+		const recommendations = pptPlanningRecommendationsSchema.parse(
 			JSON.parse(readFileSync(path, "utf-8")),
 		);
+		return normalizePptPlanningTypography(recommendations).recommendations;
 	} catch (error) {
 		throw new Error(
 			`无法读取有效的 PPT 设计候选：${error instanceof Error ? error.message : String(error)}`,
 		);
 	}
+}
+
+export function normalizeStoredPptPlanningTypography(projectDir: string) {
+	const path = getPptPlanningRecommendationsPath(projectDir);
+	const parsed = pptPlanningRecommendationsSchema.parse(
+		JSON.parse(readFileSync(path, "utf-8")),
+	);
+	const normalized = normalizePptPlanningTypography(parsed);
+	if (normalized.changed === 0) return 0;
+
+	const temporaryPath = `${path}.${process.pid}.${Date.now()}.tmp`;
+	writeFileSync(
+		temporaryPath,
+		`${JSON.stringify(normalized.recommendations, null, 2)}\n`,
+		"utf-8",
+	);
+	renameSync(temporaryPath, path);
+	return normalized.changed;
 }
 
 export function readPptPlanningResult(projectDir: string) {
@@ -521,4 +541,21 @@ function assertOfficialReferenceId(
 	if (!existsSync(path)) {
 		throw new Error(`PPT 设计候选使用了未知的官方${label}：${id}。`);
 	}
+}
+
+function normalizePptPlanningTypography(
+	recommendations: PptPlanningRecommendations,
+) {
+	let changed = 0;
+	const typography = recommendations.typography.map((option) => {
+		const heading = normalizePptFontStack(option.heading);
+		const body = normalizePptFontStack(option.body);
+		if (heading !== option.heading) changed += 1;
+		if (body !== option.body) changed += 1;
+		return { ...option, heading, body };
+	});
+	return {
+		changed,
+		recommendations: { ...recommendations, typography },
+	};
 }

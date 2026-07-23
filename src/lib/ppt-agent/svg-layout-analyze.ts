@@ -35,6 +35,30 @@ export function findSvgTextLayoutIssues(svg: string): string[] {
 	return issues;
 }
 
+export function extractSvgVisibleText(svg: string) {
+	const parser = new SaxesParser({ xmlns: false, position: false });
+	const text: string[] = [];
+	let visibleTextDepth = 0;
+	parser.on("opentag", (node: SaxesStartTag) => {
+		if (node.name.toLowerCase() === "text") visibleTextDepth += 1;
+	});
+	parser.on("text", (value: string) => {
+		if (visibleTextDepth > 0) text.push(value);
+	});
+	parser.on("closetag", (node: SaxesStartTag) => {
+		if (node.name.toLowerCase() === "text") {
+			visibleTextDepth = Math.max(0, visibleTextDepth - 1);
+		}
+	});
+	try {
+		parser.write(svg);
+		parser.close();
+	} catch {
+		// XML validity is enforced by the official checker.
+	}
+	return text.join(" ");
+}
+
 function extractSvgTextBoxes(svg: string): SvgTextBox[] {
 	const parser = new SaxesParser({ xmlns: false, position: false });
 	const boxes: SvgTextBox[] = [];
@@ -157,6 +181,9 @@ function extractSvgTextBoxes(svg: string): SvgTextBox[] {
 				// 无定位 tspan：累加到父 text 的文字，由父 text 闭合时统一成单 box。
 				top.parent.text += text;
 			}
+			top.parent.curX =
+				top.curX + estimateTextWidth(text, top.fontSize);
+			top.parent.curY = top.curY;
 			return;
 		}
 		if (top.kind === "text") {
@@ -264,7 +291,7 @@ function isLikelyBadOverlap(a: SvgTextBox, b: SvgTextBox): boolean {
 		Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
 	if (overlapX <= 0 || overlapY <= 0) return false;
 	const minArea = Math.min(a.width * a.height, b.width * b.height);
-	if ((overlapX * overlapY) / Math.max(minArea, 1) < 0.18) return false;
+	if ((overlapX * overlapY) / Math.max(minArea, 1) < 0.08) return false;
 	const baselineDistance = Math.abs(
 		a.y + a.height * 0.72 - (b.y + b.height * 0.72),
 	);

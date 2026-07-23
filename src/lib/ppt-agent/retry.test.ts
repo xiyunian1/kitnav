@@ -278,6 +278,12 @@ describe("retryPptProject", () => {
 				params: null,
 			}),
 		).toBe(false);
+		expect(
+			canRetryPptProject({
+				status: "FAILED",
+				error: "upstream failed",
+			}),
+		).toBe(false);
 
 		snapshot = projectSnapshot({ error: "用户已停止生成" });
 		await expect(retryPptProject("project-1", "user-1")).rejects.toBeInstanceOf(

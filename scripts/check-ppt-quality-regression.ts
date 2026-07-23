@@ -6,9 +6,11 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { loadEnvFile } from "node:process";
 import sharp from "sharp";
 
 interface Baseline {
@@ -58,6 +60,10 @@ async function templateDirectories(root: string) {
 
 async function main() {
   const repositoryRoot = resolve(import.meta.dirname, "..");
+  for (const filename of [".env", ".env.local"]) {
+    const path = join(repositoryRoot, filename);
+    if (existsSync(path)) loadEnvFile(path);
+  }
   const templateRoot = join(
     repositoryRoot,
     "scripts",

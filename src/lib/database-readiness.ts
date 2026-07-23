@@ -13,6 +13,7 @@ export const REQUIRED_DATABASE_MIGRATIONS = [
   "20260718010000_ppt_planning_confirmation",
   "20260722010000_ppt_confirmation_timing",
   "20260722020000_image_multi_reference_inputs",
+  "20260723010000_ppt_active_generation_timing",
 ] as const;
 
 export interface MigrationReadinessRow {
@@ -71,6 +72,8 @@ export async function assertDatabaseReady() {
       (SELECT "artifactsDeletedAt" FROM "PptProject" WHERE FALSE) AS "pptRetention",
       (SELECT "confirmationWaitStartedAt" FROM "PptProject" WHERE FALSE) AS "pptConfirmationWaitStartedAt",
       (SELECT "confirmationWaitSeconds" FROM "PptProject" WHERE FALSE) AS "pptConfirmationWaitSeconds",
+      (SELECT "activeGenerationStartedAt" FROM "PptProject" WHERE FALSE) AS "pptActiveGenerationStartedAt",
+      (SELECT "activeGenerationSeconds" FROM "PptProject" WHERE FALSE) AS "pptActiveGenerationSeconds",
       (SELECT "expiresAt" FROM "RateLimitBucket" WHERE FALSE) AS "rateLimitExpiry"
   `;
 }

@@ -11,7 +11,10 @@ import {
 	PPT_PROCESSING_STATUSES,
 } from "@/lib/ppt-agent/status";
 import { hasPptxArtifact } from "@/lib/ppt-agent/project-public";
-import { resolvePptConfirmationTiming } from "@/lib/ppt-agent/timing";
+import {
+	resolvePptActiveGenerationTiming,
+	resolvePptConfirmationTiming,
+} from "@/lib/ppt-agent/timing";
 import { canRetryPptProject } from "@/lib/ppt-agent/retry-state";
 
 export const runtime = "nodejs";
@@ -58,6 +61,9 @@ export async function GET(
 			updatedAt: true,
 			confirmationWaitStartedAt: true,
 			confirmationWaitSeconds: true,
+			activeGenerationStartedAt: true,
+			activeGenerationSeconds: true,
+			params: true,
 		},
 	});
 
@@ -65,6 +71,7 @@ export async function GET(
 		return Response.json({ error: "PPT 项目不存在" }, { status: 404 });
 	}
 	const confirmationTiming = resolvePptConfirmationTiming(project);
+	const activeGenerationTiming = resolvePptActiveGenerationTiming(project);
 	const previews = await getProjectSvgPreviews(project.id);
 
 	return Response.json({
@@ -84,6 +91,7 @@ export async function GET(
 		createdAt: project.createdAt,
 		completedAt: project.completedAt,
 		...confirmationTiming,
+		...activeGenerationTiming,
 		previews,
 		artifactsDeletedAt: project.artifactsDeletedAt,
 		canRetry: canRetryPptProject(project),

@@ -101,15 +101,23 @@ async function main() {
     assert.equal(await claimNextPptProject(), null);
     const refundClaim = claimed.find((value) => value.id === refundProjectId);
     assert(refundClaim);
-    assert.equal(
-      (
-        await prisma.pptProject.findUniqueOrThrow({
-          where: { id: refundProjectId },
-          select: { workerLease: true },
-        })
-      ).workerLease,
-      refundClaim.lease,
-    );
+    const claimedRefundProject = await prisma.pptProject.findUniqueOrThrow({
+      where: { id: refundProjectId },
+      select: {
+        workerLease: true,
+        activeGenerationStartedAt: true,
+        activeGenerationSeconds: true,
+      },
+    });
+    assert.equal(claimedRefundProject.workerLease, refundClaim.lease);
+    assert(claimedRefundProject.activeGenerationStartedAt instanceof Date);
+    assert.equal(claimedRefundProject.activeGenerationSeconds, 0);
+    await prisma.pptProject.update({
+      where: { id: refundProjectId },
+      data: {
+        activeGenerationStartedAt: new Date(Date.now() - 5_000),
+      },
+    });
 
     await Promise.all(
       Array.from({ length: 8 }, () =>
@@ -123,6 +131,11 @@ async function main() {
     });
     assert.equal(refundedProject.status, "FAILED");
     assert.equal(refundedProject.creditsCost, 0);
+    assert.equal(refundedProject.activeGenerationStartedAt, null);
+    assert(
+      refundedProject.activeGenerationSeconds >= 4 &&
+        refundedProject.activeGenerationSeconds <= 10,
+    );
     assert.match(refundedProject.logs ?? "", /integration timeout/);
     assert.equal(
       (await prisma.user.findUniqueOrThrow({ where: { id: userId } })).credits,

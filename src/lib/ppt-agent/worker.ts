@@ -440,6 +440,7 @@ export function rebuildGenerationParams(
 		imageCountLimit: stored.imageCountLimit,
 		imageUnitCreditCost: stored.imageUnitCreditCost,
 		textCreditsCost: stored.textCreditsCost,
+		retryAttempt: stored.retryAttempt,
 		visualReview: stored.visualReview,
 		confirmDesign: stored.confirmDesign,
 		planningConfirmed: stored.planningConfirmed,

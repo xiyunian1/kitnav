@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	parsePptConfirmationTimingFromLogs,
+	resolvePptActiveGenerationTiming,
 	resolvePptConfirmationTiming,
 } from "./timing";
 
@@ -60,5 +61,17 @@ describe("PPT confirmation timing", () => {
 		);
 
 		expect(timing.confirmationWaitDurationMs).toBe(180_000);
+	});
+
+	it("normalizes stored active worker time", () => {
+		expect(
+			resolvePptActiveGenerationTiming({
+				activeGenerationSeconds: 125.9,
+				activeGenerationStartedAt: "2026-07-23T01:00:00.000Z",
+			}),
+		).toEqual({
+			activeGenerationDurationMs: 125_000,
+			activeGenerationStartedAt: new Date("2026-07-23T01:00:00.000Z"),
+		});
 	});
 });
