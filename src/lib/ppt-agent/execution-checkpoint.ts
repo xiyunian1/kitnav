@@ -15,6 +15,10 @@ import {
 	type PptAgentToolCall,
 	writePptExecutionEvidence,
 } from "./execution-evidence";
+import {
+	isPptAgentContextManifest,
+	type PptAgentContextManifest,
+} from "./agent-context-bundle";
 import { assertPptSpeakerNotesSource } from "./output-validation";
 import { findXmlWellFormednessError } from "./xml-validate";
 
@@ -31,6 +35,7 @@ interface StoredPptExecutionCheckpoint {
 	svgCount: number;
 	toolCalls: PptAgentToolCall[];
 	toolCaptureComplete: true;
+	contextBundle?: PptAgentContextManifest;
 	speakerNotesComplete: boolean;
 	savedAt: string;
 }
@@ -47,6 +52,7 @@ export interface SavePptExecutionCheckpointInput {
 	expectedSlideCount: number;
 	toolCalls: PptAgentToolCall[];
 	toolCaptureComplete: boolean;
+	contextBundle?: PptAgentContextManifest;
 }
 
 export function loadPptExecutionCheckpoint(
@@ -102,6 +108,7 @@ export function savePptExecutionCheckpoint(
 		input.toolCalls,
 		svgCount,
 		input.toolCaptureComplete,
+		input.contextBundle,
 	);
 	let speakerNotesComplete = false;
 	if (svgCount === input.expectedSlideCount) {
@@ -137,6 +144,7 @@ export function savePptExecutionCheckpoint(
 		svgCount,
 		toolCalls: input.toolCalls.map((call) => ({ ...call })),
 		toolCaptureComplete: true,
+		contextBundle: input.contextBundle,
 		speakerNotesComplete,
 		savedAt: new Date().toISOString(),
 	};
@@ -174,6 +182,7 @@ export function restorePptExecutionCheckpoint(
 		checkpoint.toolCalls,
 		checkpoint.svgCount,
 		checkpoint.toolCaptureComplete,
+		checkpoint.contextBundle,
 	);
 
 	const restoreId = randomUUID();
@@ -222,6 +231,7 @@ export function restorePptExecutionCheckpoint(
 			checkpoint.toolCalls,
 			checkpoint.svgCount,
 			checkpoint.toolCaptureComplete,
+			checkpoint.contextBundle,
 		);
 		for (const name of ["svg_final", "exports", ".preview", ".review"]) {
 			resetDirectory(join(projectDir, name));
@@ -277,6 +287,8 @@ function isStoredCheckpoint(value: unknown): value is StoredPptExecutionCheckpoi
 		Array.isArray(item.toolCalls) &&
 		item.toolCalls.every(isStoredToolCall) &&
 		item.toolCaptureComplete === true &&
+		(item.contextBundle === undefined ||
+			isPptAgentContextManifest(item.contextBundle)) &&
 		typeof item.speakerNotesComplete === "boolean" &&
 		typeof item.savedAt === "string"
 	);

@@ -345,7 +345,7 @@ export function buildPptExecutorContinuePrompt(
 			"确认继续。当前目标页数的 SVG 页面已经生成，请不要重新开始，也不要重写已有 SVG。",
 			lengthInstruction,
 			qualityInstruction,
-			"完成 notes/total.md 并运行 svg_quality_checker.py；修复全部 error 后立即停止。不要执行 Step 7，不要运行 total_md_split.py、finalize_svg.py 或 svg_to_pptx.py。",
+			"完成 notes/total.md，并按宿主列出的错误修复相关 SVG 后立即停止。不要运行 svg_quality_checker.py；服务器会重新执行质量门并在仍有错误时继续发送精确结果。不要执行 Step 7，不要运行 total_md_split.py、finalize_svg.py 或 svg_to_pptx.py。",
 			"不要请求确认，也不要自行启动 visual_review.py 或 live-preview server；图表校准、可选视觉复核和最终导出由服务器接管。",
 		]
 			.filter(Boolean)
@@ -358,7 +358,7 @@ export function buildPptExecutorContinuePrompt(
 			lengthInstruction,
 			qualityInstruction,
 			`当前 svg_output/ 已有 ${input.svgCount}/${input.slideCount} 页。请重新读取 spec_lock.md，然后从第 ${nextSlide} 页继续逐页生成，直到第 ${input.slideCount} 页全部完成。`,
-			"每页生成前必须重新读取 spec_lock.md。全部 SVG 完成后生成 notes/total.md，运行质量检查并修复，然后立即停止；不要执行 Step 7。",
+			"每页生成前必须重新读取 spec_lock.md。全部 SVG 完成后生成 notes/total.md 并立即停止；不要运行 svg_quality_checker.py，服务器会统一检查并把具体错误发回当前会话。不要执行 Step 7。",
 			interruptedByToolUse
 				? "上一轮停在工具调用边界；如果上一条工具写入没有落盘，请重新发起对应写入或 Bash 工具调用。"
 				: "",
@@ -373,7 +373,7 @@ export function buildPptExecutorContinuePrompt(
 			"确认继续。design_spec.md 和 spec_lock.md 已经存在，请不要重新规划，不要重写这两个文件。",
 			lengthInstruction,
 			`当前还没有 SVG 落盘。现在重新读取 spec_lock.md，然后直接写入第 1 页 SVG，并继续逐页生成 svg_output/*.svg，目标页数 ${input.slideCount}。`,
-			"每页生成前必须重新读取 spec_lock.md。全部 SVG 完成后生成 notes/total.md，运行质量检查并修复，然后立即停止；不要执行 Step 7。",
+			"每页生成前必须重新读取 spec_lock.md。全部 SVG 完成后生成 notes/total.md 并立即停止；不要运行 svg_quality_checker.py，服务器会统一检查并把具体错误发回当前会话。不要执行 Step 7。",
 			interruptedByToolUse
 				? "上一轮停在未完成的工具调用边界；请先完成或重做上一条 SVG Write 工具调用。"
 				: "",
@@ -387,7 +387,7 @@ export function buildPptExecutorContinuePrompt(
 		"我确认并批准上一轮 Strategist confirmation stage 的全部站内参数。",
 		`这是服务器自动续跑第 ${input.turn} 轮，等价于用户明确回复“确认，继续”。`,
 		lengthInstruction,
-		"请立刻继续执行 PPT Master 规划与 Executor 流程：写入 design_spec.md 和 spec_lock.md，按需跳过无可用环境的可选图片生成，顺序逐页生成 svg_output/*.svg，生成 notes/total.md，运行质量检查并修复，然后立即停止；不要执行 Step 7。",
+		"请立刻继续执行 PPT Master 规划与 Executor 流程：写入 design_spec.md 和 spec_lock.md，按需跳过无可用环境的可选图片生成，顺序逐页生成 svg_output/*.svg，生成 notes/total.md 后立即停止；不要运行 svg_quality_checker.py，服务器会统一检查并发送精确错误。不要执行 Step 7。",
 		"不要再输出确认问题。不要只输出计划。完成前不要停止。",
 	]
 		.filter(Boolean)

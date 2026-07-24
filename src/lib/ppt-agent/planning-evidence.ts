@@ -10,6 +10,11 @@ import {
 } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { PptAgentToolCall } from "./execution-evidence";
+import {
+	assertPptAgentContextManifest,
+	findPptAgentContextSource,
+	type PptAgentContextManifest,
+} from "./agent-context-bundle";
 
 const EVIDENCE_SCHEMA = "ppt_hosted_strategist_evidence.v1";
 
@@ -21,10 +26,14 @@ export function writePptStrategistEvidence(
 	projectDir: string,
 	toolCalls: PptAgentToolCall[],
 	toolCaptureComplete = true,
+	contextManifest?: PptAgentContextManifest,
 ) {
 	if (!toolCaptureComplete) {
 		throw new Error("PPT Strategist 工具事件记录不完整，无法验证官方规划顺序。");
 	}
+	const injectedContext = contextManifest
+		? assertPptAgentContextManifest(projectDir, contextManifest, "strategist")
+		: undefined;
 	const ordered = toolCalls
 		.filter((call) => call.completed && call.success)
 		.map((call, index) => ({
@@ -58,11 +67,13 @@ export function writePptStrategistEvidence(
 			reads,
 			firstContractMutation,
 			path,
+			injectedContext,
 		),
 	);
 	const evidence = {
 		schema: EVIDENCE_SCHEMA,
 		verifiedAt: new Date().toISOString(),
+		injectedContext,
 		requiredReads,
 		contractWrites: contractPaths.map((path) => ({
 			path,
@@ -95,6 +106,11 @@ export function assertPptStrategistEvidence(projectDir: string) {
 		!Array.isArray((evidence as { contractWrites?: unknown }).contractWrites)
 	) {
 		throw new Error("PPT 规划恢复缺少有效的 Strategist 执行证据。");
+	}
+	const injectedContext = (evidence as { injectedContext?: unknown })
+		.injectedContext;
+	if (injectedContext !== undefined) {
+		assertPptAgentContextManifest(projectDir, injectedContext, "strategist");
 	}
 	return evidence;
 }
@@ -207,8 +223,21 @@ function findRequiredReadCoverage(
 	}>,
 	beforeSequence: number,
 	path: string,
+	contextManifest?: PptAgentContextManifest,
 ) {
 	const normalizedPath = normalizeToolPath(projectDir, path);
+	const injectedSource = contextManifest
+		? findPptAgentContextSource(projectDir, contextManifest, path)
+		: null;
+	if (injectedSource) {
+		return {
+			path: normalizedPath,
+			sha256: injectedSource.sha256,
+			sequences: [],
+			source: "injected-context" as const,
+			bundleSha256: contextManifest!.bundleSha256,
+		};
+	}
 	const candidates = reads.filter(
 		(read) =>
 			read.completedSequence < beforeSequence &&
@@ -223,6 +252,7 @@ function findRequiredReadCoverage(
 		path: normalizedPath,
 		sha256: createHash("sha256").update(readFileSync(path)).digest("hex"),
 		sequences: candidates.map((read) => read.sequence),
+		source: "tool-read" as const,
 	};
 }
 

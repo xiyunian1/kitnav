@@ -259,6 +259,7 @@ describe("PPT agent runtime", () => {
 		expect(prompt).toContain("02.svg");
 		expect(prompt).toContain("PowerPoint 字体兼容性错误");
 		expect(prompt).toContain("只修改涉及的 SVG");
+		expect(prompt).toContain("不要运行 svg_quality_checker.py");
 	});
 
 	it("uses a bounded configurable no-progress limit", () => {

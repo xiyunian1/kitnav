@@ -19,7 +19,7 @@ import {
 	unlinkSync,
 	writeFileSync,
 } from "fs";
-import { dirname, join, resolve } from "path";
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "path";
 import { findLatestPptx } from "./runner-utils";
 import { onError } from "@/lib/logger";
 import { emitProjectLog, updateProject } from "./project-log";
@@ -171,6 +171,12 @@ import {
 	savePptExecutionCheckpoint,
 	type PptExecutionCheckpoint,
 } from "./execution-checkpoint";
+import {
+	createPptAgentContextBundle,
+	getPptAgentContextBundlePath,
+	type PptAgentContextBundle,
+	type PptAgentContextManifest,
+} from "./agent-context-bundle";
 
 export interface AgentRunResult {
 	pptxPath: string;
@@ -334,6 +340,7 @@ async function runConfiguredPptMasterAgent(
 	let executorQualityValid = false;
 	let executorQualityErrors: string[] = [];
 	let executorCheckpoint: PptExecutionCheckpoint | null = null;
+	let executorContextBundle: PptAgentContextManifest | undefined;
 	let templateProgress: PptStageProgressState = createPptStageProgressState(
 		getTemplateArtifactStage(options.projectDir),
 	);
@@ -374,6 +381,7 @@ async function runConfiguredPptMasterAgent(
 						expectedSlideCount: options.slideCount,
 						toolCalls: executorToolCalls,
 						toolCaptureComplete: executorToolCaptureComplete,
+						contextBundle: executorContextBundle,
 					});
 					if (savedCheckpoint) executorCheckpoint = savedCheckpoint;
 				} else {
@@ -570,7 +578,7 @@ async function runConfiguredPptMasterAgent(
 			);
 		}
 		const decision = readPptPlanningResult(options.projectDir);
-		resolvePptPlanningSelection(recommendations, decision);
+		const selected = resolvePptPlanningSelection(recommendations, decision);
 
 		let planningDecisionAlreadyApplied = false;
 		try {
@@ -588,6 +596,21 @@ async function runConfiguredPptMasterAgent(
 				options.workerLease,
 			);
 		} else {
+			const finalPlanningContext = createConfirmedPlanningContextBundle({
+				projectDir: options.projectDir,
+				skillDir,
+				mode: selected.direction.mode,
+				visualStyle: selected.direction.visualStyle,
+				includeImageReferences: selected.imageStrategy.usage.some(
+					(usage) => usage !== "none",
+				),
+			});
+			await emitPptContextBundleStatus(
+				params.projectId,
+				options,
+				"正式规划",
+				finalPlanningContext,
+			);
 			await updateProject(
 				params.projectId,
 				{
@@ -619,8 +642,14 @@ async function runConfiguredPptMasterAgent(
 					skillDir,
 					promptPath,
 					finalPlanningTurn === 1
-						? buildConfirmedPlanningPrompt(params, options)
-						: buildConfirmedPlanningContinuePrompt(),
+						? buildConfirmedPlanningPrompt(
+								params,
+								options,
+								finalPlanningContext,
+							)
+						: buildConfirmedPlanningContinuePrompt(
+								Boolean(finalPlanningContext),
+							),
 					finalPlanningSessionId,
 					piConfig,
 				);
@@ -663,6 +692,7 @@ async function runConfiguredPptMasterAgent(
 				options.projectDir,
 				finalPlanningToolCalls,
 				finalPlanningToolCaptureComplete,
+				finalPlanningContext?.manifest,
 			);
 		}
 		if (!hasPptPlanningArtifacts(options.projectDir, requiresContentBrief)) {
@@ -686,6 +716,7 @@ async function runConfiguredPptMasterAgent(
 			);
 			if (executorCheckpoint) {
 				restorePptExecutionCheckpoint(options.projectDir, executorCheckpoint);
+				executorContextBundle = executorCheckpoint.contextBundle;
 				const restoredQuality = await checkSvgQuality(
 					options.projectDir,
 					skillDir,
@@ -748,6 +779,21 @@ async function runConfiguredPptMasterAgent(
 			});
 			await runSelectedImageGeneration(params, options, skillDir);
 		}
+		const freshExecutorContext = executorCheckpoint
+			? null
+			: createFreshExecutorContextBundle({
+					projectDir: options.projectDir,
+					skillDir,
+				});
+		if (!executorCheckpoint) {
+			executorContextBundle = freshExecutorContext?.manifest;
+			await emitPptContextBundleStatus(
+				params.projectId,
+				options,
+				"Executor",
+				freshExecutorContext,
+			);
+		}
 		executorPhaseProtection = createExecutorPhaseProtection(options);
 
 		await updateProject(
@@ -768,7 +814,12 @@ async function runConfiguredPptMasterAgent(
 				options.projectDir,
 				skillDir,
 				promptPath,
-				buildFreshExecutionPrompt(params, options, requiresAiImages),
+				buildFreshExecutionPrompt(
+					params,
+					options,
+					requiresAiImages,
+					freshExecutorContext,
+				),
 				buildPptExecutorSessionId(params),
 				piConfig,
 			);
@@ -889,6 +940,7 @@ async function runConfiguredPptMasterAgent(
 			executorToolCalls,
 			options.slideCount,
 			executorToolCaptureComplete,
+			executorContextBundle,
 		);
 		await emitProjectLog(
 			params.projectId,
@@ -1019,6 +1071,304 @@ function writeAgentPrompt(
 
 	writeFileSync(promptPath, output, "utf-8");
 	return promptPath;
+}
+
+function createConfirmedPlanningContextBundle(input: {
+	projectDir: string;
+	skillDir: string;
+	mode: string;
+	visualStyle: string;
+	includeImageReferences: boolean;
+}) {
+	const requiredPaths = requirePptContextPaths(
+		[
+			join(input.skillDir, "SKILL.md"),
+			join(input.skillDir, "references", "strategist.md"),
+			join(input.skillDir, "references", "modes", "_index.md"),
+			join(input.skillDir, "references", "visual-styles", "_index.md"),
+			join(input.skillDir, "templates", "charts", "charts_index.json"),
+			join(input.skillDir, "templates", "icons", "README.md"),
+			join(input.skillDir, "templates", "design_spec_reference.md"),
+			join(input.skillDir, "templates", "spec_lock_reference.md"),
+			join(input.projectDir, "sources", "source.md"),
+			join(input.projectDir, "analysis", "hosted_confirmation.json"),
+			join(input.projectDir, "analysis", "hosted_confirmation_result.json"),
+			...(input.mode === "custom"
+				? []
+				: [join(input.skillDir, "references", "modes", `${input.mode}.md`)]),
+			...(input.visualStyle === "custom"
+				? []
+				: [
+						join(
+							input.skillDir,
+							"references",
+							"visual-styles",
+							`${input.visualStyle}.md`,
+						),
+					]),
+		],
+		"正式规划",
+	);
+	const analysisPaths = collectExistingContextPaths([
+		join(input.projectDir, "analysis", "hosted_confirmation.json"),
+		join(input.projectDir, "analysis", "hosted_confirmation_result.json"),
+		join(input.projectDir, "analysis", "content_brief.md"),
+		join(input.projectDir, "analysis", "source_index.json"),
+		join(input.projectDir, "analysis", "source_profile.json"),
+		join(input.projectDir, "analysis", "image_analysis.csv"),
+	]);
+	return createPptAgentContextBundle({
+		projectDir: input.projectDir,
+		phase: "strategist",
+		sourcePaths: collectExistingContextPaths([
+			...requiredPaths,
+			...(input.includeImageReferences
+				? [
+						join(
+							input.skillDir,
+							"references",
+							"image-renderings",
+							"_index.md",
+						),
+						join(
+							input.skillDir,
+							"references",
+							"image-palettes",
+							"_index.md",
+						),
+						join(
+							input.skillDir,
+							"references",
+							"image-layout-patterns.md",
+						),
+					]
+				: []),
+			...collectPptSourceTextPaths(input.projectDir),
+			...analysisPaths,
+			...collectReferencedProjectTextPaths(input.projectDir, analysisPaths),
+			...collectTemplateDesignSpecPaths(
+				join(input.projectDir, "templates"),
+			),
+		]),
+	});
+}
+
+function createFreshExecutorContextBundle(input: {
+	projectDir: string;
+	skillDir: string;
+}) {
+	const lock = readFileSync(join(input.projectDir, "spec_lock.md"), "utf-8");
+	const mode = readPptSpecLockId(lock, "mode");
+	const visualStyle = readPptSpecLockId(lock, "visual_style");
+	const requiredPaths = requirePptContextPaths(
+		[
+			join(input.skillDir, "SKILL.md"),
+			join(input.skillDir, "workflows", "resume-execute.md"),
+			join(input.skillDir, "references", "executor-base.md"),
+			join(input.skillDir, "references", "shared-standards.md"),
+			join(input.skillDir, "references", "image-layout-spec.md"),
+			join(input.skillDir, "references", "svg-image-embedding.md"),
+			join(input.projectDir, "design_spec.md"),
+			join(input.projectDir, "spec_lock.md"),
+			join(input.projectDir, "sources", "source.md"),
+			...(mode && mode !== "custom"
+				? [join(input.skillDir, "references", "modes", `${mode}.md`)]
+				: []),
+			...(visualStyle && visualStyle !== "custom"
+				? [
+						join(
+							input.skillDir,
+							"references",
+							"visual-styles",
+							`${visualStyle}.md`,
+						),
+					]
+				: []),
+		],
+		"Executor",
+	);
+	const analysisPaths = collectExistingContextPaths([
+		join(input.projectDir, "analysis", "hosted_confirmation.json"),
+		join(input.projectDir, "analysis", "hosted_confirmation_result.json"),
+		join(input.projectDir, "analysis", "source_index.json"),
+		join(input.projectDir, "analysis", "source_profile.json"),
+		join(input.projectDir, "analysis", "image_analysis.csv"),
+	]);
+	return createPptAgentContextBundle({
+		projectDir: input.projectDir,
+		phase: "executor",
+		sourcePaths: collectExistingContextPaths([
+			...requiredPaths,
+			...collectPptSourceTextPaths(input.projectDir),
+			...analysisPaths,
+			...collectReferencedProjectTextPaths(input.projectDir, analysisPaths),
+			join(input.projectDir, "images", "image_prompts.json"),
+			join(input.projectDir, "images", "image_prompts.md"),
+		]),
+	});
+}
+
+async function emitPptContextBundleStatus(
+	projectId: string,
+	options: RunnerOptions,
+	label: string,
+	bundle: PptAgentContextBundle | null,
+) {
+	if (!bundle) {
+		await emitProjectLog(
+			projectId,
+			options.emit,
+			`${label}上下文包已关闭或超过体积上限，使用原逐文件读取流程`,
+			options.workerLease,
+		);
+		return;
+	}
+	const sourceBytes = bundle.manifest.sources.reduce(
+		(total, source) => total + source.bytes,
+		0,
+	);
+	await emitProjectLog(
+		projectId,
+		options.emit,
+		`${label}已注入 ${bundle.manifest.sources.length} 份原文上下文（${Math.ceil(sourceBytes / 1024)} KiB），跳过重复目录扫描与逐文件读取`,
+		options.workerLease,
+	);
+}
+
+function collectPptSourceTextPaths(projectDir: string) {
+	return collectContextTextFiles(join(projectDir, "sources"), {
+		skipDirectoryNames: new Set(["originals"]),
+		acceptedFile: (name) => {
+			const normalized = name.toLowerCase();
+			if (
+				normalized.endsWith(".conversion_profile.json") ||
+				normalized === "image_manifest.json"
+			) {
+				return false;
+			}
+			return [
+				".md",
+				".markdown",
+				".txt",
+				".csv",
+				".tsv",
+				".json",
+				".jsonl",
+				".yaml",
+				".yml",
+			].includes(extname(normalized));
+		},
+	});
+}
+
+function collectTemplateDesignSpecPaths(directory: string) {
+	return collectContextTextFiles(directory, {
+		acceptedFile: (name) => name === "design_spec.md",
+	});
+}
+
+function collectContextTextFiles(
+	directory: string,
+	options: {
+		skipDirectoryNames?: Set<string>;
+		acceptedFile?: (name: string) => boolean;
+	} = {},
+) {
+	if (!existsSync(directory)) return [];
+	const paths: string[] = [];
+	const visit = (currentDirectory: string) => {
+		for (const entry of readdirSync(currentDirectory, { withFileTypes: true })) {
+			if (
+				entry.isDirectory() &&
+				!options.skipDirectoryNames?.has(entry.name)
+			) {
+				visit(join(currentDirectory, entry.name));
+				continue;
+			}
+			if (!entry.isFile()) continue;
+			const accepted =
+				options.acceptedFile?.(entry.name) ??
+				[".md", ".txt", ".json", ".csv"].includes(
+					extname(entry.name).toLowerCase(),
+				);
+			if (accepted) paths.push(join(currentDirectory, entry.name));
+		}
+	};
+	visit(directory);
+	return paths.sort();
+}
+
+function collectReferencedProjectTextPaths(
+	projectDir: string,
+	jsonPaths: string[],
+) {
+	const paths = new Set<string>();
+	for (const jsonPath of jsonPaths.filter(
+		(path) => extname(path).toLowerCase() === ".json",
+	)) {
+		let value: unknown;
+		try {
+			value = JSON.parse(readFileSync(jsonPath, "utf-8"));
+		} catch {
+			continue;
+		}
+		const visit = (item: unknown) => {
+			if (typeof item === "string") {
+				const candidate = isAbsolute(item)
+					? resolve(item)
+					: resolve(projectDir, item);
+				const insideProject = relative(projectDir, candidate)
+					.replaceAll(sep, "/");
+				if (
+					insideProject &&
+					insideProject !== ".." &&
+					!insideProject.startsWith("../") &&
+					existsSync(candidate) &&
+					[".md", ".txt", ".json", ".csv"].includes(
+						extname(candidate).toLowerCase(),
+					)
+				) {
+					paths.add(candidate);
+				}
+				return;
+			}
+			if (Array.isArray(item)) {
+				for (const child of item) visit(child);
+				return;
+			}
+			if (item && typeof item === "object") {
+				for (const child of Object.values(item as Record<string, unknown>)) {
+					visit(child);
+				}
+			}
+		};
+		visit(value);
+	}
+	return [...paths].sort();
+}
+
+function collectExistingContextPaths(paths: string[]) {
+	return [...new Set(paths.map((path) => resolve(path)))].filter((path) =>
+		existsSync(path),
+	);
+}
+
+function requirePptContextPaths(paths: string[], label: string) {
+	const missing = paths.filter((path) => !existsSync(path));
+	if (missing.length > 0) {
+		throw new Error(
+			`${label}上下文缺少必需文件：${missing.map((path) => path.split(/[\\/]/).at(-1)).join("、")}。`,
+		);
+	}
+	return paths;
+}
+
+function readPptSpecLockId(content: string, key: string) {
+	return (
+		content.match(
+			new RegExp(`^\\s*-\\s+${key}:\\s*([A-Za-z0-9_.-]+)\\s*$`, "im"),
+		)?.[1] || ""
+	);
 }
 
 function buildSvgGenerationPrompt(
@@ -1194,6 +1544,7 @@ function buildHostedPlanningRecommendationContract(
 function buildConfirmedPlanningPrompt(
 	params: GenerationParams,
 	options: RunnerOptions,
+	contextBundle: PptAgentContextBundle | null,
 ) {
 	const recommendations = readPptPlanningRecommendations(options.projectDir);
 	const decision = readPptPlanningResult(options.projectDir);
@@ -1211,25 +1562,36 @@ function buildConfirmedPlanningPrompt(
 		"",
 		"## Required Reads Before Contract Writes",
 		"",
-		"在首次 write/edit design_spec.md 或 spec_lock.md 前，必须通过 read 工具完整读取以下文件，不得用 ls、find 或 bash 代替：",
-		"- `.ppt-master-skill/SKILL.md`",
-		"- `.ppt-master-skill/references/strategist.md`",
-		"- `.ppt-master-skill/references/modes/_index.md`",
-		"- `.ppt-master-skill/references/visual-styles/_index.md`",
-		"- `.ppt-master-skill/templates/charts/charts_index.json`",
-		"- `.ppt-master-skill/templates/icons/README.md`",
-		"- `.ppt-master-skill/templates/design_spec_reference.md`",
-		"- `.ppt-master-skill/templates/spec_lock_reference.md`",
-		`- \`${selectedModePath}\``,
-		`- \`${selectedStylePath}\``,
-		"- `sources/source.md`",
-		"- `analysis/hosted_confirmation.json`",
-		"- `analysis/hosted_confirmation_result.json`",
-		"如果存在 analysis/content_brief.md、analysis/source_index.json、analysis/source_profile.json 或 analysis/image_analysis.csv，也必须完整读取；source_index 中列出的转换稿必须按 markdownPath 逐份完整读取。",
-		"如果项目 templates/ 中存在 design_spec.md，也必须逐个完整读取。",
-		requiresImageReferences
-			? "还必须完整读取 `.ppt-master-skill/references/image-renderings/_index.md`、`.ppt-master-skill/references/image-palettes/_index.md` 和 `.ppt-master-skill/references/image-layout-patterns.md`。"
-			: "未选择任何图片时，不得添加 ai、web 或 provided 图片资源。",
+		...(contextBundle
+			? [
+					"宿主已将本阶段全部官方必读文件、来源资料、确认候选和确认结果逐字注入下方上下文包，并对每个来源记录 SHA-256。该注入等价于官方完整读取，内容没有摘要或删减。",
+					"不要再调用 read、find、ls 或 bash 重复获取上下文包已经包含的文件；直接依据注入内容创建 design_spec.md 与 spec_lock.md。此托管覆盖只改变传递方式，不改变任何官方规则。",
+					"",
+					contextBundle.content,
+					"",
+					"## End Hosted Strategist Context",
+				]
+			: [
+					"在首次 write/edit design_spec.md 或 spec_lock.md 前，必须通过 read 工具完整读取以下文件，不得用 ls、find 或 bash 代替：",
+					"- `.ppt-master-skill/SKILL.md`",
+					"- `.ppt-master-skill/references/strategist.md`",
+					"- `.ppt-master-skill/references/modes/_index.md`",
+					"- `.ppt-master-skill/references/visual-styles/_index.md`",
+					"- `.ppt-master-skill/templates/charts/charts_index.json`",
+					"- `.ppt-master-skill/templates/icons/README.md`",
+					"- `.ppt-master-skill/templates/design_spec_reference.md`",
+					"- `.ppt-master-skill/templates/spec_lock_reference.md`",
+					`- \`${selectedModePath}\``,
+					`- \`${selectedStylePath}\``,
+					"- `sources/source.md`",
+					"- `analysis/hosted_confirmation.json`",
+					"- `analysis/hosted_confirmation_result.json`",
+					"如果存在 analysis/content_brief.md、analysis/source_index.json、analysis/source_profile.json 或 analysis/image_analysis.csv，也必须完整读取；source_index 中列出的转换稿必须按 markdownPath 逐份完整读取。",
+					"如果项目 templates/ 中存在 design_spec.md，也必须逐个完整读取。",
+					requiresImageReferences
+						? "还必须完整读取 `.ppt-master-skill/references/image-renderings/_index.md`、`.ppt-master-skill/references/image-palettes/_index.md` 和 `.ppt-master-skill/references/image-layout-patterns.md`。"
+						: "未选择任何图片时，不得添加 ai、web 或 provided 图片资源。",
+				]),
 		"",
 		"## Confirmed Selection",
 		"",
@@ -1274,11 +1636,13 @@ function buildConfirmedPlanningPrompt(
 	].join("\n");
 }
 
-function buildConfirmedPlanningContinuePrompt() {
+function buildConfirmedPlanningContinuePrompt(hasInjectedContext = false) {
 	return [
 		"继续完成用户已确认方案的正式 Strategist 规划，不要进入 Executor。",
 		"检查 design_spec.md 与 spec_lock.md；缺少或不完整时继续补齐，并保持 analysis/hosted_confirmation_result.json 中的选择与逐页计划不变。",
-		"如果首次写入设计契约前的官方必读文件尚未完整读取，必须先用 read 工具补齐；不得用 ls、find 或 bash 代替。",
+		hasInjectedContext
+			? "官方必读文件已由宿主逐字注入并通过哈希审计，不要重新读取、扫描或准备上下文。"
+			: "如果首次写入设计契约前的官方必读文件尚未完整读取，必须先用 read 工具补齐；不得用 ls、find 或 bash 代替。",
 		"不得修改候选、确认结果、来源、模板或图片文件，不得生成 SVG、notes、图片 manifest 或 PPTX。",
 		"两个规范文件完整并自检通过后，输出 confirmed-planning-complete 并立即停止。",
 	].join("\n");
@@ -1288,12 +1652,26 @@ function buildFreshExecutionPrompt(
 	params: GenerationParams,
 	options: RunnerOptions,
 	hasGeneratedImages: boolean,
+	contextBundle: PptAgentContextBundle | null,
 ) {
 	return [
 		"# PPT Master Fresh Executor Session",
 		"",
-		"这是与 Strategist 完全隔离的全新执行会话。先阅读 `.ppt-master-skill/SKILL.md` 和 `.ppt-master-skill/workflows/resume-execute.md`，从官方 Step 6 开始，不要重新规划。",
-		"确认 design_spec.md 和 spec_lock.md 存在，然后读取它们与 analysis/hosted_confirmation_result.json；如果 analysis/source_index.json 或 analysis/source_profile.json 存在也必须读取。analysis/content_brief.md 是已被 Strategist 吸收的规划中间产物，Executor 不要求重复读取。生成具体页面内容时重新读取 sources/source.md，不能只依赖大纲摘要。",
+		"这是与 Strategist 完全隔离的全新执行会话。从官方 Step 6 开始，不要重新规划。",
+		...(contextBundle
+			? [
+					"宿主已将 Executor 所需的官方规范、完整设计契约、确认结果和来源资料逐字注入下方上下文包，并对每个来源记录 SHA-256。该注入等价于首个 SVG 前的官方完整读取，没有摘要或删减。",
+					"不要再调用 read、find、ls 或 bash 重复获取上下文包已经包含的文件。每页生成前独立完整读取 spec_lock.md，以及在首个 SVG 前批量读取 spec_lock.md 锁定的模板，仍然是必须执行的顺序证据。",
+					"生成具体页面内容时直接使用上下文包中的完整 sources 内容，不要在每页前重复读取 sources/source.md。",
+					"",
+					contextBundle.content,
+					"",
+					"## End Hosted Executor Context",
+				]
+			: [
+					"先阅读 `.ppt-master-skill/SKILL.md` 和 `.ppt-master-skill/workflows/resume-execute.md`。",
+					"确认 design_spec.md 和 spec_lock.md 存在，然后读取它们与 analysis/hosted_confirmation_result.json；如果 analysis/source_index.json 或 analysis/source_profile.json 存在也必须读取。analysis/content_brief.md 是已被 Strategist 吸收的规划中间产物，Executor 不要求重复读取。生成具体页面内容时重新读取 sources/source.md，不能只依赖大纲摘要。",
+				]),
 		"hosted_confirmation_result.json 中存在 pagePlan 时，它是用户确认后的逐页标题、内容目标、节奏与页面类型，必须逐页执行，不得恢复为确认前大纲。",
 		hasGeneratedImages
 			? "服务器已完成图片生成。读取 images/image_prompts.json、images/image_prompts.md 和 analysis/image_analysis.csv；只使用 status=Generated 且文件实际存在的图片，不得重新生成、搜索或替换图片。"
@@ -1306,12 +1684,14 @@ function buildFreshExecutionPrompt(
 			: "",
 		"不要读取或请求任何 API Key。不得改写 design_spec.md、spec_lock.md 或图片清单；不可用图片只需在页面执行时忽略，不得改变已确认规划。",
 		"spec_lock.md 的 typography 段必须只包含字体族和不带单位的数字 px 字号，不得加入 formula_policy、body_size_unit 或其他规划元数据。",
-		"进入 Executor 前读取 .ppt-master-skill/references/executor-base.md、.ppt-master-skill/references/shared-standards.md、spec_lock.md 锁定的 .ppt-master-skill/references/modes/ 与 .ppt-master-skill/references/visual-styles/ 文件、.ppt-master-skill/references/image-layout-spec.md 和 .ppt-master-skill/references/svg-image-embedding.md。",
+		contextBundle
+			? "Executor 官方角色规范、共享标准、锁定 mode/visual-style、图片布局和 SVG 图片嵌入规则已逐字包含在宿主上下文包中，不要重复读取。"
+			: "进入 Executor 前读取 .ppt-master-skill/references/executor-base.md、.ppt-master-skill/references/shared-standards.md、spec_lock.md 锁定的 .ppt-master-skill/references/modes/ 与 .ppt-master-skill/references/visual-styles/ 文件、.ppt-master-skill/references/image-layout-spec.md 和 .ppt-master-skill/references/svg-image-embedding.md。",
 		"在首个 SVG 前，根据 spec_lock.md 的 page_layouts 与 page_charts 批量读取全部锁定模板。官方模板位于 .ppt-master-skill/templates/，图表位于 .ppt-master-skill/templates/charts/；不得误读项目根目录下不存在的 templates/ 路径。",
 		`从第 1 页开始逐页生成 svg_output/*.svg，目标 ${options.slideCount} 页；每页前重新读取 spec_lock.md。`,
 		"不得写脚本批量生成 SVG，不得生成占位页，不得跳过页面。",
 		buildHostedCompositionQualityContract(options.slideCount),
-		"完成全部页面和 notes/total.md 后运行质量检查并修复，然后立即停止本轮。不要执行 Step 7，不要运行 total_md_split.py、finalize_svg.py 或 svg_to_pptx.py；服务器将在图表校准和可选视觉复核后统一导出。",
+		"完成全部页面和 notes/total.md 后立即停止本轮。不要运行 svg_quality_checker.py；服务器会统一执行完全相同且附加宿主检查的质量门，有错误时会把具体页面和错误发回当前会话修复。不要执行 Step 7，不要运行 total_md_split.py、finalize_svg.py 或 svg_to_pptx.py；服务器将在图表校准和可选视觉复核后统一导出。",
 		"所有可见文字使用简体中文。不要启动 confirm_ui/server.py、visual_review.py 或长期运行的 live-preview server。",
 		`图片模型仅用于已落盘素材：${params.imageModel || "未选择"}。完成前不要停止或请求确认。`,
 	].join("\n");
@@ -1666,6 +2046,8 @@ function createInitialAgentPhaseProtection(
 		templateDecisionPath,
 		getPptStrategistEvidencePath(options.projectDir),
 		getPptImagePromptEvidencePath(options.projectDir),
+		getPptAgentContextBundlePath(options.projectDir, "strategist"),
+		getPptAgentContextBundlePath(options.projectDir, "executor"),
 	];
 	for (const path of hostOwnedPaths) {
 		const preserveConfirmedTemplateDecision =

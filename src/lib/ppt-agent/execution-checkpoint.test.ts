@@ -16,6 +16,7 @@ import {
 	restorePptExecutionCheckpoint,
 	savePptExecutionCheckpoint,
 } from "./execution-checkpoint";
+import { createPptAgentContextBundle } from "./agent-context-bundle";
 
 const roots: string[] = [];
 
@@ -78,6 +79,41 @@ describe("PPT execution checkpoints", () => {
 		expect(() => loadPptExecutionCheckpoint(root, 1)).toThrow(
 			"对应的 Pi 会话已不存在",
 		);
+	});
+
+	it("persists injected executor context evidence across resume", () => {
+		const root = createProject();
+		const context = createPptAgentContextBundle({
+			projectDir: root,
+			phase: "executor",
+			sourcePaths: [
+				join(root, "design_spec.md"),
+				join(root, "sources", "source.md"),
+			],
+		});
+		expect(context).not.toBeNull();
+		const calls = [
+			call("read-lock", "read", 1, 2, "spec_lock.md"),
+			call("write-slide", "write", 3, 4, "svg_output/01_slide.svg"),
+		];
+		const checkpoint = savePptExecutionCheckpoint({
+			projectDir: root,
+			sessionId: "project-executor-a0-lease",
+			stopReason: "length",
+			turn: 1,
+			expectedSlideCount: 1,
+			toolCalls: calls,
+			toolCaptureComplete: true,
+			contextBundle: context!.manifest,
+		});
+
+		expect(checkpoint?.contextBundle?.bundleSha256).toBe(
+			context!.manifest.bundleSha256,
+		);
+		expect(loadPptExecutionCheckpoint(root, 1)?.contextBundle).toEqual(
+			context!.manifest,
+		);
+		expect(() => restorePptExecutionCheckpoint(root, checkpoint!)).not.toThrow();
 	});
 
 	it("does not publish a checkpoint for invalid SVG output", () => {

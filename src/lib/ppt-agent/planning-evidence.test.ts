@@ -14,6 +14,7 @@ import {
 	getPptStrategistEvidencePath,
 	writePptStrategistEvidence,
 } from "./planning-evidence";
+import { createPptAgentContextBundle } from "./agent-context-bundle";
 
 const roots: string[] = [];
 
@@ -82,6 +83,33 @@ describe("PPT Strategist execution evidence", () => {
 			]),
 		);
 		expect(evidence.requiredReads).toHaveLength(requiredReads.length);
+		expect(() => assertPptStrategistEvidence(root)).not.toThrow();
+	});
+
+	it("accepts hash-audited host-injected planning context", () => {
+		const { root, requiredReads } = createProject();
+		const context = createPptAgentContextBundle({
+			projectDir: root,
+			phase: "strategist",
+			sourcePaths: requiredReads.map((path) => join(root, path)),
+		});
+		expect(context).not.toBeNull();
+
+		const evidence = writePptStrategistEvidence(
+			root,
+			successfulCalls([
+				["write", "design_spec.md"],
+				["write", "spec_lock.md"],
+			]),
+			true,
+			context!.manifest,
+		);
+
+		expect(
+			evidence.requiredReads.every(
+				(item) => item.source === "injected-context",
+			),
+		).toBe(true);
 		expect(() => assertPptStrategistEvidence(root)).not.toThrow();
 	});
 

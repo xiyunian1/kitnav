@@ -14,6 +14,7 @@ import {
 	type PptAgentToolCall,
 	writePptExecutionEvidence,
 } from "./execution-evidence";
+import { createPptAgentContextBundle } from "./agent-context-bundle";
 
 const roots: string[] = [];
 
@@ -280,6 +281,34 @@ describe("PPT hosted execution evidence", () => {
 		]);
 		const evidence = writePptExecutionEvidence(root, completeCalls, 1);
 		expect(evidence.requiredReads).toHaveLength(requiredPaths.length);
+	});
+
+	it("accepts hash-audited host-injected executor context", () => {
+		const root = createProject(false);
+		const requiredPaths = createRequiredExecutorFiles(root);
+		const context = createPptAgentContextBundle({
+			projectDir: root,
+			phase: "executor",
+			sourcePaths: requiredPaths.map((path) => join(root, path)),
+		});
+		expect(context).not.toBeNull();
+
+		const evidence = writePptExecutionEvidence(
+			root,
+			successfulCalls([
+				["read", "spec_lock.md"],
+				["write", "svg_output/01_slide.svg"],
+			]),
+			1,
+			true,
+			context!.manifest,
+		);
+
+		expect(
+			evidence.requiredReads.every(
+				(item) => item.source === "injected-context",
+			),
+		).toBe(true);
 	});
 
 	it("does not treat the strategist content brief as an executor prerequisite", () => {

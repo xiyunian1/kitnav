@@ -7,6 +7,11 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import {
+	assertPptAgentContextManifest,
+	findPptAgentContextSource,
+	type PptAgentContextManifest,
+} from "./agent-context-bundle";
 
 export interface PptAgentToolCall {
 	toolCallId: string;
@@ -109,10 +114,14 @@ function buildPptExecutionEvidence(
 	toolCalls: PptAgentToolCall[],
 	expectedSlideCount: number,
 	toolCaptureComplete = true,
+	contextManifest?: PptAgentContextManifest,
 ) {
 	if (!toolCaptureComplete) {
 		throw new Error("PPT Executor 工具事件记录不完整，无法验证官方执行顺序。");
 	}
+	const injectedContext = contextManifest
+		? assertPptAgentContextManifest(projectDir, contextManifest, "executor")
+		: undefined;
 	const ordered = toolCalls
 		.filter((call) => call.completed && call.success)
 		.map((call, index) => ({
@@ -196,7 +205,13 @@ function buildPptExecutionEvidence(
 	);
 	const firstSvgSequence = firstMutations[0]?.call.sequence ?? Number.MAX_SAFE_INTEGER;
 	const requiredReads = collectRequiredExecutionReads(projectDir).map((path) =>
-		findRequiredReadCoverage(projectDir, reads, firstSvgSequence, path),
+		findRequiredReadCoverage(
+			projectDir,
+			reads,
+			firstSvgSequence,
+			path,
+			injectedContext,
+		),
 	);
 	const references = readLockedTemplateReferences(projectDir);
 	const batchReads = [
@@ -272,7 +287,7 @@ function buildPptExecutionEvidence(
 		};
 	});
 
-	return { pages, requiredReads, batchReads };
+	return { pages, requiredReads, batchReads, injectedContext };
 }
 
 export function assertPptExecutionEvidence(
@@ -280,12 +295,14 @@ export function assertPptExecutionEvidence(
 	toolCalls: PptAgentToolCall[],
 	expectedSlideCount: number,
 	toolCaptureComplete = true,
+	contextManifest?: PptAgentContextManifest,
 ) {
 	return buildPptExecutionEvidence(
 		projectDir,
 		toolCalls,
 		expectedSlideCount,
 		toolCaptureComplete,
+		contextManifest,
 	);
 }
 
@@ -294,12 +311,14 @@ export function writePptExecutionEvidence(
 	toolCalls: PptAgentToolCall[],
 	expectedSlideCount: number,
 	toolCaptureComplete = true,
+	contextManifest?: PptAgentContextManifest,
 ) {
 	const evidence = buildPptExecutionEvidence(
 		projectDir,
 		toolCalls,
 		expectedSlideCount,
 		toolCaptureComplete,
+		contextManifest,
 	);
 	const evidencePath = join(projectDir, "validation", "execution-evidence.json");
 	mkdirSync(join(projectDir, "validation"), { recursive: true });
@@ -311,6 +330,7 @@ export function writePptExecutionEvidence(
 				schema: "ppt_hosted_execution_evidence.v1",
 				verifiedAt: new Date().toISOString(),
 				expectedSlideCount,
+				injectedContext: evidence.injectedContext,
 				requiredReads: evidence.requiredReads,
 				batchReads: evidence.batchReads,
 				pages: evidence.pages,
@@ -389,8 +409,21 @@ function findRequiredReadCoverage(
 	}>,
 	firstSvgSequence: number,
 	path: string,
+	contextManifest?: PptAgentContextManifest,
 ) {
 	const normalizedPath = normalizeToolPath(projectDir, path);
+	const injectedSource = contextManifest
+		? findPptAgentContextSource(projectDir, contextManifest, path)
+		: null;
+	if (injectedSource) {
+		return {
+			path: normalizedPath,
+			sequences: [],
+			source: "injected-context" as const,
+			sha256: injectedSource.sha256,
+			bundleSha256: contextManifest!.bundleSha256,
+		};
+	}
 	const candidates = reads.filter(
 		(read) =>
 			read.completedSequence < firstSvgSequence &&
@@ -404,6 +437,7 @@ function findRequiredReadCoverage(
 	return {
 		path: normalizedPath,
 		sequences: candidates.map((read) => read.sequence),
+		source: "tool-read" as const,
 	};
 }
 

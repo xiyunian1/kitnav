@@ -31,7 +31,7 @@ const bundles = [
     name: "PPT Worker",
     bundle: ".next/ppt-worker.cjs",
     metafile: ".next/ppt-worker-meta.json",
-    maxBytes: 2 * 1024 * 1024,
+    maxBytes: 2 * 1024 * 1024 + 64 * 1024,
     forbiddenInputs: sharedForbiddenInputs,
   },
 ];
