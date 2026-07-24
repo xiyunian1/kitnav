@@ -14,6 +14,7 @@ import {
 	PPT_PROCESSING_STATUSES,
 } from "./status";
 import { tryAcquirePptStorageSweepLock } from "./storage-lock";
+import { GENERATED_ARTIFACT_RETENTION_MS } from "@/lib/generated-artifact-retention";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -192,39 +193,17 @@ function emptyStorageSweepResult(): StorageSweepResult {
 }
 
 export async function sweepExpiredPptArtifacts(now = Date.now()) {
-	const completedRetentionDays = nonNegativeIntegerEnv(
-		"PPT_COMPLETED_RETENTION_DAYS",
-		90,
-	);
-	const failedRetentionDays = nonNegativeIntegerEnv(
-		"PPT_FAILED_RETENTION_DAYS",
-		14,
-	);
-	const completedCutoff = new Date(
-		completedRetentionDays === 0
-			? -8_640_000_000_000_000
-			: now - completedRetentionDays * DAY_MS,
-	);
-	const failedCutoff = new Date(
-		failedRetentionDays === 0
-			? -8_640_000_000_000_000
-			: now - failedRetentionDays * DAY_MS,
-	);
+	const artifactCutoff = new Date(now - GENERATED_ARTIFACT_RETENTION_MS);
 	const projects = await prisma.pptProject.findMany({
 		where: {
 			artifactsDeletedAt: null,
+			status: { in: [...PPT_COMPLETED_STATUSES, "FAILED"] },
 			OR: [
-				{
-					status: { in: [...PPT_COMPLETED_STATUSES] },
-					OR: [
-						{ completedAt: { lt: completedCutoff } },
-						{ completedAt: null, updatedAt: { lt: completedCutoff } },
-					],
-				},
-				{ status: "FAILED", updatedAt: { lt: failedCutoff } },
+				{ completedAt: { lte: artifactCutoff } },
+				{ completedAt: null, updatedAt: { lte: artifactCutoff } },
 			],
 		},
-		select: { id: true, status: true },
+		select: { id: true, status: true, updatedAt: true },
 		orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
 		take: 50,
 	});
@@ -238,7 +217,10 @@ export async function sweepExpiredPptArtifacts(now = Date.now()) {
 				status: project.status,
 				artifactsDeletedAt: null,
 			},
-			data: { artifactsDeletedAt: cleanupStartedAt },
+			data: {
+				artifactsDeletedAt: cleanupStartedAt,
+				updatedAt: project.updatedAt,
+			},
 		});
 		if (claimed.count !== 1) continue;
 		const projectDir = join(PPT_PROJECTS_ROOT, project.id);
@@ -263,6 +245,7 @@ export async function sweepExpiredPptArtifacts(now = Date.now()) {
 					sourceFileUrl: null,
 					sourceUrl: null,
 					outline: null,
+					updatedAt: project.updatedAt,
 				},
 			});
 			projectArtifactsRemoved += 1;
@@ -271,7 +254,10 @@ export async function sweepExpiredPptArtifacts(now = Date.now()) {
 			await prisma.pptProject
 				.updateMany({
 					where: { id: project.id, artifactsDeletedAt: cleanupStartedAt },
-					data: { artifactsDeletedAt: null },
+					data: {
+						artifactsDeletedAt: null,
+						updatedAt: project.updatedAt,
+					},
 				})
 				.catch(() => undefined);
 			logger.error("ppt-storage", "清理过期 PPT 生成文件失败", {
@@ -338,11 +324,6 @@ function assertInsideRoot(root: string, path: string) {
 function positiveIntegerEnv(name: string, fallback: number) {
 	const value = Number(process.env[name]);
 	return Number.isSafeInteger(value) && value > 0 ? value : fallback;
-}
-
-function nonNegativeIntegerEnv(name: string, fallback: number) {
-	const value = Number(process.env[name]);
-	return Number.isSafeInteger(value) && value >= 0 ? value : fallback;
 }
 
 export const PPT_STORAGE_DEFAULT_SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000;

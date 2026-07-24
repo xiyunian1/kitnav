@@ -77,10 +77,13 @@ export default async function PptPage() {
 
   const recentProjects = await Promise.all(
     projectRows.map(async (project) => {
-      const previews = await getProjectSvgPreviews(project.id);
+      const publicProject = toPublicPptProject(project);
+      const previews = publicProject.artifactsExpired
+        ? []
+        : await getProjectSvgPreviews(project.id);
       const canRetry = canRetryPptProject(project);
       return {
-        ...toPublicPptProject(project),
+        ...publicProject,
         coverUrl: previews[0]?.url ?? null,
         canRetry,
       };
@@ -96,6 +99,9 @@ export default async function PptPage() {
         <h1 className="text-2xl font-semibold tracking-normal sm:text-3xl">
           {displayName ? `Hi ${displayName}，` : "你好，"}开始创建演示文稿
         </h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          PPT 文件仅保留 7 天，请生成完成后及时下载
+        </p>
       </div>
 
       <PptWorkbench

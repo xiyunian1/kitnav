@@ -28,6 +28,11 @@ import { summarizePptProjectInput } from "@/lib/ppt-agent/project-input-summary"
 import { ProjectInputSummaryCard } from "./project-input-summary-card";
 import { RetryProjectButton } from "../components/retry-project-button";
 import { canRetryPptProject } from "@/lib/ppt-agent/retry-state";
+import {
+	arePptArtifactsExpired,
+	getPptArtifactExpiresAt,
+	hasPptxArtifact,
+} from "@/lib/ppt-agent/project-public";
 
 export const metadata = { title: "PPT 项目" };
 
@@ -58,7 +63,11 @@ export default async function PptProjectPage({
 
 	if (!project) notFound();
 
-	const previews = await getProjectSvgPreviews(project.id);
+	const artifactsExpired = arePptArtifactsExpired(project);
+	const artifactExpiresAt = getPptArtifactExpiresAt(project);
+	const previews = artifactsExpired
+		? []
+		: await getProjectSvgPreviews(project.id);
 	const isProcessing = isPptProcessingStatus(project.status);
 	const canRetry = canRetryPptProject(project);
 	const confirmationTiming = resolvePptConfirmationTiming(project);
@@ -85,9 +94,22 @@ export default async function PptProjectPage({
 						{project.slideCount ?? "-"} 页 · {project.aspectRatio} · 消耗{" "}
 						{project.creditsCost} 积分
 					</p>
-					{project.artifactsDeletedAt && (
+					{artifactsExpired && (
 						<p className="text-sm text-amber-700">
-							生成文件已超过保留期限，项目记录仍保留；需要下载时请重新生成。
+							生成文件已超过 7 天保留期，项目记录仍保留；需要下载时请重新生成。
+						</p>
+					)}
+					{!artifactsExpired && artifactExpiresAt && (
+						<p className="text-sm text-muted-foreground">
+							文件保留至{" "}
+							{new Intl.DateTimeFormat("zh-CN", {
+								timeZone: "Asia/Shanghai",
+								month: "2-digit",
+								day: "2-digit",
+								hour: "2-digit",
+								minute: "2-digit",
+							}).format(artifactExpiresAt)}
+							，请及时下载。
 						</p>
 					)}
 				</div>
@@ -97,7 +119,8 @@ export default async function PptProjectPage({
 						<RefreshCw className="size-4" />
 						返回列表
 					</Link>
-					{isPptCompletedStatus(project.status) && project.pptxPath && (
+					{isPptCompletedStatus(project.status) &&
+						hasPptxArtifact(project) && (
 						<a
 							href={`/api/ppt/projects/${project.id}/export`}
 							className={buttonVariants()}

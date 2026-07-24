@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
 import { resolvePptProjectFile, safeDownloadName } from "@/lib/ppt-agent/paths";
 import { isPptCompletedStatus } from "@/lib/ppt-agent/status";
+import { arePptArtifactsExpired } from "@/lib/ppt-agent/project-public";
 
 export const runtime = "nodejs";
 
@@ -31,11 +32,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       title: true,
       status: true,
       pptxPath: true,
+      completedAt: true,
+      updatedAt: true,
       artifactsDeletedAt: true,
     },
   });
 
-  if (project?.artifactsDeletedAt) {
+  if (project && arePptArtifactsExpired(project)) {
     return Response.json(
       { error: "该项目的生成文件已超过保留期限，请重新生成" },
       { status: 410 },

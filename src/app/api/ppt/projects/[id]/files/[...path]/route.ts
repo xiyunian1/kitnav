@@ -10,6 +10,7 @@ import {
   sanitizeSvgForBrowser,
   SVG_BROWSER_CONTENT_SECURITY_POLICY,
 } from "@/lib/ppt-agent/svg-browser-safety";
+import { arePptArtifactsExpired } from "@/lib/ppt-agent/project-public";
 
 const ALLOWED_PREFIXES = ["svg_output/", "svg_final/", "images/", "audio/", "templates/imported/svg/", "templates/imported/svg-flat/"];
 const MAX_BROWSER_SVG_BYTES = 10 * 1024 * 1024;
@@ -56,9 +57,21 @@ export async function GET(
 
   const project = await prisma.pptProject.findFirst({
     where: { id, userId: session.user.id },
-    select: { id: true },
+    select: {
+      id: true,
+      status: true,
+      completedAt: true,
+      updatedAt: true,
+      artifactsDeletedAt: true,
+    },
   });
   if (!project) return Response.json({ error: "文件不存在" }, { status: 404 });
+  if (arePptArtifactsExpired(project)) {
+    return Response.json(
+      { error: "该项目的生成文件已超过 7 天保留期" },
+      { status: 410 },
+    );
+  }
 
   const ext = extname(relativePath).toLowerCase();
   const contentType = CONTENT_TYPES[ext];

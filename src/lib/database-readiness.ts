@@ -14,6 +14,7 @@ export const REQUIRED_DATABASE_MIGRATIONS = [
   "20260722010000_ppt_confirmation_timing",
   "20260722020000_image_multi_reference_inputs",
   "20260723010000_ppt_active_generation_timing",
+  "20260724010000_image_result_retention",
 ] as const;
 
 export interface MigrationReadinessRow {
@@ -67,6 +68,8 @@ export async function assertDatabaseReady() {
       (SELECT "heartbeatAt" FROM "ImageTurn" WHERE FALSE) AS "imageHeartbeat",
       (SELECT "cancelRequestedAt" FROM "ImageTurn" WHERE FALSE) AS "imageCancellation",
       (SELECT "editInputs" FROM "ImageTurn" WHERE FALSE) AS "imageEditInputs",
+      (SELECT "completedAt" FROM "ImageTurn" WHERE FALSE) AS "imageCompletedAt",
+      (SELECT "artifactsDeletedAt" FROM "ImageTurn" WHERE FALSE) AS "imageRetention",
       (SELECT "params" FROM "PptProject" WHERE FALSE) AS "pptParams",
       (SELECT "workerLease" FROM "PptProject" WHERE FALSE) AS "pptLease",
       (SELECT "artifactsDeletedAt" FROM "PptProject" WHERE FALSE) AS "pptRetention",

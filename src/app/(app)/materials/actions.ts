@@ -10,6 +10,7 @@ import {
   saveImageFromUrl,
   tagsToJson,
 } from "@/lib/materials";
+import { isImageTurnStorageKeyAccessibleByUser } from "@/lib/image-result-retention";
 import { deleteUnreferencedMaterialFile } from "@/lib/material-storage-references";
 import { resolveMaterialSubmissionState } from "@/lib/material-review";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
@@ -33,6 +34,17 @@ export async function saveGeneratedImageAction(input: z.infer<typeof saveGenerat
 
   const parsed = saveGenerationSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "参数错误" };
+
+  const sourceStorageKey = materialStorageKeyFromUrl(parsed.data.url);
+  if (
+    sourceStorageKey &&
+    !(await isImageTurnStorageKeyAccessibleByUser(
+      sourceStorageKey,
+      session.user.id,
+    ))
+  ) {
+    return { error: "该生成图片已超过 7 天保留期，无法再保存" };
+  }
 
   let stored: Awaited<ReturnType<typeof saveImageFromUrl>> | null = null;
   try {

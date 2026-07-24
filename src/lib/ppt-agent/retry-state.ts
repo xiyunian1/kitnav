@@ -1,14 +1,18 @@
+import { arePptArtifactsExpired } from "./project-public";
+
 export interface RetryablePptProjectState {
 	status: string;
 	error?: string | null;
 	artifactsDeletedAt?: Date | string | null;
+	completedAt?: Date | string | null;
+	updatedAt?: Date | string | null;
 	params?: string | null;
 }
 
 export function canRetryPptProject(project: RetryablePptProjectState) {
 	return (
 		project.status === "FAILED" &&
-		!project.artifactsDeletedAt &&
+		!arePptArtifactsExpired(project) &&
 		typeof project.params === "string" &&
 		project.params.trim().length > 0 &&
 		!isCancelledPptFailure(project.error)

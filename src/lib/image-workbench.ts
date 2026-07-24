@@ -49,6 +49,10 @@ import {
 import { logger } from "@/lib/logger";
 import { checkImageQueueCapacity } from "@/lib/queue-capacity";
 import { supportsNativeMultiImageEdit } from "@/lib/image-edit-capabilities";
+import {
+  areImageArtifactsExpired,
+  getImageArtifactExpiresAt,
+} from "@/lib/image-result-retention";
 
 export interface TurnImage {
   id: string;
@@ -68,6 +72,7 @@ export interface SerializedTurn {
   model: string;
   providerSource: ModelSource | null;
   ratio: string;
+  quality: string;
   count: number;
   status: string;
   images: TurnImage[];
@@ -77,6 +82,8 @@ export interface SerializedTurn {
   usedOwnKey: boolean;
   durationMs: number | null;
   generationId: string | null;
+  artifactExpiresAt: string | null;
+  artifactsExpired: boolean;
   createdAt: string;
 }
 
@@ -245,12 +252,16 @@ async function persistGeneratedImageUrl(
 }
 
 export function serializeTurn(turn: ImageTurn): SerializedTurn {
-  const images = safeParseArray<TurnImage>(turn.images).map((image) => ({
-    ...image,
-    ...(image.url
-      ? { url: normalizeStoredMaterialUrl(image.url) ?? image.url }
-      : {}),
-  }));
+  const artifactsExpired = areImageArtifactsExpired(turn);
+  const images = artifactsExpired
+    ? []
+    : safeParseArray<TurnImage>(turn.images).map((image) => ({
+        ...image,
+        ...(image.url
+          ? { url: normalizeStoredMaterialUrl(image.url) ?? image.url }
+          : {}),
+      }));
+  const artifactExpiresAt = getImageArtifactExpiresAt(turn);
   return {
     id: turn.id,
     conversationId: turn.conversationId,
@@ -262,15 +273,20 @@ export function serializeTurn(turn: ImageTurn): SerializedTurn {
         ? turn.providerSource
         : null,
     ratio: turn.ratio,
+    quality: turn.quality,
     count: turn.count,
     status: turn.status,
     images,
-    referenceThumbs: safeParseArray<string>(turn.referenceThumbs),
+    referenceThumbs: artifactsExpired
+      ? []
+      : safeParseArray<string>(turn.referenceThumbs),
     error: turn.error,
     creditsCost: turn.creditsCost,
     usedOwnKey: turn.usedOwnKey,
     durationMs: turn.durationMs,
     generationId: turn.generationId,
+    artifactExpiresAt: artifactExpiresAt?.toISOString() ?? null,
+    artifactsExpired,
     createdAt: turn.createdAt.toISOString(),
   };
 }
@@ -576,6 +592,7 @@ async function finalizeImageTurn({
         durationMs,
         workerLease: null,
         heartbeatAt: null,
+        completedAt: new Date(),
       },
     });
     if (claimed.count !== 1) return null;

@@ -7,6 +7,7 @@ import {
   materialStorageKeyBelongsToUser,
 } from "@/lib/materials";
 import { isMaterialStorageKeyReferencedByUser } from "@/lib/material-storage-references";
+import { isImageTurnStorageKeyAccessibleByUser } from "@/lib/image-result-retention";
 import {
   findStoredUploadFile,
   parseUploadStorageKey,
@@ -58,14 +59,17 @@ export async function serveMaterialFile(
       materialStorageKeyBelongsToUser(storageKey, session.user.id),
   );
   const admin = session?.user?.role === "ADMIN";
-  const referencedByUser =
-    session?.user?.id && !admin && !pathOwner
-      ? await isMaterialStorageKeyReferencedByUser(
-          storageKey,
-          session.user.id,
-        )
-      : false;
-  const owner = pathOwner || referencedByUser;
+  const userId = session?.user?.id;
+  const [referencedByUser, activeImageResult] =
+    userId && !admin
+      ? await Promise.all([
+          isMaterialStorageKeyReferencedByUser(storageKey, userId),
+          pathOwner
+            ? isImageTurnStorageKeyAccessibleByUser(storageKey, userId)
+            : false,
+        ])
+      : [false, false];
+  const owner = referencedByUser || activeImageResult;
   const publicMaterial = owner || admin
     ? false
     : await isApprovedPublicMaterial(storageKey);

@@ -20,6 +20,8 @@ describe("public PPT project data", () => {
       confirmationWaitStartedAt: null,
       activeGenerationDurationMs: 0,
       activeGenerationStartedAt: null,
+      artifactExpiresAt: null,
+      artifactsExpired: false,
       hasPptx: true,
     });
     expect(project).not.toHaveProperty("pptxPath");
@@ -35,6 +37,24 @@ describe("public PPT project data", () => {
       }),
     ).toBe(false);
     expect(hasPptxArtifact({ pptxPath: null })).toBe(false);
+  });
+
+  it("expires completed files exactly seven days after completion", () => {
+    const completedAt = new Date("2026-07-01T00:00:00.000Z");
+    const project = {
+      status: "COMPLETED",
+      completedAt,
+      updatedAt: completedAt,
+      artifactsDeletedAt: null,
+      pptxPath: "/private/deck.pptx",
+    };
+
+    expect(
+      hasPptxArtifact(project, new Date("2026-07-07T23:59:59.999Z").getTime()),
+    ).toBe(true);
+    expect(
+      hasPptxArtifact(project, new Date("2026-07-08T00:00:00.000Z").getTime()),
+    ).toBe(false);
   });
 
   it("exposes normalized confirmation timing without leaking logs", () => {

@@ -133,7 +133,9 @@ export default async function ImagePage({
       <div className="shrink-0 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">图片创作工作台</h1>
-          <p className="text-muted-foreground">会话式创作，支持文生图与图生图</p>
+          <p className="text-muted-foreground">
+            生成图片仅保留 7 天，需要长期使用请保存到素材库
+          </p>
         </div>
         <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
           <MaterialStorageUsageView usage={storageUsage} compact />

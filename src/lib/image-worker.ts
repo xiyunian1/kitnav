@@ -13,6 +13,7 @@ import {
   sweepOrphanUploadStorage,
   type UploadStorageSweepRunResult,
 } from "@/lib/upload-storage-retention";
+import { sweepExpiredImageArtifacts } from "@/lib/image-result-retention";
 import {
   claimNextImageTurn,
   executeImageTurn,
@@ -251,7 +252,20 @@ function runUploadStorageSweep() {
     lastResult: uploadStorageSweepState.lastResult,
     lastError: null,
   };
-  uploadStorageSweepInFlight = sweepOrphanUploadStorage()
+  uploadStorageSweepInFlight = sweepExpiredImageArtifacts()
+    .then((result) => {
+      if (
+        result.turnsExpired > 0 ||
+        result.filesRemoved > 0 ||
+        result.filesPreserved > 0
+      ) {
+        logger.info("image-worker", "过期生成图片清理完成", { ...result });
+      }
+    })
+    .catch((error) => {
+      logger.error("image-worker", "过期生成图片清理失败", { error });
+    })
+    .then(() => sweepOrphanUploadStorage())
     .then((result) => {
       uploadStorageSweepState.lastResult = result;
       logger.info("image-worker", "上传孤儿文件清理完成", { ...result });

@@ -47,8 +47,25 @@ function formatDuration(ms?: number | null) {
   return rest ? `${minutes}m ${rest}s` : `${minutes}m`;
 }
 
+function formatExpiry(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 function getTurnQuality(turn: Turn) {
-  return turn.images.find((img) => img.quality)?.quality || "标准";
+  const quality =
+    turn.images.find((img) => img.quality)?.quality || turn.quality;
+  if (quality === "hd") return "高清";
+  if (quality === "ultra") return "超清";
+  return quality || "标准";
 }
 
 function qualityValue(quality?: string) {
@@ -106,6 +123,7 @@ export const TurnCard = memo(function TurnCard({
   const turnError = getTurnErrorMessage(turn);
   const turnDuration = formatDuration(turn.durationMs);
   const turnQuality = getTurnQuality(turn);
+  const expiryLabel = formatExpiry(turn.artifactExpiresAt);
 
   function saveImage(url: string, imageIndex: number) {
     startSaving(async () => {
@@ -185,6 +203,9 @@ export const TurnCard = memo(function TurnCard({
               <span>{turnQuality}</span>
               <span>{turn.count} 张</span>
               {turnDuration && <span>耗时 {turnDuration}</span>}
+              {!turn.artifactsExpired &&
+                turn.status !== "PENDING" &&
+                expiryLabel && <span>保留至 {expiryLabel}</span>}
             </div>
             <p className="line-clamp-2 text-sm">{turn.prompt}</p>
           </div>
@@ -228,6 +249,12 @@ export const TurnCard = memo(function TurnCard({
             <FileText className="size-3.5" /> 保存提示词
           </Button>
         </div>
+
+        {turn.artifactsExpired && (
+          <div className="border-b bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+            生成图片已超过 7 天保留期，文件已删除，提示词仍可复用。
+          </div>
+        )}
 
         {turn.referenceThumbs.length > 0 && (
           <div className="flex flex-wrap items-start gap-2 border-b px-4 py-3">

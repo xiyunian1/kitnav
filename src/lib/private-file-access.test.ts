@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   materialFindFirst: vi.fn(),
+  imageTurnFindMany: vi.fn(),
   feedbackFindFirst: vi.fn(),
 }));
 
@@ -13,6 +14,7 @@ vi.mock("@/lib/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/lib/db", () => ({
   prisma: {
     material: { findFirst: mocks.materialFindFirst },
+    imageTurn: { findMany: mocks.imageTurnFindMany },
     feedback: { findFirst: mocks.feedbackFindFirst },
   },
 }));
@@ -38,6 +40,7 @@ beforeEach(async () => {
   await writeFile(join(feedbackRoot, "user_1", "feedback.png"), PNG);
   mocks.auth.mockResolvedValue(null);
   mocks.materialFindFirst.mockResolvedValue(null);
+  mocks.imageTurnFindMany.mockResolvedValue([]);
   mocks.feedbackFindFirst.mockResolvedValue(null);
 });
 
@@ -65,6 +68,7 @@ describe("private file access", () => {
 
   it("serves material files to their owner and administrators", async () => {
     mocks.auth.mockResolvedValue({ user: { id: "user_1", role: "USER" } });
+    mocks.materialFindFirst.mockResolvedValue({ id: "material_1" });
     const ownerResponse = await serveMaterialFile("user_1/private.png");
     expect(ownerResponse.status).toBe(200);
     expect(ownerResponse.headers.get("cache-control")).toBe("private, no-store");
@@ -76,6 +80,28 @@ describe("private file access", () => {
     });
     expect(adminResponse.status).toBe(200);
     expect(await adminResponse.text()).toBe("");
+  });
+
+  it("serves only unexpired generated files that remain in image history", async () => {
+    mocks.auth.mockResolvedValue({ user: { id: "user_1", role: "USER" } });
+    mocks.imageTurnFindMany.mockResolvedValue([
+      {
+        images: JSON.stringify([
+          {
+            url: "/api/files/materials/user_1/private.png",
+          },
+        ]),
+      },
+    ]);
+
+    await expect(
+      serveMaterialFile("user_1/private.png", { head: true }),
+    ).resolves.toHaveProperty("status", 200);
+
+    mocks.imageTurnFindMany.mockResolvedValue([]);
+    await expect(
+      serveMaterialFile("user_1/private.png", { head: true }),
+    ).resolves.toHaveProperty("status", 404);
   });
 
   it("allows approved public material files without a session", async () => {

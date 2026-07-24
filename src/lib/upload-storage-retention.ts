@@ -20,6 +20,7 @@ import {
   parseUploadStorageKey,
   uploadDirectories,
 } from "@/lib/upload-storage";
+import { GENERATED_ARTIFACT_RETENTION_MS } from "@/lib/generated-artifact-retention";
 
 const DATABASE_PAGE_SIZE = 500;
 const DEFAULT_RETENTION_HOURS = 24;
@@ -197,9 +198,18 @@ async function collectReferencedUploadStorageKeys(tx: Prisma.TransactionClient) 
   } while (materialCursor);
 
   let imageTurnCursor: string | undefined;
+  const imageResultCutoff = new Date(Date.now() - GENERATED_ARTIFACT_RETENTION_MS);
   do {
     const rows = await tx.imageTurn.findMany({
-      where: { images: { not: null } },
+      where: {
+        images: { not: null },
+        artifactsDeletedAt: null,
+        OR: [
+          { status: "PENDING" },
+          { completedAt: { gt: imageResultCutoff } },
+          { completedAt: null, updatedAt: { gt: imageResultCutoff } },
+        ],
+      },
       orderBy: { id: "asc" },
       take: DATABASE_PAGE_SIZE,
       ...(imageTurnCursor

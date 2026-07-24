@@ -14,6 +14,7 @@ function createTurn(id: string, status: TurnStatus): Turn {
     model: "image-model",
     providerSource: "platform",
     ratio: "1:1",
+    quality: "standard",
     count: 1,
     status,
     images: [{ id: "0", status: status === "PENDING" ? "loading" : "success" }],
@@ -21,6 +22,9 @@ function createTurn(id: string, status: TurnStatus): Turn {
     error: null,
     creditsCost: status === "PENDING" ? 10 : 5,
     usedOwnKey: false,
+    artifactExpiresAt:
+      status === "PENDING" ? null : "2026-07-21T00:00:00.000Z",
+    artifactsExpired: false,
     createdAt: `2026-07-14T00:00:0${id}.000Z`,
   };
 }

@@ -17,8 +17,6 @@ async function main() {
   process.env.DATABASE_URL = databaseUrl;
   process.env.PPT_PROJECTS_ROOT = root;
   process.env.PPT_UPLOAD_ROOT = join(root, "uploads");
-  process.env.PPT_COMPLETED_RETENTION_DAYS = "30";
-  process.env.PPT_FAILED_RETENTION_DAYS = "7";
 
   const { prisma } = await import("@/lib/db");
   const { sweepExpiredPptArtifacts, sweepPptStorage } = await import(
@@ -30,8 +28,8 @@ async function main() {
   } = await import("@/lib/ppt-agent/storage-lock");
   const userId = "storage-retention-integration-user";
   const now = Date.now();
-  const old = new Date(now - 60 * 24 * 60 * 60 * 1000);
-  const recent = new Date(now - 2 * 24 * 60 * 60 * 1000);
+  const old = new Date(now - 8 * 24 * 60 * 60 * 1000);
+  const recent = new Date(now - 6 * 24 * 60 * 60 * 1000);
 
   try {
     await prisma.user.deleteMany({ where: { id: userId } });
@@ -91,6 +89,7 @@ async function main() {
       assert.equal(row.sourceMarkdown, null);
       assert.equal(row.sourceFileUrl, null);
       assert.equal(row.sourceUrl, null);
+      assert.equal(row.updatedAt.getTime(), old.getTime());
     }
     const recentRow = await prisma.pptProject.findUniqueOrThrow({
       where: { id: "completed-recent" },

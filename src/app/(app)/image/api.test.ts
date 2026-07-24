@@ -20,6 +20,7 @@ const turn = {
   model: "image-model",
   providerSource: "platform",
   ratio: "1:1",
+  quality: "standard",
   count: 1,
   status: "FAILED",
   images: [{ id: "0", status: "error", error: "用户已停止生成" }],
@@ -27,6 +28,8 @@ const turn = {
   error: "用户已停止生成",
   creditsCost: 0,
   usedOwnKey: false,
+  artifactExpiresAt: "2026-07-21T00:00:00.000Z",
+  artifactsExpired: false,
   createdAt: "2026-07-14T00:00:00.000Z",
 };
 

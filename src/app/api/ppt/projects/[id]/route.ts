@@ -10,7 +10,11 @@ import {
 	getPptUserFailureMessage,
 	PPT_PROCESSING_STATUSES,
 } from "@/lib/ppt-agent/status";
-import { hasPptxArtifact } from "@/lib/ppt-agent/project-public";
+import {
+	arePptArtifactsExpired,
+	getPptArtifactExpiresAt,
+	hasPptxArtifact,
+} from "@/lib/ppt-agent/project-public";
 import {
 	resolvePptActiveGenerationTiming,
 	resolvePptConfirmationTiming,
@@ -72,7 +76,11 @@ export async function GET(
 	}
 	const confirmationTiming = resolvePptConfirmationTiming(project);
 	const activeGenerationTiming = resolvePptActiveGenerationTiming(project);
-	const previews = await getProjectSvgPreviews(project.id);
+	const artifactsExpired = arePptArtifactsExpired(project);
+	const artifactExpiresAt = getPptArtifactExpiresAt(project);
+	const previews = artifactsExpired
+		? []
+		: await getProjectSvgPreviews(project.id);
 
 	return Response.json({
 		id: project.id,
@@ -94,6 +102,8 @@ export async function GET(
 		...activeGenerationTiming,
 		previews,
 		artifactsDeletedAt: project.artifactsDeletedAt,
+		artifactExpiresAt: artifactExpiresAt?.toISOString() ?? null,
+		artifactsExpired,
 		canRetry: canRetryPptProject(project),
 		updatedAt: project.updatedAt,
 	});

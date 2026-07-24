@@ -400,6 +400,8 @@ model ImageTurn {
   startedAt         DateTime?
   heartbeatAt       DateTime?
   cancelRequestedAt DateTime?
+  completedAt       DateTime?
+  artifactsDeletedAt DateTime? // 生成文件按 7 天保留策略清理时间，提示词等元数据仍保留
   attemptCount      Int              @default(0)
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @default(now()) @updatedAt
@@ -410,6 +412,7 @@ model ImageTurn {
   @@index([status, createdAt])
   @@index([status, workerLease, createdAt])
   @@index([status, heartbeatAt])
+  @@index([status, completedAt])
 }
 
 // ---------- 素材库 / 素材广场 ----------

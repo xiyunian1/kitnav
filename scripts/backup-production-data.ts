@@ -52,7 +52,7 @@ function readOptions(): Options {
     args.set(key, value);
   }
 
-  const keep = Number(args.get("keep") ?? "14");
+  const keep = Number(args.get("keep") ?? "5");
   if (!Number.isSafeInteger(keep) || keep < 1) {
     throw new Error("--keep must be a positive integer");
   }

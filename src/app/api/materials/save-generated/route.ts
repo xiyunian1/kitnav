@@ -4,9 +4,11 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import {
   deleteStoredMaterialFile,
+  materialStorageKeyFromUrl,
   saveImageFromUrl,
   tagsToJson,
 } from "@/lib/materials";
+import { isImageTurnStorageKeyAccessibleByUser } from "@/lib/image-result-retention";
 import { assertControlledModuleAvailableForUser } from "@/lib/module-controls";
 import {
   enforceUserRequestLimit,
@@ -73,6 +75,20 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { error: parsed.error.issues[0]?.message ?? "参数错误" },
       { status: 400 }
+    );
+  }
+
+  const sourceStorageKey = materialStorageKeyFromUrl(parsed.data.url);
+  if (
+    sourceStorageKey &&
+    !(await isImageTurnStorageKeyAccessibleByUser(
+      sourceStorageKey,
+      session.user.id,
+    ))
+  ) {
+    return NextResponse.json(
+      { error: "该生成图片已超过 7 天保留期，无法再保存" },
+      { status: 410 },
     );
   }
 

@@ -22,6 +22,7 @@ export interface Turn {
   model: string;
   providerSource: ModelSource | null;
   ratio: string;
+  quality: string;
   count: number;
   status: TurnStatus;
   images: TurnImage[];
@@ -31,6 +32,8 @@ export interface Turn {
   usedOwnKey: boolean;
   durationMs?: number | null;
   generationId?: string | null;
+  artifactExpiresAt: string | null;
+  artifactsExpired: boolean;
   createdAt: string;
 }
 

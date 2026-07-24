@@ -43,6 +43,8 @@ export interface ProjectListItem {
   activeGenerationDurationMs?: number;
   activeGenerationStartedAt?: Date | string | null;
   hasPptx: boolean;
+  artifactExpiresAt?: string | null;
+  artifactsExpired?: boolean;
   coverUrl?: string | null;
   error?: string | null;
   canRetry?: boolean;
@@ -181,7 +183,9 @@ export function ProjectList({ projects }: Props) {
           const coverById = new Map(previous.map((item) => [item.id, item.coverUrl]));
           return nextProjects.map((project) => ({
             ...project,
-            coverUrl: coverById.get(project.id) ?? null,
+            coverUrl: project.artifactsExpired
+              ? null
+              : coverById.get(project.id) ?? null,
           }));
         });
         const changedToTerminal = nextProjects.some((project) => {
@@ -245,6 +249,13 @@ export function ProjectList({ projects }: Props) {
               running: isProcessing,
               now,
             });
+            const artifactsExpired =
+              Boolean(project.artifactsExpired) ||
+              Boolean(
+                now &&
+                  project.artifactExpiresAt &&
+                  new Date(project.artifactExpiresAt).getTime() <= now,
+              );
 
             return (
               <Card
@@ -258,7 +269,7 @@ export function ProjectList({ projects }: Props) {
                       project.aspectRatio === "4:3" ? "aspect-[4/3]" : "aspect-video",
                     )}
                   >
-                    {project.coverUrl ? (
+                    {project.coverUrl && !artifactsExpired ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={project.coverUrl}
@@ -324,6 +335,11 @@ export function ProjectList({ projects }: Props) {
                       {project.error || PPT_USER_FAILURE_MESSAGE}
                     </p>
                   )}
+                  {artifactsExpired && (
+                    <p className="text-xs text-amber-700">
+                      生成文件已超过 7 天保留期，文件已删除。
+                    </p>
+                  )}
 
                   <div className="flex items-center gap-2 border-t pt-3">
                     <Button asChild variant="outline" size="sm" className="flex-1">
@@ -340,7 +356,9 @@ export function ProjectList({ projects }: Props) {
                         onRetried={() => handleRetried(project.id)}
                       />
                     )}
-                    {isPptCompletedStatus(project.status) && project.hasPptx && (
+                    {isPptCompletedStatus(project.status) &&
+                      project.hasPptx &&
+                      !artifactsExpired && (
                       <Button asChild variant="outline" size="icon" className="size-8" title="下载 PPTX">
                         <a href={`/api/ppt/projects/${project.id}/export`} aria-label="下载 PPTX">
                           <Download className="size-4" />

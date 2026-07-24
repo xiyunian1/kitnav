@@ -73,7 +73,7 @@ Web 或 Worker 仍在写数据时创建快照，避免数据库与文件不属�
 - `files.tar.gz`：素材、图片任务输入、PPT 上传和项目产物。
 - `manifest.json`：版本、时间、文件大小和 SHA-256 校验和。
 
-默认保留 14 个快照。通过 `BACKUP_MIRROR_DIR` 或 `--mirror-dir` 可原子镜像到 VPS 之外的挂载存储：
+默认保留 5 个快照。通过 `BACKUP_MIRROR_DIR` 或 `--mirror-dir` 可原子镜像到 VPS 之外的挂载存储：
 
 ```bash
 npm run prod:backup -- --keep 30 --mirror-dir /mnt/offsite/ai-aggregator
@@ -84,10 +84,11 @@ npm run prod:backup -- --keep 30 --mirror-dir /mnt/offsite/ai-aggregator
 ## 数据保留
 
 - PPT 待处理上传默认保留 24 小时。
-- PPT 失败项目产物默认保留 14 天，完成项目产物默认保留 90 天；项目元数据继续保留。
+- PPT 生成文件固定保留 7 天；到期后文件不可下载，项目元数据继续保留。
+- 图片生成结果固定保留 7 天；主动保存到“我的素材库”的独立副本不受影响。
 - 图片任务私有参考图默认保留 24 小时或至任务结束。
 - 每用户图片文件默认上限 1GB、2000 个；PPT 待处理上传默认上限 200MB、50 个。
-- 对应环境变量均记录在 [`.env.example`](./.env.example)，PPT 产物自动清理可通过将保留天数设为 `0` 关闭。
+- 孤儿文件和待处理上传的清理周期可通过 [`.env.example`](./.env.example) 中的环境变量调整。
 
 ## 质量门禁
 

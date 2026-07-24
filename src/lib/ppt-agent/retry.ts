@@ -23,6 +23,7 @@ import {
 } from "./image-options";
 import { appendProjectLog } from "./project-log";
 import {
+	canRetryPptProject,
 	isCancelledPptFailure,
 	type RetryablePptProjectState,
 } from "./retry-state";
@@ -69,6 +70,8 @@ export async function retryPptProject(projectId: string, userId: string) {
 			status: true,
 			error: true,
 			artifactsDeletedAt: true,
+			completedAt: true,
+			updatedAt: true,
 			params: true,
 			model: true,
 			slideCount: true,
@@ -101,6 +104,8 @@ export async function retryPptProject(projectId: string, userId: string) {
 				status: true,
 				error: true,
 				artifactsDeletedAt: true,
+				completedAt: true,
+				updatedAt: true,
 				params: true,
 				creditsCost: true,
 			},
@@ -208,7 +213,7 @@ function assertRetryable(
 	if (isCancelledPptFailure(project.error)) {
 		throw new PptRetryError("已主动停止的项目不能直接续跑，请重新创建任务。", 409);
 	}
-	if (project.artifactsDeletedAt || !project.params) {
+	if (!canRetryPptProject(project) || !project.params) {
 		throw new PptRetryError("原项目文件已清理，无法继续生成，请重新创建任务。", 409);
 	}
 }

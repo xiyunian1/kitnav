@@ -4,14 +4,52 @@ import {
 	type PptActiveGenerationTimingState,
 	type PptConfirmationTimingState,
 } from "./timing";
+import {
+  getGeneratedArtifactExpiresAt,
+  isGeneratedArtifactExpired,
+} from "@/lib/generated-artifact-retention";
+import { isPptCompletedStatus } from "./status";
 
-export interface PptxArtifactState {
-  pptxPath: string | null;
+export interface PptArtifactState {
+  status?: string | null;
+  completedAt?: Date | string | null;
+  updatedAt?: Date | string | null;
   artifactsDeletedAt?: Date | string | null;
 }
 
-export function hasPptxArtifact(project: PptxArtifactState) {
-  return Boolean(project.pptxPath && !project.artifactsDeletedAt);
+export interface PptxArtifactState extends PptArtifactState {
+  pptxPath: string | null;
+}
+
+function pptArtifactCompletedAt(project: PptArtifactState) {
+  if (
+    !isPptCompletedStatus(project.status) &&
+    project.status !== "FAILED"
+  ) {
+    return null;
+  }
+  return project.completedAt ?? project.updatedAt ?? null;
+}
+
+export function getPptArtifactExpiresAt(project: PptArtifactState) {
+  return getGeneratedArtifactExpiresAt(pptArtifactCompletedAt(project));
+}
+
+export function arePptArtifactsExpired(
+  project: PptArtifactState,
+  now = Date.now(),
+) {
+  return Boolean(
+    project.artifactsDeletedAt ||
+      isGeneratedArtifactExpired(pptArtifactCompletedAt(project), now),
+  );
+}
+
+export function hasPptxArtifact(
+  project: PptxArtifactState,
+  now = Date.now(),
+) {
+  return Boolean(project.pptxPath && !arePptArtifactsExpired(project, now));
 }
 
 export function toPublicPptProject<
@@ -41,11 +79,15 @@ export function toPublicPptProject<
     activeGenerationSeconds: project.activeGenerationSeconds,
     activeGenerationStartedAt: project.activeGenerationStartedAt,
   });
+  const artifactExpiresAt = getPptArtifactExpiresAt(project);
+  const artifactsExpired = arePptArtifactsExpired(project);
   return {
     ...publicProject,
     ...timing,
     ...activeTiming,
-    hasPptx: Boolean(project.pptxPath && !project.artifactsDeletedAt),
+    artifactExpiresAt: artifactExpiresAt?.toISOString() ?? null,
+    artifactsExpired,
+    hasPptx: Boolean(project.pptxPath && !artifactsExpired),
   } as Omit<
     T,
     | "pptxPath"
@@ -58,5 +100,9 @@ export function toPublicPptProject<
     | "params"
   > &
     ReturnType<typeof resolvePptConfirmationTiming> &
-    ReturnType<typeof resolvePptActiveGenerationTiming> & { hasPptx: boolean };
+    ReturnType<typeof resolvePptActiveGenerationTiming> & {
+      artifactExpiresAt: string | null;
+      artifactsExpired: boolean;
+      hasPptx: boolean;
+    };
 }

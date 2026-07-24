@@ -1,5 +1,7 @@
 import type { OAuthConfig, OAuthUserConfig } from "next-auth/providers";
 
+const DEFAULT_LINUX_DO_ISSUER = "https://connect.linux.do/";
+
 export interface LinuxDoProfile {
   sub?: string | null;
   id: number | string;
@@ -18,6 +20,11 @@ export interface LinuxDoProfile {
   api_key?: string;
 }
 
+export function normalizeLinuxDoIssuer(value?: string | null) {
+  const issuer = value?.trim() || DEFAULT_LINUX_DO_ISSUER;
+  return `${issuer.replace(/\/+$/, "")}/`;
+}
+
 function normalizeLinuxDoAvatar(avatarTemplate?: string | null) {
   if (!avatarTemplate) return null;
   const url = avatarTemplate.replace("{size}", "288");
@@ -32,7 +39,7 @@ export default function LinuxDo<P extends LinuxDoProfile>(
     id: "linux-do",
     name: "Linux.do",
     type: "oidc",
-    issuer: process.env.LINUX_DO_ISSUER ?? "https://connect.linux.do/",
+    issuer: normalizeLinuxDoIssuer(process.env.LINUX_DO_ISSUER),
     authorization:
       process.env.LINUX_DO_AUTHORIZATION_ENDPOINT ??
       "https://connect.linux.do/oauth2/authorize",
