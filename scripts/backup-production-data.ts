@@ -13,8 +13,7 @@ import {
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
 import {
-  assertSafeArchiveEntryTypes,
-  assertSafeArchiveEntries,
+  validateBackupFileArchive,
   verifyBackupSnapshot,
 } from "./backup-snapshot-utils";
 import {
@@ -319,19 +318,7 @@ async function validateCreatedArchives(
     { stdinPath: databasePath, ignoreStdout: true },
   );
   if (archivedPaths.length === 0) return;
-  const listing = await runCapture("tar", [
-    "--quoting-style=literal",
-    "-tzf",
-    filesPath,
-  ]);
-  assertSafeArchiveEntries(listing, archivedPaths);
-  assertSafeArchiveEntryTypes(
-    await runCapture("tar", [
-      "--quoting-style=literal",
-      "-tvzf",
-      filesPath,
-    ]),
-  );
+  await validateBackupFileArchive(filesPath, archivedPaths);
 }
 
 async function pruneOldSnapshots(backupDir: string, keep: number) {

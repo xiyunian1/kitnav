@@ -1,6 +1,5 @@
 import {
-  assertSafeArchiveEntryTypes,
-  assertSafeArchiveEntries,
+  validateBackupFileArchive,
   verifyBackupSnapshot,
 } from "./backup-snapshot-utils";
 import { runBoundedProcess } from "../src/lib/ppt-agent/bounded-process";
@@ -43,18 +42,9 @@ async function main() {
     "/backup/database.dump",
   ]);
   if (verified.manifest.files.included.length > 0) {
-    const listing = await runCapture("tar", [
-      "--quoting-style=literal",
-      "-tzf",
+    await validateBackupFileArchive(
       verified.filesPath,
-    ]);
-    assertSafeArchiveEntries(listing, verified.manifest.files.included);
-    assertSafeArchiveEntryTypes(
-      await runCapture("tar", [
-        "--quoting-style=literal",
-        "-tvzf",
-        verified.filesPath,
-      ]),
+      verified.manifest.files.included,
     );
   }
   console.log(`Backup snapshot verified: ${verified.root}`);
