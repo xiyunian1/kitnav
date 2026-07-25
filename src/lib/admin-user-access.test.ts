@@ -31,4 +31,13 @@ describe("removesActiveAdminAccess", () => {
       ),
     ).toBe(false);
   });
+
+  it("does not classify guest access as administrator access", () => {
+    expect(
+      removesActiveAdminAccess(
+        { role: "GUEST", status: "ACTIVE" },
+        { role: "USER" },
+      ),
+    ).toBe(false);
+  });
 });

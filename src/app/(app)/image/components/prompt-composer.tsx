@@ -60,6 +60,7 @@ interface Props {
   submitting: boolean;
   stopping: boolean;
   unitCost: number;
+  readOnly: boolean;
   onModeChange: (mode: "generate" | "edit") => void;
   onPromptChange: (value: string) => void;
   onRatioChange: (value: string) => void;
@@ -88,6 +89,7 @@ export function PromptComposer({
   submitting,
   stopping,
   unitCost,
+  readOnly,
   onModeChange,
   onPromptChange,
   onRatioChange,
@@ -125,7 +127,8 @@ export function PromptComposer({
     Boolean(activeModel) &&
     !multiImageUnsupported &&
     !preparingReferences &&
-    !submitting;
+    !submitting &&
+    !readOnly;
   const qualityMeta =
     IMAGE_QUALITY_META[quality as keyof typeof IMAGE_QUALITY_META] ?? IMAGE_QUALITY_META.standard;
   const useOwnKey = activeModel?.source === "user";
@@ -142,7 +145,7 @@ export function PromptComposer({
     const files = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/"));
     if (files.length === 0) return;
     e.preventDefault();
-    if (preparingReferences || submitting) return;
+    if (readOnly || preparingReferences || submitting) return;
     onModeChange("edit");
     onPickFiles(files);
   }
@@ -179,7 +182,7 @@ export function PromptComposer({
                 type="button"
                 variant="ghost"
                 size="xs"
-                disabled={!prompt.trim() || submitting}
+                disabled={readOnly || !prompt.trim() || submitting}
                 onClick={() => {
                   setOptimizerMounted(true);
                   setOptimizerOpen(true);
@@ -208,7 +211,7 @@ export function PromptComposer({
                 type="file"
                 accept={REFERENCE_IMAGE_MIME_TYPES.join(",")}
                 multiple
-                disabled={preparingReferences || submitting}
+                disabled={readOnly || preparingReferences || submitting}
                 className="hidden"
                 onChange={(e) => {
                   onPickFiles(Array.from(e.target.files || []));
@@ -238,7 +241,7 @@ export function PromptComposer({
                       </span>
                       <button
                         type="button"
-                        disabled={preparingReferences || submitting}
+                        disabled={readOnly || preparingReferences || submitting}
                         onClick={() => {
                           if (preview?.previewUrl === ref.previewUrl) setPreview(null);
                           onRemoveReference(i);
@@ -259,6 +262,7 @@ export function PromptComposer({
                 disabled={
                   preparingReferences ||
                   submitting ||
+                  readOnly ||
                   references.length >= MAX_REFERENCE_IMAGE_COUNT
                 }
                 onClick={() => fileInputRef.current?.click()}
@@ -279,6 +283,7 @@ export function PromptComposer({
                 disabled={
                   preparingReferences ||
                   submitting ||
+                  readOnly ||
                   references.length >= MAX_REFERENCE_IMAGE_COUNT
                 }
               />
@@ -434,10 +439,14 @@ export function PromptComposer({
             className="w-full"
             size="lg"
             onClick={submitting ? onStop : onSubmit}
-            disabled={submitting ? stopping : !canSubmit}
+            disabled={readOnly || (submitting ? stopping : !canSubmit)}
             variant={submitting ? "outline" : "default"}
           >
-            {stopping ? (
+            {readOnly ? (
+              <>
+                <ArrowUp className="size-4" /> 仅供参观
+              </>
+            ) : stopping ? (
               <>
                 <Loader2 className="size-4 animate-spin" /> 正在停止...
               </>

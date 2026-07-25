@@ -25,6 +25,7 @@ import {
 import type { MaterialView } from "./material-types";
 import { PromptMaterialForm } from "./prompt-material-form";
 import { isOptimizableImageUrl } from "@/lib/utils";
+import { useGuestMode } from "@/components/guest-mode-provider";
 
 const STATUS_LABEL: Record<MaterialView["status"], string> = {
   DRAFT: "私有",
@@ -41,6 +42,7 @@ interface Props {
 }
 
 export function MaterialCard({ material, mode, onPick }: Props) {
+  const readOnly = useGuestMode();
   const [previewOpen, setPreviewOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const isImage = material.type === "IMAGE";
@@ -69,6 +71,10 @@ export function MaterialCard({ material, mode, onPick }: Props) {
   const useImageHref = `/image?materialId=${encodeURIComponent(material.id)}&mode=edit${ratioMeta ? `&ratio=${encodeURIComponent(ratioMeta)}` : ""}${qualityMeta ? `&quality=${encodeURIComponent(qualityMeta)}` : ""}${modelMeta ? `&model=${encodeURIComponent(modelMeta)}` : ""}`;
 
   function runAction(action: () => Promise<{ ok?: boolean; error?: string }>, message: string) {
+    if (readOnly) {
+      toast.info("游客模式仅供参观，请登录正式账号后使用。");
+      return;
+    }
     startTransition(async () => {
       const res = await action();
       if (res?.error) toast.error(res.error);
@@ -169,7 +175,7 @@ export function MaterialCard({ material, mode, onPick }: Props) {
               <Button
                 size="xs"
                 variant="ghost"
-                disabled={pending}
+                disabled={readOnly || pending}
                 onClick={() =>
                   runAction(
                     () => toggleLikeMaterialAction(material.id),
@@ -187,7 +193,7 @@ export function MaterialCard({ material, mode, onPick }: Props) {
               <Button
                 size="xs"
                 variant="ghost"
-                disabled={pending}
+                disabled={readOnly || pending}
                 onClick={() =>
                   runAction(
                     () => toggleLikeMaterialAction(material.id),
@@ -205,7 +211,11 @@ export function MaterialCard({ material, mode, onPick }: Props) {
 
             <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
               {mode === "picker" && (
-                <Button size="xs" onClick={() => onPick?.(material)}>
+                <Button
+                  size="xs"
+                  onClick={() => onPick?.(material)}
+                  disabled={readOnly}
+                >
                   <Library className="size-3" /> 使用
                 </Button>
               )}
@@ -232,7 +242,7 @@ export function MaterialCard({ material, mode, onPick }: Props) {
                 <Button
                   size="xs"
                   variant={material.favorited ? "default" : "outline"}
-                  disabled={pending}
+                  disabled={readOnly || pending}
                   onClick={() =>
                     runAction(
                       () => toggleFavoriteMaterialAction(material.id),
@@ -283,7 +293,7 @@ export function MaterialCard({ material, mode, onPick }: Props) {
                         <Clipboard className="size-4" /> 复制
                       </DropdownMenuItem>
                     )}
-                    {isPrompt && mode === "square" && (
+                    {isPrompt && mode === "square" && !readOnly && (
                       <DropdownMenuItem
                         onClick={() =>
                           runAction(
@@ -295,7 +305,7 @@ export function MaterialCard({ material, mode, onPick }: Props) {
                         <CopyPlus className="size-4" /> 保存到我的素材库
                       </DropdownMenuItem>
                     )}
-                    {mode === "square" && (
+                    {mode === "square" && !readOnly && (
                       <DropdownMenuItem
                         onClick={() =>
                           runAction(
@@ -313,7 +323,7 @@ export function MaterialCard({ material, mode, onPick }: Props) {
                         请用卡片下方编辑按钮修改{isPptStyle ? "PPT 风格" : "提示词"}
                       </DropdownMenuItem>
                     )}
-                    {mode === "library" && (material.visibility === "PRIVATE" || material.status === "REJECTED") ? (
+                    {!readOnly && mode === "library" && (material.visibility === "PRIVATE" || material.status === "REJECTED") ? (
                       <DropdownMenuItem
                         onClick={() =>
                           runAction(
@@ -324,7 +334,7 @@ export function MaterialCard({ material, mode, onPick }: Props) {
                       >
                         <Send className="size-4" /> 分享到广场
                       </DropdownMenuItem>
-                    ) : mode === "library" ? (
+                    ) : !readOnly && mode === "library" ? (
                       <DropdownMenuItem
                         onClick={() =>
                           runAction(
@@ -336,7 +346,7 @@ export function MaterialCard({ material, mode, onPick }: Props) {
                         <Lock className="size-4" /> 转为私有
                       </DropdownMenuItem>
                     ) : null}
-                    {mode === "library" && (
+                    {mode === "library" && !readOnly && (
                       <DropdownMenuItem
                         variant="destructive"
                         onClick={() =>
@@ -351,7 +361,7 @@ export function MaterialCard({ material, mode, onPick }: Props) {
               )}
             </div>
           </div>
-          {isPrompt && mode === "library" && (
+          {isPrompt && mode === "library" && !readOnly && (
             <PromptMaterialForm
               material={material}
               trigger={

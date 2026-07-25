@@ -6,6 +6,7 @@ import { getActiveAdminId } from "@/lib/admin-guard";
 import { adjustCreditsInTransaction } from "@/lib/credits";
 import { runAuditedAdminTransaction } from "@/lib/audit";
 import { updateUserAccessSafelyInTransaction } from "@/lib/admin-user-access";
+import { GUEST_USER_ID } from "@/lib/guest-mode";
 
 async function guard() {
   const adminId = await getActiveAdminId();
@@ -37,6 +38,7 @@ export async function setUserRoleAction(userId: string, role: "USER" | "ADMIN") 
         : null,
   );
   if (result === "not-found") return { error: "用户不存在" };
+  if (result === "protected-guest") return { error: "游客展示账号不可修改" };
   if (result === "last-active-admin") {
     return { error: "至少需要保留一个有效管理员账号" };
   }
@@ -74,6 +76,7 @@ export async function setUserStatusAction(
         : null,
   );
   if (result === "not-found") return { error: "用户不存在" };
+  if (result === "protected-guest") return { error: "游客展示账号不可修改" };
   if (result === "last-active-admin") {
     return { error: "至少需要保留一个有效管理员账号" };
   }
@@ -102,6 +105,9 @@ export async function adjustUserCreditsAction(
   const parsed = adjustSchema.safeParse({ userId, delta, reason });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "参数错误" };
+  }
+  if (parsed.data.userId === GUEST_USER_ID) {
+    return { error: "游客展示账号不可调整积分" };
   }
   try {
     const description = parsed.data.reason || "管理员调整";

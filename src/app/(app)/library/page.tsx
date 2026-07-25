@@ -20,6 +20,7 @@ import { PromptMaterialForm } from "@/components/materials/prompt-material-form"
 import { requireModulePageAccess } from "@/lib/module-controls";
 import { ModuleUnavailable } from "@/components/module-unavailable";
 import { MaterialStorageUsageView } from "@/components/materials/material-storage-usage";
+import { isGuestRole } from "@/lib/guest-mode";
 
 export const metadata = { title: "我的素材库" };
 
@@ -40,6 +41,7 @@ export default async function LibraryPage({
     );
   }
   const userId = session!.user.id;
+  const guestMode = isGuestRole(session!.user.role);
   const params = await searchParams;
   const q = params.q?.trim() || "";
   const type =
@@ -68,7 +70,14 @@ export default async function LibraryPage({
 
   const [mine, favorites, storageUsage] = await Promise.all([
     prisma.material.findMany({
-      where: { ownerId: userId, type: typeWhere, ...whereSearch },
+      where: guestMode
+        ? {
+            type: typeWhere,
+            visibility: "PUBLIC",
+            status: "APPROVED",
+            ...whereSearch,
+          }
+        : { ownerId: userId, type: typeWhere, ...whereSearch },
       orderBy: { createdAt: "desc" },
       take: 100,
       include: {
@@ -78,23 +87,25 @@ export default async function LibraryPage({
         _count: { select: { favorites: true, likes: true } },
       },
     }),
-    prisma.material.findMany({
-      where: {
-        type: typeWhere,
-        visibility: "PUBLIC",
-        status: "APPROVED",
-        favorites: { some: { userId } },
-        ...whereSearch,
-      },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-      include: {
-        owner: { select: { id: true, name: true, email: true } },
-        favorites: { where: { userId } },
-        likes: { where: { userId } },
-        _count: { select: { favorites: true, likes: true } },
-      },
-    }),
+    guestMode
+      ? Promise.resolve([])
+      : prisma.material.findMany({
+          where: {
+            type: typeWhere,
+            visibility: "PUBLIC",
+            status: "APPROVED",
+            favorites: { some: { userId } },
+            ...whereSearch,
+          },
+          orderBy: { createdAt: "desc" },
+          take: 100,
+          include: {
+            owner: { select: { id: true, name: true, email: true } },
+            favorites: { where: { userId } },
+            likes: { where: { userId } },
+            _count: { select: { favorites: true, likes: true } },
+          },
+        }),
     getMaterialStorageUsage(userId),
   ]);
 
@@ -115,21 +126,36 @@ export default async function LibraryPage({
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">我的素材库</h1>
-          <p className="text-muted-foreground">管理上传、生成保存、提示词和收藏素材</p>
+          <h1 className="text-2xl font-bold">
+            {guestMode ? "展示素材库" : "我的素材库"}
+          </h1>
+          <p className="text-muted-foreground">
+            {guestMode
+              ? "浏览平台公开的图片、提示词和 PPT 风格"
+              : "管理上传、生成保存、提示词和收藏素材"}
+          </p>
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
           <form className="relative w-full sm:w-72">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             {type !== "ALL" && <input type="hidden" name="type" value={type} />}
-            <Input name="q" defaultValue={q} className="pl-9" placeholder="搜索我的素材" />
+            <Input
+              name="q"
+              defaultValue={q}
+              className="pl-9"
+              placeholder={guestMode ? "搜索展示素材" : "搜索我的素材"}
+            />
           </form>
-          <PromptMaterialForm defaultModule={type === "PPT_STYLE" ? "PPT" : "IMAGE"} />
-          <MaterialUploadForm />
+          {!guestMode && (
+            <>
+              <PromptMaterialForm defaultModule={type === "PPT_STYLE" ? "PPT" : "IMAGE"} />
+              <MaterialUploadForm />
+            </>
+          )}
         </div>
       </div>
 
-      <MaterialStorageUsageView usage={storageUsage} />
+      {!guestMode && <MaterialStorageUsageView usage={storageUsage} />}
 
       <div className="flex flex-wrap gap-2">
         {[
@@ -160,6 +186,21 @@ export default async function LibraryPage({
           title="视频素材"
           description="视频素材模块已预留，待接入上传和封面后开放"
         />
+      ) : guestMode ? (
+        mineItems.length === 0 ? (
+          <EmptyState
+            icon={type === "PROMPT" || type === "PPT_STYLE" ? FileText : FolderOpen}
+            title="暂无公开素材"
+            description="可前往素材广场浏览其他分类"
+            action={{ label: "浏览素材广场", href: "/materials" }}
+          />
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-[repeat(auto-fill,minmax(220px,1fr))]">
+            {mineItems.map((material) => (
+              <MaterialCard key={material.id} material={material} mode="square" />
+            ))}
+          </div>
+        )
       ) : (
       <Tabs defaultValue="mine">
         <TabsList className="grid w-full grid-cols-2 sm:w-auto">

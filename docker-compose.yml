@@ -70,6 +70,7 @@ services:
       AUTH_TRUST_HOST: "${AUTH_TRUST_HOST:-true}"
       AUTH_URL: "${AUTH_URL:?AUTH_URL is required}"
       APP_URL: "${APP_URL:?APP_URL is required}"
+      GUEST_MODE_ENABLED: "${GUEST_MODE_ENABLED:-false}"
       ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
       METRICS_TOKEN: "${METRICS_TOKEN:?METRICS_TOKEN is required}"
       NEXT_PUBLIC_SITE_URL: "${NEXT_PUBLIC_SITE_URL:-https://ai.kitnav.com}"

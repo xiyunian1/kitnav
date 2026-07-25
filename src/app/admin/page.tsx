@@ -9,7 +9,7 @@ const SUPPORTED_GENERATION_MODULES: ModuleType[] = ["IMAGE", "VIDEO"];
 export default async function AdminDashboard() {
   const [userCount, genCount, orderAgg, recentUsers, recentGens] =
     await Promise.all([
-      prisma.user.count(),
+      prisma.user.count({ where: { role: { not: "GUEST" } } }),
       prisma.generation.count({ where: { module: { in: SUPPORTED_GENERATION_MODULES } } }),
       prisma.order.aggregate({
         where: { status: "PAID" },
@@ -17,6 +17,7 @@ export default async function AdminDashboard() {
         _sum: { amount: true },
       }),
       prisma.user.findMany({
+        where: { role: { not: "GUEST" } },
         orderBy: { createdAt: "desc" },
         take: 5,
         select: { id: true, email: true, name: true, createdAt: true, credits: true },

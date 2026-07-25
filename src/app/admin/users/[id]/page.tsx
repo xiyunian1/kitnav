@@ -56,7 +56,16 @@ export default async function AdminUserDetailPage({
       <Card>
         <CardHeader><CardTitle className="text-base">账号信息</CardTitle></CardHeader>
         <CardContent className="grid gap-3 text-sm md:grid-cols-2">
-          <div>角色：<Badge>{user.role === "ADMIN" ? "管理员" : "用户"}</Badge></div>
+          <div>
+            角色：
+            <Badge>
+              {user.role === "ADMIN"
+                ? "管理员"
+                : user.role === "GUEST"
+                  ? "游客"
+                  : "用户"}
+            </Badge>
+          </div>
           <div>状态：<Badge variant={user.status === "BANNED" ? "destructive" : "outline"}>{user.status === "BANNED" ? "已封禁" : "正常"}</Badge></div>
           <div>注册时间：{user.createdAt.toLocaleString("zh-CN")}</div>
           <div>更新时间：{user.updatedAt.toLocaleString("zh-CN")}</div>

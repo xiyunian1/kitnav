@@ -19,6 +19,7 @@ import {
   type ModelSource,
   type ModuleModelOption,
 } from "@/lib/module-model-options";
+import { useGuestMode } from "@/components/guest-mode-provider";
 
 interface Props {
   unitCost: number;
@@ -65,6 +66,7 @@ export function ImageWorkbench({
   initialImageMaterial,
   initialPromptMaterial,
 }: Props) {
+  const readOnly = useGuestMode();
   const wb = useImageWorkbench(credits);
   // 解构稳定回调（hook 内部均为稳定引用），避免依赖 wb 对象导致下游 memo 失效
   const {
@@ -296,6 +298,10 @@ export function ImageWorkbench({
 
   const handleRegenerate = useCallback(
     async (input: ReuseTurnInput) => {
+      if (readOnly) {
+        toast.info("游客模式仅供参观，请登录正式账号后使用。");
+        return;
+      }
       applyTurnInput(input);
       if (input.mode === "edit") {
         toast.info("已回填图生图参数，请确认参考图后生成");
@@ -315,7 +321,7 @@ export function ImageWorkbench({
       });
       if (ok) toast.success("已按原参数重新生成");
     },
-    [applyTurnInput, modelOptions, selectedModel, submit]
+    [applyTurnInput, modelOptions, readOnly, selectedModel, submit]
   );
 
   const handleGenerateSimilar = useCallback(
@@ -328,6 +334,9 @@ export function ImageWorkbench({
   );
 
   const handleOptimizePrompt = useCallback(async (request: PromptOptimizeRequest): Promise<PromptOptimizationResult> => {
+    if (readOnly) {
+      throw new Error("游客模式仅供参观，请登录正式账号后使用。");
+    }
     const text = prompt.trim();
     if (!text) {
       throw new Error("请先输入提示词");
@@ -360,9 +369,13 @@ export function ImageWorkbench({
       suggestedCount: typeof data.suggestedCount === "number" ? data.suggestedCount : undefined,
       fallback: Boolean(data.fallback),
     };
-  }, [mode, prompt, ratio]);
+  }, [mode, prompt, ratio, readOnly]);
 
   const handleSubmit = useCallback(async () => {
+    if (readOnly) {
+      toast.info("游客模式仅供参观，请登录正式账号后使用。");
+      return;
+    }
     if (!prompt.trim()) {
       toast.error("请输入提示词");
       return;
@@ -407,6 +420,7 @@ export function ImageWorkbench({
     selectedModel,
     submit,
     clearComposer,
+    readOnly,
   ]);
 
   const selectConversation = useCallback(
@@ -432,6 +446,7 @@ export function ImageWorkbench({
       hasMore={wb.hasMoreConversations}
       balance={wb.balance}
       useOwnKey={useOwnKey}
+      readOnly={readOnly}
       onSearch={setSearch}
       onSelect={selectConversation}
       onNew={startNewConversation}
@@ -492,6 +507,7 @@ export function ImageWorkbench({
           submitting={wb.submitting}
           stopping={wb.stopping}
           unitCost={unitCost}
+          readOnly={readOnly}
           onModeChange={setMode}
           onPromptChange={setPrompt}
           onRatioChange={setRatio}

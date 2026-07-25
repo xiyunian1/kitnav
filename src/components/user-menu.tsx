@@ -22,6 +22,7 @@ import {
   MessageSquare,
   Monitor,
   Moon,
+  ScanEye,
   Sun,
   User as UserIcon,
 } from "lucide-react";
@@ -33,10 +34,18 @@ interface UserMenuProps {
   email: string;
   credits: number;
   isAdmin: boolean;
+  isGuest: boolean;
   controls: SidebarControlState | null;
 }
 
-export function UserMenu({ name, email, credits, isAdmin, controls }: UserMenuProps) {
+export function UserMenu({
+  name,
+  email,
+  credits,
+  isAdmin,
+  isGuest,
+  controls,
+}: UserMenuProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { theme, resolvedTheme, setTheme } = useTheme();
@@ -57,13 +66,20 @@ export function UserMenu({ name, email, credits, isAdmin, controls }: UserMenuPr
 
   return (
     <div className="flex items-center gap-3">
-      <Link
-        href="/credits"
-        className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted/70"
-      >
-        <Coins className="size-4 text-amber-500" />
-        {credits}
-      </Link>
+      {isGuest ? (
+        <span className="flex items-center gap-1.5 rounded-full bg-sky-50 px-3 py-1.5 text-sm font-medium text-sky-800 dark:bg-sky-950/50 dark:text-sky-200">
+          <ScanEye className="size-4" />
+          游客
+        </span>
+      ) : (
+        <Link
+          href="/credits"
+          className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted/70"
+        >
+          <Coins className="size-4 text-amber-500" />
+          {credits}
+        </Link>
+      )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button className="outline-none" aria-label="打开用户菜单">
@@ -77,8 +93,12 @@ export function UserMenu({ name, email, credits, isAdmin, controls }: UserMenuPr
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuLabel>
             <div className="flex flex-col">
-              <span className="font-medium">{name || "用户"}</span>
-              <span className="text-xs font-normal text-muted-foreground">{email}</span>
+              <span className="font-medium">
+                {isGuest ? "游客参观" : name || "用户"}
+              </span>
+              {!isGuest && (
+                <span className="text-xs font-normal text-muted-foreground">{email}</span>
+              )}
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
@@ -96,30 +116,34 @@ export function UserMenu({ name, email, credits, isAdmin, controls }: UserMenuPr
               </Link>
             </DropdownMenuItem>
           )}
-          {showCredits && (
+          {showCredits && !isGuest && (
             <DropdownMenuItem asChild>
               <Link href="/credits">
                 <Coins className="size-4" /> 积分充值
               </Link>
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem asChild>
-            <Link href="/settings">
-              <KeyRound className="size-4" /> API 设置
-            </Link>
-          </DropdownMenuItem>
-          {showFeedback && (
+          {!isGuest && (
+            <DropdownMenuItem asChild>
+              <Link href="/settings">
+                <KeyRound className="size-4" /> API 设置
+              </Link>
+            </DropdownMenuItem>
+          )}
+          {showFeedback && !isGuest && (
             <DropdownMenuItem asChild>
               <Link href={feedbackHref}>
                 <MessageSquare className="size-4" /> 反馈建议
               </Link>
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem asChild>
-            <Link href="/profile">
-              <UserIcon className="size-4" /> 个人资料
-            </Link>
-          </DropdownMenuItem>
+          {!isGuest && (
+            <DropdownMenuItem asChild>
+              <Link href="/profile">
+                <UserIcon className="size-4" /> 个人资料
+              </Link>
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onClick={() => setTheme(isDark ? "light" : "dark")}>
             {isDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
             {isDark ? "切换为亮色" : "切换为暗色"}

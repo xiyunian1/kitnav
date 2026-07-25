@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { isGuestUserEmail } from "@/lib/guest-mode";
 import { getSettingNumber } from "@/lib/credits";
 import { DEFAULT_SETTINGS, SETTING_KEYS } from "@/lib/settings-config";
 import { Prisma, type ModuleType } from "@prisma/client";
@@ -112,7 +113,7 @@ async function inspectRegistrationPolicy(
   }
 
   if (policy.maxUsers > 0) {
-    const count = await db.user.count();
+    const count = await db.user.count({ where: { role: { not: "GUEST" } } });
     if (count >= policy.maxUsers) {
       throw new OperationBlockedError("注册人数已达上限");
     }
@@ -166,6 +167,9 @@ async function runRegistrationTransaction<T>(
 export async function createRegisteredUser(input: CreateRegisteredUserInput) {
   const email = input.email.trim().toLowerCase();
   if (!email) throw new OperationBlockedError("邮箱不能为空", 400);
+  if (isGuestUserEmail(email)) {
+    throw new OperationBlockedError("该邮箱不可用于注册", 400);
+  }
 
   try {
     return await runRegistrationTransaction(async (tx) => {

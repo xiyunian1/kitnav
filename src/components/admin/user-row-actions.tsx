@@ -29,7 +29,7 @@ import {
 interface Props {
   user: {
     id: string;
-    role: "USER" | "ADMIN";
+    role: "USER" | "ADMIN" | "GUEST";
     status: "ACTIVE" | "BANNED";
   };
 }
@@ -67,6 +67,19 @@ export function UserRowActions({ user }: Props) {
         setReason("");
       }
     });
+  }
+
+  if (user.role === "GUEST") {
+    return (
+      <Button
+        variant="ghost"
+        size="icon"
+        disabled
+        aria-label="游客展示账号不可修改"
+      >
+        <MoreHorizontal className="size-4" />
+      </Button>
+    );
   }
 
   return (

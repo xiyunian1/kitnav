@@ -8,15 +8,17 @@ import { Button } from "@/components/ui/button";
 import { UserMenu } from "@/components/user-menu";
 import { MobileNav } from "@/components/mobile-nav";
 import { getSidebarControlState } from "@/lib/module-controls";
+import { isGuestRole } from "@/lib/guest-mode";
 
 export async function SiteHeader({ showMobileNav = false }: { showMobileNav?: boolean }) {
   const session = await auth();
   const user = session?.user;
+  const isGuest = isGuestRole(user?.role);
 
   // 积分从数据库读取最新值（session token 里的会过期），保证生成/充值后实时更新
   let credits = user?.credits ?? 0;
   const sidebarControls = user ? await getSidebarControlState(user.role) : null;
-  if (user && hasPostgresDatabaseUrl()) {
+  if (user && !isGuest && hasPostgresDatabaseUrl()) {
     try {
       const [dbUser] = await Promise.all([
         prisma.user.findUnique({
@@ -41,7 +43,9 @@ export async function SiteHeader({ showMobileNav = false }: { showMobileNav?: bo
       </a>
       <div className="mx-auto flex h-16 max-w-screen-2xl items-center justify-between px-4">
         <div className="flex items-center gap-2">
-          {showMobileNav && user && sidebarControls && <MobileNav controls={sidebarControls} />}
+          {showMobileNav && user && sidebarControls && (
+            <MobileNav controls={sidebarControls} isGuest={isGuest} />
+          )}
           <Link href="/" className="flex items-center gap-2 text-lg font-bold">
             <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
               <Sparkles className="size-5" aria-hidden="true" />
@@ -57,6 +61,7 @@ export async function SiteHeader({ showMobileNav = false }: { showMobileNav?: bo
               email={user.email ?? ""}
               credits={credits}
               isAdmin={user.role === "ADMIN"}
+              isGuest={isGuest}
               controls={sidebarControls}
             />
           ) : (

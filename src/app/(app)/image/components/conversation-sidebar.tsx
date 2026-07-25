@@ -24,6 +24,7 @@ interface Props {
   hasMore: boolean;
   balance: number;
   useOwnKey: boolean;
+  readOnly: boolean;
   onSearch: (value: string) => void;
   onSelect: (id: string) => void;
   onNew: () => void;
@@ -52,6 +53,7 @@ export const ConversationSidebar = memo(function ConversationSidebar({
   hasMore,
   balance,
   useOwnKey,
+  readOnly,
   onSearch,
   onSelect,
   onNew,
@@ -62,14 +64,14 @@ export const ConversationSidebar = memo(function ConversationSidebar({
   return (
     <div className="flex h-full flex-col gap-3">
       <div className="flex gap-2">
-        <Button className="flex-1" size="sm" onClick={onNew}>
+        <Button className="flex-1" size="sm" onClick={onNew} disabled={readOnly}>
           <Plus className="size-4" /> 新建会话
         </Button>
         <Button
           variant="outline"
           size="sm"
           onClick={onClear}
-          disabled={conversations.length === 0}
+          disabled={readOnly || conversations.length === 0}
           title="清空全部会话"
           aria-label="清空全部会话"
         >
@@ -122,18 +124,20 @@ export const ConversationSidebar = memo(function ConversationSidebar({
                     {c.turnCount} 轮 · {formatTime(c.updatedAt)}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  className="opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(c.id);
-                  }}
-                  title="删除会话"
-                  aria-label={`删除会话：${c.title}`}
-                >
-                  <Trash2 className="size-3.5 text-muted-foreground hover:text-destructive" />
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    className="opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(c.id);
+                    }}
+                    title="删除会话"
+                    aria-label={`删除会话：${c.title}`}
+                  >
+                    <Trash2 className="size-3.5 text-muted-foreground hover:text-destructive" />
+                  </button>
+                )}
               </div>
             ))}
             {hasMore && (
@@ -158,8 +162,12 @@ export const ConversationSidebar = memo(function ConversationSidebar({
       </div>
 
       <div className="rounded-lg border bg-muted/40 px-3 py-2">
-        <div className="text-xs text-muted-foreground">{useOwnKey ? "我的 API" : "剩余积分"}</div>
-        <div className="text-lg font-bold">{useOwnKey ? "不消耗积分" : balance}</div>
+        <div className="text-xs text-muted-foreground">
+          {readOnly ? "游客模式" : useOwnKey ? "我的 API" : "剩余积分"}
+        </div>
+        <div className="text-lg font-bold">
+          {readOnly ? "只读参观" : useOwnKey ? "不消耗积分" : balance}
+        </div>
       </div>
     </div>
   );

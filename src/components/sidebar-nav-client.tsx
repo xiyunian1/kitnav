@@ -74,9 +74,11 @@ function stateMap(items: SidebarModuleState[]) {
 
 export function SidebarNavClient({
   controls,
+  isGuest = false,
   onNavigate,
 }: {
   controls: SidebarControlState;
+  isGuest?: boolean;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
@@ -105,7 +107,7 @@ export function SidebarNavClient({
         );
       })}
       <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase text-muted-foreground">
-        我的
+        {isGuest ? "展示" : "我的"}
       </div>
       {ACCOUNT_NAV.flatMap((item) => {
         const controlled = ["materials", "library", "credits", "feedback"].includes(item.key);
@@ -115,7 +117,11 @@ export function SidebarNavClient({
           <SidebarNavLink
             key={item.href}
             href={item.href}
-            name={item.name}
+            name={
+              isGuest && item.key === "library"
+                ? "展示素材库"
+                : item.name
+            }
             icon={item.icon}
             badge={state?.badge}
             pathname={pathname}

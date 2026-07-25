@@ -22,6 +22,7 @@ import {
   normalizePptThinkingLevel,
   type PptThinkingLevel,
 } from "@/lib/ppt-agent/model-options";
+import { useGuestMode } from "@/components/guest-mode-provider";
 
 export interface UserConfigInitial {
   module: string;
@@ -49,6 +50,7 @@ const PPT_THINKING_LABELS: Record<PptThinkingLevel, string> = {
 
 export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
   const router = useRouter();
+  const readOnly = useGuestMode();
   const [baseUrl, setBaseUrl] = useState(initial.baseUrl);
   const [selectedModels, setSelectedModels] = useState(
     (initial.models || initial.model)
@@ -94,6 +96,7 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
   }
 
   async function handleFetchModels() {
+    if (readOnly) return;
     if (!baseUrl) {
       toast.error("请先填写 Base URL");
       return;
@@ -126,6 +129,7 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
   }
 
   async function handleTest() {
+    if (readOnly) return;
     const testModel = selectedModels[0]?.trim();
     if (!baseUrl || !testModel) {
       toast.error("请填写 Base URL 并至少保存一个模型");
@@ -158,6 +162,7 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
   }
 
   async function handleEnabledChange(next: boolean) {
+    if (readOnly) return;
     if (!initial.hasKey) {
       toast.error("请先保存 API 配置");
       return;
@@ -188,6 +193,7 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
   }
 
   function handleSave() {
+    if (readOnly) return;
     const fallbackModel = selectedModels[0]?.trim();
     if (!baseUrl || !fallbackModel) {
       toast.error("请填写 Base URL 并至少保存一个模型");
@@ -237,7 +243,7 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
             aria-label={enabled ? "关闭我的 API" : "开启我的 API"}
             checked={enabled}
             onCheckedChange={handleEnabledChange}
-            disabled={switching}
+            disabled={readOnly || switching}
           />
         </CardTitle>
         <p className="text-sm text-muted-foreground">
@@ -251,6 +257,7 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
             placeholder="https://api.openai.com/v1"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
+            disabled={readOnly}
           />
         </div>
         <div className="space-y-2">
@@ -260,6 +267,7 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
             placeholder={initial.hasKey ? `已配置（${initial.maskedKey}），留空则不修改` : "sk-..."}
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
+            disabled={readOnly}
           />
         </div>
         <div className="flex justify-end">
@@ -267,7 +275,7 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
             type="button"
             variant="outline"
             onClick={handleFetchModels}
-            disabled={fetchingModels || saving || testing}
+            disabled={readOnly || fetchingModels || saving || testing}
           >
             {fetchingModels ? (
               <Loader2 className="size-4 animate-spin" />
@@ -281,6 +289,7 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
           selectedModels={selectedModels}
           candidateModels={models}
           onSelectedModelsChange={setSelectedModels}
+          disabled={readOnly}
         />
         {initial.module === "PPT" && (
           <div className="space-y-4 rounded-lg border p-3">
@@ -289,6 +298,7 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
             <Select
               value={thinkingLevel}
               onValueChange={(value) => setThinkingLevel(normalizePptThinkingLevel(value))}
+              disabled={readOnly}
             >
               <SelectTrigger className="w-full">
                 <SelectValue />
@@ -320,6 +330,7 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
                           : current.filter((item) => item !== model)
                       )
                     }
+                    disabled={readOnly}
                   />
                 </label>
               ))}
@@ -327,13 +338,20 @@ export function UserApiConfigForm({ initial }: { initial: UserConfigInitial }) {
           </div>
         )}
         <div className="flex flex-col gap-2 sm:flex-row">
-          <Button variant="outline" onClick={handleTest} disabled={testing || saving}>
+          <Button
+            variant="outline"
+            onClick={handleTest}
+            disabled={readOnly || testing || saving}
+          >
             {testing ? <Loader2 className="size-4 animate-spin" /> : <Plug className="size-4" />}
             测试连接
           </Button>
-          <Button onClick={handleSave} disabled={saving || testing}>
+          <Button
+            onClick={handleSave}
+            disabled={readOnly || saving || testing}
+          >
             {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-            保存
+            {readOnly ? "仅供参观" : "保存"}
           </Button>
         </div>
       </CardContent>

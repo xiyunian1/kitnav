@@ -16,12 +16,14 @@ interface Props {
   selectedModels: string[];
   candidateModels: string[];
   onSelectedModelsChange: (models: string[]) => void;
+  disabled?: boolean;
 }
 
 export function ModelSelector({
   selectedModels,
   candidateModels,
   onSelectedModelsChange,
+  disabled = false,
 }: Props) {
   const [query, setQuery] = useState("");
   const [manualModel, setManualModel] = useState("");
@@ -72,12 +74,23 @@ export function ModelSelector({
             onChange={(e) => setQuery(e.target.value)}
             className="pl-9"
             placeholder="搜索模型"
+            disabled={disabled}
           />
         </div>
-        <Button variant="outline" type="button" onClick={() => setSelected(candidates)}>
+        <Button
+          variant="outline"
+          type="button"
+          onClick={() => setSelected(candidates)}
+          disabled={disabled}
+        >
           全选
         </Button>
-        <Button variant="outline" type="button" onClick={() => setSelected([])}>
+        <Button
+          variant="outline"
+          type="button"
+          onClick={() => setSelected([])}
+          disabled={disabled}
+        >
           清空
         </Button>
       </div>
@@ -96,6 +109,7 @@ export function ModelSelector({
                   key={model}
                   type="button"
                   onClick={() => toggle(model)}
+                  disabled={disabled}
                   className={cn(
                     "flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-muted",
                     checked && "bg-muted/70"
@@ -122,7 +136,13 @@ export function ModelSelector({
           {selected.map((model) => (
             <Badge key={model} variant="secondary" className="gap-1">
               {model}
-              <button type="button" onClick={() => toggle(model)} title="移除" aria-label={`移除模型：${model}`}>
+              <button
+                type="button"
+                onClick={() => toggle(model)}
+                title="移除"
+                aria-label={`移除模型：${model}`}
+                disabled={disabled}
+              >
                 <X className="size-3" />
               </button>
             </Badge>
@@ -135,6 +155,7 @@ export function ModelSelector({
           value={manualModel}
           onChange={(e) => setManualModel(e.target.value)}
           placeholder="手动添加模型名"
+          disabled={disabled}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
@@ -142,7 +163,12 @@ export function ModelSelector({
             }
           }}
         />
-        <Button type="button" variant="outline" onClick={addManual}>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={addManual}
+          disabled={disabled}
+        >
           <Plus className="size-4" /> 添加
         </Button>
       </div>

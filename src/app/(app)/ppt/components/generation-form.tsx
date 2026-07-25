@@ -58,6 +58,7 @@ import {
 	type PptColorPreference,
 	type PptTypographyPreference,
 } from "@/lib/ppt-agent/design-options";
+import { useGuestMode } from "@/components/guest-mode-provider";
 
 interface GenerationFormProps {
 	modelOptions: ModuleModelOption[];
@@ -86,6 +87,7 @@ export function GenerationForm({
 	imageCreditCost,
 }: GenerationFormProps) {
 	const router = useRouter();
+	const readOnly = useGuestMode();
 	const [loading, setLoading] = useState(false);
 	const [prompt, setPrompt] = useState("");
 	const [sourceFiles, setSourceFiles] = useState<UploadedFile[]>([]);
@@ -138,6 +140,10 @@ export function GenerationForm({
 	}
 
 	async function handleSubmit() {
+		if (readOnly) {
+			toast.info("游客模式仅供参观，请登录正式账号后使用。");
+			return;
+		}
 		const normalizedPrompt = prompt.trim();
 		if (!normalizedPrompt && contentFiles.length === 0) {
 			toast.error("请描述你想生成的 PPT，或上传文件资料。");
@@ -209,6 +215,10 @@ export function GenerationForm({
 		kind: UploadedFile["kind"],
 		files?: FileList | null,
 	) {
+		if (readOnly) {
+			toast.info("游客模式不支持上传文件。");
+			return;
+		}
 		const list = Array.from(files || []);
 		if (list.length === 0) return;
 		setUploading(true);
@@ -270,7 +280,7 @@ export function GenerationForm({
 									type="file"
 									multiple
 									accept={DOCUMENT_ACCEPT}
-									disabled={uploading}
+									disabled={readOnly || uploading}
 									onChange={(event) => {
 										void handleFileChange("source", event.target.files);
 										event.target.value = "";
@@ -284,7 +294,7 @@ export function GenerationForm({
 								<input
 									type="file"
 									accept={TEMPLATE_ACCEPT}
-									disabled={uploading}
+									disabled={readOnly || uploading}
 									onChange={(event) => {
 										void handleFileChange("template", event.target.files);
 										event.target.value = "";
@@ -347,7 +357,7 @@ export function GenerationForm({
 										type="file"
 										multiple
 										accept={DOCUMENT_ACCEPT}
-										disabled={uploading}
+											disabled={readOnly || uploading}
 										onChange={(event) => {
 											void handleFileChange("source", event.target.files);
 											event.target.value = "";
@@ -372,16 +382,24 @@ export function GenerationForm({
 							<Button
 								type="submit"
 								size="icon"
-								disabled={loading || uploading || !selectedModel}
+								disabled={readOnly || loading || uploading || !selectedModel}
 								className="size-10 shrink-0 rounded-full"
-								title={loading ? "正在生成" : "开始生成"}
+								title={
+									readOnly
+										? "游客模式仅供参观"
+										: loading
+											? "正在生成"
+											: "开始生成"
+								}
 							>
 								{loading || uploading ? (
 									<Loader2 className="size-4 animate-spin" />
 								) : (
 									<ArrowRight className="size-5" />
 								)}
-								<span className="sr-only">开始生成</span>
+								<span className="sr-only">
+									{readOnly ? "游客模式仅供参观" : "开始生成"}
+								</span>
 							</Button>
 						</div>
 					</div>

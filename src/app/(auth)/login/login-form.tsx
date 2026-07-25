@@ -15,14 +15,18 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2, ScanEye } from "lucide-react";
 import { AUTH_INPUT_LIMITS } from "@/lib/auth-inputs";
 
 interface LoginFormProps {
   linuxDoEnabled: boolean;
+  guestModeEnabled: boolean;
 }
 
-export function LoginForm({ linuxDoEnabled }: LoginFormProps) {
+export function LoginForm({
+  linuxDoEnabled,
+  guestModeEnabled,
+}: LoginFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") || "/";
@@ -31,6 +35,7 @@ export function LoginForm({ linuxDoEnabled }: LoginFormProps) {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [guestLoading, setGuestLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -64,13 +69,58 @@ export function LoginForm({ linuxDoEnabled }: LoginFormProps) {
     void signIn("linux-do", { callbackUrl });
   }
 
+  async function handleGuestSignIn() {
+    setGuestLoading(true);
+    try {
+      const res = await signIn("guest", { redirect: false });
+      if (res?.error) {
+        toast.error("游客入口暂时不可用");
+        return;
+      }
+      router.push(searchParams.get("callbackUrl") || "/image");
+      router.refresh();
+    } catch {
+      toast.error("网络错误，请检查连接");
+    } finally {
+      setGuestLoading(false);
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-2xl">登录</CardTitle>
-        <CardDescription>登录后即可使用全部 AI 工具</CardDescription>
+        <CardDescription>
+          {guestModeEnabled
+            ? "登录正式账号使用工具，或以游客身份参观"
+            : "登录后即可使用全部 AI 工具"}
+        </CardDescription>
       </CardHeader>
       <CardContent>
+        {guestModeEnabled && (
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              className="mb-4 w-full"
+              onClick={handleGuestSignIn}
+              disabled={loading || guestLoading}
+              aria-busy={guestLoading}
+            >
+              {guestLoading ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <ScanEye className="size-4" aria-hidden="true" />
+              )}
+              {guestLoading ? "正在进入..." : "游客参观"}
+            </Button>
+            <div className="mb-4 flex items-center gap-3 text-xs text-muted-foreground">
+              <div className="h-px flex-1 bg-border" />
+              <span>正式账号登录</span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+          </>
+        )}
         {linuxDoEnabled && (
           <>
             <Button
@@ -78,7 +128,7 @@ export function LoginForm({ linuxDoEnabled }: LoginFormProps) {
               variant="outline"
               className="mb-4 w-full"
               onClick={handleLinuxDoSignIn}
-              disabled={loading}
+              disabled={loading || guestLoading}
             >
               使用 Linux.do 继续
             </Button>
@@ -131,7 +181,12 @@ export function LoginForm({ linuxDoEnabled }: LoginFormProps) {
               </button>
             </div>
           </div>
-          <Button type="submit" className="w-full" disabled={loading} aria-busy={loading}>
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={loading || guestLoading}
+            aria-busy={loading}
+          >
             {loading && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
             {loading ? "登录中..." : "登录"}
           </Button>

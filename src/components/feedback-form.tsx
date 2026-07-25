@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useGuestMode } from "@/components/guest-mode-provider";
 
 const TYPES = [
   ["FEATURE", "功能建议"],
@@ -35,12 +36,14 @@ const MODULES = [
 ] as const;
 
 export function FeedbackForm({ sourcePath }: { sourcePath: string }) {
+  const readOnly = useGuestMode();
   const formRef = useRef<HTMLFormElement>(null);
   const [pending, startTransition] = useTransition();
   const [type, setType] = useState("FEATURE");
   const [module, setModule] = useState("IMAGE");
 
   function handleSubmit(formData: FormData) {
+    if (readOnly) return;
     startTransition(async () => {
       const res = await submitFeedbackAction(formData);
       if (res?.error) {
@@ -66,7 +69,7 @@ export function FeedbackForm({ sourcePath }: { sourcePath: string }) {
             <div className="space-y-2">
               <Label>反馈类型</Label>
               <input type="hidden" name="type" value={type} />
-              <Select value={type} onValueChange={setType}>
+              <Select value={type} onValueChange={setType} disabled={readOnly}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -82,7 +85,7 @@ export function FeedbackForm({ sourcePath }: { sourcePath: string }) {
             <div className="space-y-2">
               <Label>所属模块</Label>
               <input type="hidden" name="module" value={module} />
-              <Select value={module} onValueChange={setModule}>
+              <Select value={module} onValueChange={setModule} disabled={readOnly}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -105,6 +108,7 @@ export function FeedbackForm({ sourcePath }: { sourcePath: string }) {
               maxLength={80}
               placeholder="一句话说明问题或建议"
               required
+              disabled={readOnly}
             />
           </div>
 
@@ -117,6 +121,7 @@ export function FeedbackForm({ sourcePath }: { sourcePath: string }) {
               rows={7}
               placeholder="请描述你遇到的问题、期望的改进，或可以复现的操作步骤"
               required
+              disabled={readOnly}
             />
           </div>
 
@@ -128,6 +133,7 @@ export function FeedbackForm({ sourcePath }: { sourcePath: string }) {
               type="file"
               accept="image/png,image/jpeg,image/webp"
               multiple
+              disabled={readOnly}
             />
             <p className="text-xs text-muted-foreground">
               最多 3 张，单张不超过 5MB，支持 PNG、JPG、WEBP。
@@ -135,9 +141,9 @@ export function FeedbackForm({ sourcePath }: { sourcePath: string }) {
           </div>
 
           <div className="flex justify-end">
-            <Button type="submit" disabled={pending}>
+            <Button type="submit" disabled={readOnly || pending}>
               {pending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-              提交反馈
+              {readOnly ? "仅供参观" : "提交反馈"}
             </Button>
           </div>
         </form>

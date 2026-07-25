@@ -26,7 +26,9 @@ export default async function AdminAnalyticsPage() {
     creditRecharged,
     popularMaterials,
   ] = await Promise.all([
-    prisma.user.count({ where: { createdAt: { gte: today } } }),
+    prisma.user.count({
+      where: { role: { not: "GUEST" }, createdAt: { gte: today } },
+    }),
     prisma.generation.count({
       where: { module: { in: SUPPORTED_GENERATION_MODULES }, createdAt: { gte: today } },
     }),

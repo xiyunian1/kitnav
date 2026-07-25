@@ -16,6 +16,7 @@ interface UserAccessUpdate {
 export type UserAccessUpdateResult =
   | "updated"
   | "not-found"
+  | "protected-guest"
   | "last-active-admin";
 
 export function removesActiveAdminAccess(
@@ -57,6 +58,7 @@ export async function updateUserAccessSafelyInTransaction(
     select: { role: true, status: true },
   });
   if (!current) return "not-found";
+  if (current.role === "GUEST") return "protected-guest";
 
   if (removesActiveAdminAccess(current, update)) {
     const activeAdmins = await tx.user.count({

@@ -8,7 +8,13 @@ import { SidebarNavClient } from "@/components/sidebar-nav-client";
 import type { SidebarControlState } from "@/lib/module-controls";
 
 // 移动端导航抽屉：汉堡按钮触发，从左侧滑出，复用用户区侧边栏导航项。
-export function MobileNav({ controls }: { controls: SidebarControlState }) {
+export function MobileNav({
+  controls,
+  isGuest = false,
+}: {
+  controls: SidebarControlState;
+  isGuest?: boolean;
+}) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -36,7 +42,11 @@ export function MobileNav({ controls }: { controls: SidebarControlState }) {
           <DialogPrimitive.Description className="sr-only">
             站点导航菜单
           </DialogPrimitive.Description>
-          <SidebarNavClient controls={controls} onNavigate={() => setOpen(false)} />
+          <SidebarNavClient
+            controls={controls}
+            isGuest={isGuest}
+            onNavigate={() => setOpen(false)}
+          />
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

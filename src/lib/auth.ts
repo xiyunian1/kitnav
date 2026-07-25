@@ -16,6 +16,12 @@ import {
 } from "./operations";
 import { refreshSessionFromDatabase } from "./auth-session";
 import { AUTH_INPUT_LIMITS } from "./auth-inputs";
+import {
+  GUEST_PROVIDER_ID,
+  GUEST_USER_EMAIL,
+  GUEST_USER_ID,
+  isGuestModeEnabled,
+} from "./guest-mode";
 
 const credentialsSchema = z.object({
   email: z
@@ -59,6 +65,53 @@ const providers: Provider[] = [
     },
   }),
 ];
+
+if (isGuestModeEnabled()) {
+  providers.push(
+    Credentials({
+      id: GUEST_PROVIDER_ID,
+      name: "游客参观",
+      credentials: {},
+      async authorize() {
+        const existing = await prisma.user.findUnique({
+          where: { id: GUEST_USER_ID },
+        });
+        if (existing) {
+          if (
+            existing.email !== GUEST_USER_EMAIL ||
+            existing.role !== "GUEST" ||
+            existing.status !== "ACTIVE"
+          ) {
+            throw new Error("游客账号配置异常");
+          }
+          return existing;
+        }
+
+        const emailOwner = await prisma.user.findFirst({
+          where: {
+            email: { equals: GUEST_USER_EMAIL, mode: "insensitive" },
+          },
+          select: { id: true },
+        });
+        if (emailOwner) throw new Error("游客账号配置异常");
+
+        return prisma.user.upsert({
+          where: { id: GUEST_USER_ID },
+          update: { name: "游客" },
+          create: {
+            id: GUEST_USER_ID,
+            email: GUEST_USER_EMAIL,
+            name: "游客",
+            role: "GUEST",
+            status: "ACTIVE",
+            credits: 0,
+            passwordHash: null,
+          },
+        });
+      },
+    }),
+  );
+}
 
 if (process.env.LINUX_DO_CLIENT_ID && process.env.LINUX_DO_CLIENT_SECRET) {
   providers.push(

@@ -1,6 +1,11 @@
 import NextAuth from "next-auth";
 import { authConfig } from "@/lib/auth.config";
 import { NextResponse } from "next/server";
+import {
+  GUEST_MODE_MESSAGE,
+  shouldBlockGuestRequest,
+  shouldEvictGuestSession,
+} from "@/lib/guest-mode";
 
 const { auth } = NextAuth(authConfig);
 
@@ -25,6 +30,23 @@ export default auth((req) => {
   const role = req.auth?.user?.role;
   const path = nextUrl.pathname;
 
+  if (shouldEvictGuestSession({ role, pathname: path })) {
+    if (path.startsWith("/api/")) {
+      return NextResponse.json({ error: "游客入口已关闭" }, { status: 403 });
+    }
+    return NextResponse.redirect(new URL("/login", nextUrl));
+  }
+
+  if (
+    shouldBlockGuestRequest({
+      role,
+      method: req.method,
+      pathname: path,
+    })
+  ) {
+    return NextResponse.json({ error: GUEST_MODE_MESSAGE }, { status: 403 });
+  }
+
   const isAdminRoute = path.startsWith("/admin");
   const isProtected =
     isAdminRoute || PROTECTED_PREFIXES.some((p) => path === p || path.startsWith(p + "/"));
@@ -47,6 +69,10 @@ export default auth((req) => {
 });
 
 export const config = {
-  // 匹配除静态资源、图片优化、favicon 外的所有路径
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)"],
+  // API must pass through the guest write guard. The second matcher covers
+  // pages and Server Actions while excluding static assets.
+  matcher: [
+    "/api/:path*",
+    "/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)",
+  ],
 };

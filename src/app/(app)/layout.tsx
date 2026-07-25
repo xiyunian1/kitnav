@@ -6,6 +6,9 @@ import { SETTING_KEYS } from "@/lib/settings-config";
 import { prisma } from "@/lib/db";
 import { Card, CardContent } from "@/components/ui/card";
 import { redirect } from "next/navigation";
+import { GuestModeProvider } from "@/components/guest-mode-provider";
+import { GuestModeBanner } from "@/components/guest-mode-banner";
+import { isGuestRole } from "@/lib/guest-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -21,35 +24,39 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     }),
   ]);
   if (!session?.user) redirect("/login");
+  const guestMode = isGuestRole(session.user.role);
   const blocked = maintenanceMode === 1 && session?.user?.role !== "ADMIN";
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <SiteHeader showMobileNav />
-      <div className="mx-auto flex w-full max-w-screen-2xl flex-1">
-        <AppSidebar />
-        <main id="main-content" className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8">
-          {announcements.length > 0 && (
-            <div className="mb-4 space-y-2">
-              {announcements.map((item) => (
-                <div key={item.id} className="rounded-lg border bg-muted/40 px-4 py-3 text-sm">
-                  <span className="font-medium">{item.title}</span>
-                  <span className="ml-2 text-muted-foreground">{item.content}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {blocked ? (
-            <Card>
-              <CardContent className="py-12 text-center text-muted-foreground">
-                {maintenanceMessage || "系统维护中，请稍后再试"}
-              </CardContent>
-            </Card>
-          ) : (
-            children
-          )}
-        </main>
+    <GuestModeProvider enabled={guestMode}>
+      <div className="flex min-h-screen flex-col">
+        <SiteHeader showMobileNav />
+        <div className="mx-auto flex w-full max-w-screen-2xl flex-1">
+          <AppSidebar />
+          <main id="main-content" className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8">
+            {guestMode && <GuestModeBanner />}
+            {announcements.length > 0 && (
+              <div className="mb-4 space-y-2">
+                {announcements.map((item) => (
+                  <div key={item.id} className="rounded-lg border bg-muted/40 px-4 py-3 text-sm">
+                    <span className="font-medium">{item.title}</span>
+                    <span className="ml-2 text-muted-foreground">{item.content}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {blocked ? (
+              <Card>
+                <CardContent className="py-12 text-center text-muted-foreground">
+                  {maintenanceMessage || "系统维护中，请稍后再试"}
+                </CardContent>
+              </Card>
+            ) : (
+              children
+            )}
+          </main>
+        </div>
       </div>
-    </div>
+    </GuestModeProvider>
   );
 }

@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Coins, Loader2, Check } from "lucide-react";
 import { rechargeAction } from "@/app/(app)/credits/actions";
 import type { RechargePackageView } from "@/lib/recharge-packages";
+import { useGuestMode } from "@/components/guest-mode-provider";
 
 export function RechargePackages({
   packages,
@@ -18,10 +19,12 @@ export function RechargePackages({
   rechargeEnabled: boolean;
 }) {
   const router = useRouter();
+  const readOnly = useGuestMode();
   const [pending, startTransition] = useTransition();
   const [activeId, setActiveId] = useState<string | null>(null);
 
   function handleRecharge(id: string) {
+    if (readOnly) return;
     setActiveId(id);
     startTransition(async () => {
       const res = await rechargeAction(id);
@@ -61,14 +64,18 @@ export function RechargePackages({
               className="w-full"
               size="sm"
               onClick={() => handleRecharge(pkg.code)}
-              disabled={pending || !rechargeEnabled}
+              disabled={readOnly || pending || !rechargeEnabled}
             >
               {isLoading ? (
                 <Loader2 className="size-4 animate-spin" />
               ) : (
                 <Check className="size-4" />
               )}
-              {rechargeEnabled ? "充值" : "暂停充值"}
+              {readOnly
+                ? "仅供参观"
+                : rechargeEnabled
+                  ? "充值"
+                  : "暂停充值"}
             </Button>
           </Card>
         );

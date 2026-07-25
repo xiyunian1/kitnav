@@ -16,6 +16,7 @@ import {
 import type { MaterialView } from "./material-types";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { useGuestMode } from "@/components/guest-mode-provider";
 
 interface Props {
   material: MaterialView;
@@ -39,6 +40,7 @@ function promptHref(material: MaterialView) {
 }
 
 export function MaterialDetailActions({ material }: Props) {
+  const readOnly = useGuestMode();
   const [pending, startTransition] = useTransition();
   const [reportOpen, setReportOpen] = useState(false);
   const [reason, setReason] = useState("");
@@ -48,6 +50,10 @@ export function MaterialDetailActions({ material }: Props) {
     : `/image?materialId=${encodeURIComponent(material.id)}&mode=edit`;
 
   function run(action: () => Promise<{ ok?: boolean; error?: string }>, message: string) {
+    if (readOnly) {
+      toast.info("游客模式仅供参观，请登录正式账号后使用。");
+      return;
+    }
     startTransition(async () => {
       const res = await action();
       if (res?.error) toast.error(res.error);
@@ -82,7 +88,7 @@ export function MaterialDetailActions({ material }: Props) {
       </Button>
       <Button
         variant="outline"
-        disabled={pending}
+        disabled={readOnly || pending}
         onClick={() =>
           run(
             () => toggleLikeMaterialAction(material.id),
@@ -95,7 +101,7 @@ export function MaterialDetailActions({ material }: Props) {
       </Button>
       <Button
         variant={material.favorited ? "default" : "outline"}
-        disabled={pending}
+        disabled={readOnly || pending}
         onClick={() =>
           run(
             () => toggleFavoriteMaterialAction(material.id),
@@ -113,7 +119,7 @@ export function MaterialDetailActions({ material }: Props) {
       )}
       <Button
         variant="outline"
-        disabled={pending}
+        disabled={readOnly || pending}
         onClick={() =>
           run(
             () =>
@@ -126,7 +132,11 @@ export function MaterialDetailActions({ material }: Props) {
       >
         <CopyPlus className="size-4" /> 保存到我的素材库
       </Button>
-      <Button variant="outline" disabled={pending} onClick={() => setReportOpen(true)}>
+      <Button
+        variant="outline"
+        disabled={readOnly || pending}
+        onClick={() => setReportOpen(true)}
+      >
         <Flag className="size-4" /> 举报
       </Button>
       <Dialog open={reportOpen} onOpenChange={setReportOpen}>

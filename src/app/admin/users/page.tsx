@@ -24,6 +24,7 @@ const ROLE_FILTERS = [
   ["ALL", "全部角色"],
   ["USER", "用户"],
   ["ADMIN", "管理员"],
+  ["GUEST", "游客"],
 ] as const;
 
 const STATUS_FILTERS = [
@@ -166,7 +167,11 @@ export default async function AdminUsersPage({
                   </TableCell>
                   <TableCell>
                     <Badge variant={u.role === "ADMIN" ? "default" : "secondary"}>
-                      {u.role === "ADMIN" ? "管理员" : "用户"}
+                      {u.role === "ADMIN"
+                        ? "管理员"
+                        : u.role === "GUEST"
+                          ? "游客"
+                          : "用户"}
                     </Badge>
                   </TableCell>
                   <TableCell>

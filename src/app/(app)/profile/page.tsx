@@ -3,7 +3,8 @@ import { prisma } from "@/lib/db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ProfileForms } from "@/components/profile-forms";
-import { Coins } from "lucide-react";
+import { Coins, ScanEye } from "lucide-react";
+import { isGuestRole } from "@/lib/guest-mode";
 
 export const metadata = { title: "个人资料" };
 
@@ -14,6 +15,30 @@ export default async function ProfilePage() {
   });
 
   if (!user) return null;
+
+  if (isGuestRole(user.role)) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold">个人资料</h1>
+          <p className="text-muted-foreground">正式账号可在这里管理资料和密码</p>
+        </div>
+        <Card>
+          <CardContent className="flex items-center gap-4 py-6">
+            <span className="flex size-11 items-center justify-center rounded-lg bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-200">
+              <ScanEye className="size-5" />
+            </span>
+            <div>
+              <p className="font-medium">游客参观账号</p>
+              <p className="text-sm text-muted-foreground">
+                资料修改和密码设置仅对正式账号开放。
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

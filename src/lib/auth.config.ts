@@ -13,7 +13,7 @@ export const authConfig = {
     jwt({ token, user }) {
       if (user) {
         token.id = user.id as string;
-        token.role = (user.role ?? "USER") as "USER" | "ADMIN";
+        token.role = (user.role ?? "USER") as "USER" | "ADMIN" | "GUEST";
         token.credits = user.credits ?? 0;
         token.sessionVersion = user.sessionVersion ?? 0;
       }
@@ -22,7 +22,7 @@ export const authConfig = {
     session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string;
-        session.user.role = token.role as "USER" | "ADMIN";
+        session.user.role = token.role as "USER" | "ADMIN" | "GUEST";
         session.user.credits = token.credits as number;
         session.user.sessionVersion =
           typeof token.sessionVersion === "number" ? token.sessionVersion : 0;

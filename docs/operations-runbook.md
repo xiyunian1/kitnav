@@ -109,6 +109,13 @@ npm run prod:compose -- up -d
 - 上传文件：`data/uploads` 只能挂载到 `/app/data/uploads`，禁止重新挂载到 Next 的 `public` 目录；旧 `/uploads/*` 链接由 Caddy 重写到鉴权接口。
 - 队列卡住：先确认 Worker 健康，再看任务 `heartbeatAt` 或项目 `updatedAt`；不要直接修改积分。
 
+## 游客展示模式
+
+- 开启：在 `.env.production` 设置 `GUEST_MODE_ENABLED="true"`（仅字面值 `true` 生效）后重启 `app`。登录页出现“游客参观”入口。
+- 关闭：改回 `"false"` 并重启 `app`。中间件会立即拒绝存量游客会话（页面重定向到登录页，API 返回 403），无需手动清理 cookie。
+- 游客账号是数据库中的固定用户 `guest-showcase`（角色 `GUEST`），首次游客登录时自动创建；它不计入注册上限和用户统计，后台不能修改其角色、状态或积分。
+- 游客的所有非只读 HTTP 请求（除 `/api/auth/*`）由中间件统一 403，服务端是唯一防线；如需彻底移除入口，关闭开关即可，无需删除该用户。
+
 ## 回滚
 
 - 应用回滚：使用上一版本镜像启动，数据库 migration 必须保持向后兼容。

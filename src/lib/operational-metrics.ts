@@ -164,7 +164,7 @@ async function collectOperationalMetricsUncached(): Promise<OperationalMetricsSn
         creditsCost: { gt: 0 },
       },
     }),
-    prisma.user.count(),
+    prisma.user.count({ where: { role: { not: "GUEST" } } }),
     prisma.material.aggregate({ _sum: { sizeBytes: true } }),
     prisma.rateLimitBucket.count(),
     prisma.$queryRaw<DatabaseConnectionRow[]>`
