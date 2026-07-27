@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Prisma, Role, UserStatus } from "@prisma/client";
 import { Search } from "lucide-react";
 import { prisma } from "@/lib/db";
+import { formatChinaDate } from "@/lib/date-format";
 import {
   Table,
   TableBody,
@@ -188,7 +189,7 @@ export default async function AdminUsersPage({
                     {u._count.generations}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {u.createdAt.toLocaleDateString("zh-CN")}
+                    {formatChinaDate(u.createdAt)}
                   </TableCell>
                   <TableCell>
                     <UserRowActions

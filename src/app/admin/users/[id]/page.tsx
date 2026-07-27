@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { formatChinaDateTime } from "@/lib/date-format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -67,8 +68,8 @@ export default async function AdminUserDetailPage({
             </Badge>
           </div>
           <div>状态：<Badge variant={user.status === "BANNED" ? "destructive" : "outline"}>{user.status === "BANNED" ? "已封禁" : "正常"}</Badge></div>
-          <div>注册时间：{user.createdAt.toLocaleString("zh-CN")}</div>
-          <div>更新时间：{user.updatedAt.toLocaleString("zh-CN")}</div>
+          <div>注册时间：{formatChinaDateTime(user.createdAt)}</div>
+          <div>更新时间：{formatChinaDateTime(user.updatedAt)}</div>
         </CardContent>
       </Card>
 
@@ -85,7 +86,7 @@ export default async function AdminUserDetailPage({
                   <TableCell className="max-w-md truncate">{tx.description || "-"}</TableCell>
                   <TableCell className="text-right">{tx.amount > 0 ? "+" : ""}{tx.amount}</TableCell>
                   <TableCell className="text-right">{tx.balanceAfter}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{tx.createdAt.toLocaleString("zh-CN")}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{formatChinaDateTime(tx.createdAt)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -112,7 +113,7 @@ export default async function AdminUserDetailPage({
             {user.registrationEvents.map((event) => (
               <div key={event.id} className="flex justify-between text-sm">
                 <span>{event.provider} {event.ip ? `· ${event.ip}` : ""}</span>
-                <span className="text-muted-foreground">{event.createdAt.toLocaleString("zh-CN")}</span>
+                <span className="text-muted-foreground">{formatChinaDateTime(event.createdAt)}</span>
               </div>
             ))}
           </CardContent>
@@ -125,7 +126,7 @@ export default async function AdminUserDetailPage({
           {user.generations.map((g) => (
             <div key={g.id} className="flex justify-between gap-4 text-sm">
               <span className="truncate">{g.prompt}</span>
-              <span className="shrink-0 text-muted-foreground">{g.module} · {g.status} · {g.createdAt.toLocaleString("zh-CN")}</span>
+              <span className="shrink-0 text-muted-foreground">{g.module} · {g.status} · {formatChinaDateTime(g.createdAt)}</span>
             </div>
           ))}
         </CardContent>

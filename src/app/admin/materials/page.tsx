@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { MaterialStatus, MaterialType } from "@prisma/client";
 import { FileText } from "lucide-react";
 import { prisma } from "@/lib/db";
+import { formatChinaDateTime } from "@/lib/date-format";
 import { getAllSettings } from "@/lib/credits";
 import { SETTING_KEYS, SETTING_META } from "@/lib/settings-config";
 import { parseTags } from "@/lib/materials";
@@ -227,7 +228,7 @@ export default async function AdminMaterialsPage({
                     <TableCell className="text-right">{material._count.favorites}</TableCell>
                     <TableCell className="text-right">{material._count.reports}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {material.createdAt.toLocaleString("zh-CN")}
+                      {formatChinaDateTime(material.createdAt)}
                     </TableCell>
                     <TableCell className="text-right">
                       <MaterialReviewActions

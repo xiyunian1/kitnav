@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { formatChinaDateTime } from "@/lib/date-format";
 import { Card } from "@/components/ui/card";
 import {
   Table,
@@ -47,7 +48,7 @@ export default async function AdminAuditLogsPage() {
                   {log.detail || "-"}
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
-                  {log.createdAt.toLocaleString("zh-CN")}
+                  {formatChinaDateTime(log.createdAt)}
                 </TableCell>
               </TableRow>
             ))}

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { formatChinaDateTime } from "@/lib/date-format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,11 +25,6 @@ const STATUS_META: Record<
   COMPLETED: { label: "已完成", variant: "default" },
   FAILED: { label: "失败", variant: "destructive" },
 };
-
-function formatDate(value: Date | null) {
-  if (!value) return "-";
-  return value.toLocaleString("zh-CN");
-}
 
 function formatValue(value: unknown) {
   if (value === null || value === undefined || value === "") return "-";
@@ -149,9 +145,9 @@ export default async function AdminPptProjectDetailPage({
           <Info label="比例" value={project.aspectRatio} />
           <Info label="风格" value={project.style} />
           <Info label="模板" value={project.template} />
-          <Info label="创建时间" value={formatDate(project.createdAt)} />
-          <Info label="更新时间" value={formatDate(project.updatedAt)} />
-          <Info label="完成时间" value={formatDate(project.completedAt)} />
+          <Info label="创建时间" value={formatChinaDateTime(project.createdAt)} />
+          <Info label="更新时间" value={formatChinaDateTime(project.updatedAt)} />
+          <Info label="完成时间" value={formatChinaDateTime(project.completedAt)} />
           <Info label="PPTX" value={project.pptxPath} wide />
           <Info label="项目目录" value={project.projectPath} wide />
         </CardContent>

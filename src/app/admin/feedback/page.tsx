@@ -3,6 +3,8 @@ import Link from "next/link";
 import type { FeedbackModule, FeedbackStatus, FeedbackType, Prisma } from "@prisma/client";
 import { MessageSquare } from "lucide-react";
 import { prisma } from "@/lib/db";
+import { getChinaDayKey, getChinaDayStart } from "@/lib/activity";
+import { formatChinaDateTime } from "@/lib/date-format";
 import { parseScreenshotUrls } from "@/lib/feedback";
 import { isOptimizableImageUrl } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -87,7 +89,7 @@ export default async function AdminFeedbackPage({
     prisma.feedback.count({
       where: {
         createdAt: {
-          gte: new Date(new Date().setHours(0, 0, 0, 0)),
+          gte: getChinaDayStart(getChinaDayKey()),
         },
       },
     }),
@@ -212,7 +214,7 @@ export default async function AdminFeedbackPage({
                       <Badge variant={statusMeta.variant}>{statusMeta.label}</Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {item.createdAt.toLocaleString("zh-CN")}
+                      {formatChinaDateTime(item.createdAt)}
                     </TableCell>
                     <TableCell className="text-right">
                       <FeedbackActions id={item.id} status={item.status} adminNote={item.adminNote} />

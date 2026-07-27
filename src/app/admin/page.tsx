@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { formatChinaDate } from "@/lib/date-format";
 import type { ModuleType } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, ImageIcon, ShoppingCart, Coins } from "lucide-react";
@@ -89,7 +90,7 @@ export default async function AdminDashboard() {
                 >
                   <span>{u.name || u.email}</span>
                   <span className="text-muted-foreground">
-                    {u.createdAt.toLocaleDateString("zh-CN")}
+                    {formatChinaDate(u.createdAt)}
                   </span>
                 </div>
               ))

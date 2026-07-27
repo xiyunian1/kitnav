@@ -2,6 +2,7 @@ import { getAllSettings } from "@/lib/credits";
 import { SETTING_META } from "@/lib/settings-config";
 import { listRechargePackages } from "@/lib/recharge-packages";
 import { prisma } from "@/lib/db";
+import { formatChinaDateTime } from "@/lib/date-format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { SettingsForm } from "@/components/admin/settings-form";
@@ -86,7 +87,7 @@ export default async function AdminOperationsPage() {
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{invite.note || "-"}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {invite.createdAt.toLocaleString("zh-CN")}
+                    {formatChinaDateTime(invite.createdAt)}
                   </TableCell>
                 </TableRow>
               ))}

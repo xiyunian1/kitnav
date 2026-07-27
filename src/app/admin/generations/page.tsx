@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { GenerationStatus, ModuleType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { formatChinaDateTime } from "@/lib/date-format";
 import {
   Table,
   TableBody,
@@ -211,7 +212,7 @@ export default async function AdminGenerationsPage({
                       </div>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {g.createdAt.toLocaleString("zh-CN")}
+                      {formatChinaDateTime(g.createdAt)}
                     </TableCell>
                   </TableRow>
                 );

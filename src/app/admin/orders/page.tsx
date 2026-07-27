@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { formatChinaDateTime } from "@/lib/date-format";
 import {
   Table,
   TableBody,
@@ -98,7 +99,7 @@ export default async function AdminOrdersPage() {
                       {o.provider}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {o.createdAt.toLocaleString("zh-CN")}
+                      {formatChinaDateTime(o.createdAt)}
                     </TableCell>
                     <TableCell className="text-right">
                       <OrderActions id={o.id} status={o.status} />

@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { PptProjectStatus, Prisma } from "@prisma/client";
 import { Search } from "lucide-react";
 import { prisma } from "@/lib/db";
+import { formatChinaDateTime } from "@/lib/date-format";
 import { resolvePptConfirmationTiming } from "@/lib/ppt-agent/timing";
 import {
   Table,
@@ -64,11 +65,6 @@ function makeQuery(next: { q?: string; status?: string; page?: number }) {
   if (next.page && next.page > 1) params.set("page", String(next.page));
   const query = params.toString();
   return query ? `/admin/ppt-projects?${query}` : "/admin/ppt-projects";
-}
-
-function formatDate(value: Date | null) {
-  if (!value) return "-";
-  return value.toLocaleString("zh-CN");
 }
 
 function formatDuration(
@@ -308,7 +304,7 @@ export default async function AdminPptProjectsPage({
                       </div>
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                      {formatDate(project.createdAt)}
+                      {formatChinaDateTime(project.createdAt)}
                     </TableCell>
                     <TableCell className="text-right">
                       <Button asChild size="sm" variant="outline">
