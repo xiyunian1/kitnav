@@ -221,26 +221,26 @@ export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <Label>Base URL</Label>
-          <Input
-            placeholder="https://api.openai.com/v1"
-            value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label>API Key</Label>
-          <Input
-            type="password"
-            placeholder={
-              initial.hasKey ? `已配置（${initial.maskedKey}），留空则不修改` : "sk-..."
-            }
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-          />
-        </div>
-        <div className="flex justify-end">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+          <div className="space-y-2">
+            <Label>Base URL</Label>
+            <Input
+              placeholder="https://api.openai.com/v1"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>API Key</Label>
+            <Input
+              type="password"
+              placeholder={
+                initial.hasKey ? `已配置（${initial.maskedKey}），留空则不修改` : "sk-..."
+              }
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+            />
+          </div>
           <Button
             type="button"
             variant="outline"
@@ -255,12 +255,19 @@ export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial
             获取模型
           </Button>
         </div>
-        <ModelSelector
-          selectedModels={selectedModels}
-          candidateModels={models}
-          onSelectedModelsChange={setSelectedModels}
-        />
-        {initial.module === "PPT" && (
+        <div
+          className={
+            initial.module === "PPT" || modelKind === "image"
+              ? "grid gap-4 xl:grid-cols-2 xl:items-start"
+              : undefined
+          }
+        >
+          <ModelSelector
+            selectedModels={selectedModels}
+            candidateModels={models}
+            onSelectedModelsChange={setSelectedModels}
+          />
+          {initial.module === "PPT" && (
           <div className="space-y-4 rounded-lg border p-3">
             <div className="space-y-2">
               <Label>推理强度</Label>
@@ -350,6 +357,7 @@ export function ProviderConfigForm({ initial }: { initial: ProviderConfigInitial
             </div>
           </div>
         )}
+        </div>
         <div className="flex flex-col gap-2 sm:flex-row">
           <Button variant="outline" onClick={handleTest} disabled={testing || saving}>
             {testing ? <Loader2 className="size-4 animate-spin" /> : <Plug className="size-4" />}

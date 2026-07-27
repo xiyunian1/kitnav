@@ -71,42 +71,44 @@ export function SettingsForm({
       {groups.map((group) => (
         <div key={group} className="space-y-4">
           <h3 className="border-b pb-2 text-sm font-semibold">{group}</h3>
-          {meta.filter((item) => (item.group ?? "其他") === group).map((item) => (
-            <div key={item.key} className="space-y-2">
-              <Label htmlFor={item.key}>{item.label}</Label>
-              {item.type === "boolean" ? (
-                <BooleanField
-                  name={item.key}
-                  label={item.label}
-                  defaultValue={values[item.key] ?? "0"}
-                />
-              ) : item.options ? (
-                <Select name={item.key} defaultValue={values[item.key] ?? ""}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {item.options.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input
-                  id={item.key}
-                  name={item.key}
-                  type={item.type === "number" ? "number" : "text"}
-                  defaultValue={values[item.key] ?? ""}
-                  min={item.type === "number" ? item.min ?? 0 : undefined}
-                  max={item.type === "number" ? item.max : undefined}
-                  step={item.type === "number" ? item.step ?? "any" : undefined}
-                />
-              )}
-              <p className="text-xs text-muted-foreground">{item.description}</p>
-            </div>
-          ))}
+          <div className="grid gap-x-8 gap-y-4 md:grid-cols-2">
+            {meta.filter((item) => (item.group ?? "其他") === group).map((item) => (
+              <div key={item.key} className="space-y-2">
+                <Label htmlFor={item.key}>{item.label}</Label>
+                {item.type === "boolean" ? (
+                  <BooleanField
+                    name={item.key}
+                    label={item.label}
+                    defaultValue={values[item.key] ?? "0"}
+                  />
+                ) : item.options ? (
+                  <Select name={item.key} defaultValue={values[item.key] ?? ""}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {item.options.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    id={item.key}
+                    name={item.key}
+                    type={item.type === "number" ? "number" : "text"}
+                    defaultValue={values[item.key] ?? ""}
+                    min={item.type === "number" ? item.min ?? 0 : undefined}
+                    max={item.type === "number" ? item.max : undefined}
+                    step={item.type === "number" ? item.step ?? "any" : undefined}
+                  />
+                )}
+                <p className="text-xs text-muted-foreground">{item.description}</p>
+              </div>
+            ))}
+          </div>
         </div>
       ))}
       <Button type="submit" disabled={pending}>

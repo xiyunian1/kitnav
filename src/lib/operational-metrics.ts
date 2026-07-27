@@ -11,6 +11,7 @@ import {
   getImageGlobalMaxPending,
   getPptGlobalMaxPending,
 } from "@/lib/queue-capacity";
+import { redisHealthInfo, type RedisHealthInfo } from "@/lib/redis";
 
 export interface OperationalMetricsSnapshot {
   collectedAt: number;
@@ -41,6 +42,7 @@ export interface OperationalMetricsSnapshot {
   users: number;
   materialBytes: number;
   rateLimitBuckets: number;
+  redis: RedisHealthInfo;
   filesystem: { totalBytes: number; availableBytes: number } | null;
   process: { uptimeSeconds: number; rssBytes: number; heapUsedBytes: number };
 }
@@ -89,6 +91,7 @@ async function collectOperationalMetricsUncached(): Promise<OperationalMetricsSn
     materialSize,
     rateLimitBuckets,
     databaseConnectionRows,
+    redis,
   ] = await Promise.all([
     prisma.imageTurn.count({
       where: { status: "PENDING", workerLease: null },
@@ -172,6 +175,7 @@ async function collectOperationalMetricsUncached(): Promise<OperationalMetricsSn
         (SELECT COUNT(*)::integer FROM pg_stat_activity) AS "used",
         current_setting('max_connections')::integer AS "max"
     `,
+    redisHealthInfo(),
   ]);
   const databaseQueryDurationMs = performance.now() - queryStartedAt;
   const databaseConnections = databaseConnectionRows[0];
@@ -228,6 +232,7 @@ async function collectOperationalMetricsUncached(): Promise<OperationalMetricsSn
     users,
     materialBytes: materialSize._sum.sizeBytes ?? 0,
     rateLimitBuckets,
+    redis,
     filesystem,
     process: {
       uptimeSeconds: process.uptime(),
@@ -321,6 +326,11 @@ export function renderOperationalMetrics(snapshot: OperationalMetricsSnapshot) {
     `ai_aggregator_material_bytes ${snapshot.materialBytes}`,
     "# TYPE ai_aggregator_rate_limit_buckets gauge",
     `ai_aggregator_rate_limit_buckets ${snapshot.rateLimitBuckets}`,
+    "# HELP ai_aggregator_redis_up Optional Redis reachability (0 when unconfigured or unhealthy).",
+    "# TYPE ai_aggregator_redis_up gauge",
+    `ai_aggregator_redis_up ${snapshot.redis.healthy ? 1 : 0}`,
+    "# TYPE ai_aggregator_redis_ping_ms gauge",
+    `ai_aggregator_redis_ping_ms ${snapshot.redis.latencyMs ?? -1}`,
     "# TYPE process_uptime_seconds gauge",
     `process_uptime_seconds ${snapshot.process.uptimeSeconds}`,
     "# TYPE process_resident_memory_bytes gauge",

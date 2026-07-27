@@ -8,6 +8,7 @@ import {
   MODULE_CONTROL_STATUSES,
   updateModuleControlsInTransaction,
 } from "@/lib/module-controls";
+import { invalidateCache, CACHE_KEYS } from "@/lib/redis-cache";
 
 const MODULE_KEYS = MODULE_CONTROL_DEFINITIONS.map((item) => item.key);
 
@@ -38,6 +39,7 @@ export async function updateModuleControlsAction(formData: FormData) {
     return { error: error instanceof Error ? error.message : "保存失败" };
   }
 
+  await invalidateCache(CACHE_KEYS.settingsAll);
   revalidatePath("/admin/modules");
   revalidatePath("/", "layout");
   revalidatePath("/");

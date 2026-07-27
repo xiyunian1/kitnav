@@ -9,12 +9,12 @@ import {
   isControlledModuleKey,
   isModuleUsable,
   isModuleVisible,
-  loadModuleControls,
   messageKey,
   MODULE_CONTROL_DEFINITIONS,
   MODULE_CONTROL_STATUSES,
   MODULE_STATUS_OPTIONS,
   normalizeStatus,
+  resolveModuleControls,
   statusKey,
   type ControlledModuleKey,
   type ModuleControl,
@@ -23,6 +23,7 @@ import {
 } from "@/lib/module-control-core";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { getSettingRows } from "@/lib/credits";
 import { MODULES } from "@/lib/modules";
 
 export {
@@ -54,6 +55,10 @@ export interface SidebarControlState {
 }
 
 const MODULE_LOOKUP = new Map(MODULES.map((module) => [module.key, module]));
+
+async function loadModuleControls() {
+  return resolveModuleControls(await getSettingRows());
+}
 
 // React cache deduplicates layout/header/sidebar/page reads within one request.
 export const getModuleControls = cache(loadModuleControls);

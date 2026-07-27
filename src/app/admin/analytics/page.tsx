@@ -108,7 +108,9 @@ export default async function AdminAnalyticsPage() {
                 <div className="h-2 overflow-hidden rounded-full bg-muted">
                   <div
                     className="h-full rounded-full bg-primary"
-                    style={{ width: `${Math.max(4, (value / maxActive) * 100)}%` }}
+                    style={{
+                      width: value > 0 ? `${Math.max(4, (value / maxActive) * 100)}%` : "0%",
+                    }}
                   />
                 </div>
                 <span className="text-right font-medium">{value}</span>
@@ -122,14 +124,20 @@ export default async function AdminAnalyticsPage() {
           <CardTitle className="text-base">热门公开素材</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {popularMaterials.map((item) => (
-            <div key={item.id} className="flex items-center justify-between text-sm">
-              <span className="truncate">{item.title}</span>
-              <span className="text-muted-foreground">
-                {item._count.likes} 赞 · {item._count.favorites} 收藏
-              </span>
-            </div>
-          ))}
+          {popularMaterials.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              暂无公开素材数据
+            </p>
+          ) : (
+            popularMaterials.map((item) => (
+              <div key={item.id} className="flex items-center justify-between text-sm">
+                <span className="truncate">{item.title}</span>
+                <span className="text-muted-foreground">
+                  {item._count.likes} 赞 · {item._count.favorites} 收藏
+                </span>
+              </div>
+            ))
+          )}
         </CardContent>
       </Card>
     </div>

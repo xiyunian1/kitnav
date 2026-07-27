@@ -1,5 +1,4 @@
 import type { ModuleType } from "@prisma/client";
-import { prisma } from "@/lib/db";
 
 export const MODULE_CONTROL_STATUSES = [
   "open",
@@ -195,7 +194,7 @@ export function getModuleBadge(
   if (status === "admin") return "管理员";
   if (status === "closed") return "暂停";
   if (status === "hidden") return "隐藏";
-  if (status === "coming-soon" || fallbackComingSoon) return "soon";
+  if (status === "coming-soon" || fallbackComingSoon) return "待上线";
   return undefined;
 }
 
@@ -216,24 +215,17 @@ export function isModuleUsable(
   return false;
 }
 
-export async function loadModuleControls(): Promise<
-  Record<ControlledModuleKey, ModuleControl>
-> {
-  const keys = MODULE_CONTROL_DEFINITIONS.flatMap((item) => [
-    statusKey(item.key),
-    messageKey(item.key),
-  ]);
-  const rows = await prisma.setting.findMany({ where: { key: { in: keys } } });
-  const values = new Map(rows.map((row) => [row.key, row.value]));
-
+export function resolveModuleControls(
+  values: Readonly<Record<string, string>>,
+): Record<ControlledModuleKey, ModuleControl> {
   return Object.fromEntries(
     MODULE_CONTROL_DEFINITIONS.map((definition) => {
       const status = normalizeStatus(
-        values.get(statusKey(definition.key)),
+        values[statusKey(definition.key)],
         definition.defaultStatus,
       );
       const message =
-        values.get(messageKey(definition.key))?.trim() ||
+        values[messageKey(definition.key)]?.trim() ||
         defaultMessage(definition, status);
       return [definition.key, { ...definition, status, message }];
     }),

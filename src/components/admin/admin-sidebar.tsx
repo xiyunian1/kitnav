@@ -84,7 +84,7 @@ export function AdminNav({ onNavigate }: { onNavigate?: () => void }) {
 
 export function AdminSidebar() {
   return (
-    <aside className="hidden w-60 shrink-0 border-r bg-sidebar p-4 md:block">
+    <aside className="hidden w-60 shrink-0 border-r bg-sidebar p-4 md:sticky md:top-0 md:block md:h-dvh md:overflow-y-auto">
       <AdminNav />
     </aside>
   );

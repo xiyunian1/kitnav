@@ -108,6 +108,7 @@ npm run prod:compose -- up -d
 - 上传孤儿：图片 Worker 默认每 6 小时扫描一次，删除超过 24 小时且未被素材、图片会话或反馈引用的图片；可通过 `UPLOAD_STORAGE_SWEEP_MS` 和 `UPLOAD_ORPHAN_RETENTION_HOURS` 调整。心跳文件的 `uploadStorageSweep` 会记录最近开始/结束时间、删除计数和错误。
 - 上传文件：`data/uploads` 只能挂载到 `/app/data/uploads`，禁止重新挂载到 Next 的 `public` 目录；旧 `/uploads/*` 链接由 Caddy 重写到鉴权接口。
 - 队列卡住：先确认 Worker 健康，再看任务 `heartbeatAt` 或项目 `updatedAt`；不要直接修改积分。
+- Redis 不健康：应用自动回退 PostgreSQL 限流与直查，功能不受影响，仅性能回落；`/api/health/metrics` 的 `ai_aggregator_redis_up` 为 0 时检查 `ai-aggregator-redis` 容器。Redis 为纯缓存（无持久化、`noeviction`），达到内存上限后新写入会回退 PostgreSQL；可随时重启或 `FLUSHALL`，副作用只有限流窗口重置和 30 秒内缓存重建。
 
 ## 游客展示模式
 

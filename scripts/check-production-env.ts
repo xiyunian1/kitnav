@@ -125,6 +125,19 @@ const checks: Check[] = [
     message: "must be set for the PostgreSQL container",
   },
   {
+    name: "REDIS_PASSWORD",
+    ok: get("REDIS_PASSWORD").length >= 24 && !isPlaceholder(get("REDIS_PASSWORD")),
+    message: "must be set for the Redis container (rate limiting / cache)",
+  },
+  {
+    name: "REDIS_URL",
+    ok:
+      !get("REDIS_URL") ||
+      get("REDIS_URL").startsWith("redis://") ||
+      get("REDIS_URL").startsWith("rediss://"),
+    message: "when set, must be a redis:// or rediss:// URL (empty uses the compose redis service)",
+  },
+  {
     name: "AUTH_SECRET",
     ok: get("AUTH_SECRET").length >= 32 && !isPlaceholder(get("AUTH_SECRET")),
     message: "must be a strong production secret",

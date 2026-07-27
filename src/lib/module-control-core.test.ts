@@ -4,6 +4,7 @@ import {
   isModuleUsable,
   isModuleVisible,
   normalizeStatus,
+  resolveModuleControls,
 } from "@/lib/module-control-core";
 
 describe("module control core", () => {
@@ -23,5 +24,16 @@ describe("module control core", () => {
     expect(isModuleUsable({ status: "admin" }, false)).toBe(false);
     expect(isModuleUsable({ status: "admin" }, true)).toBe(true);
     expect(isModuleUsable({ status: "closed" }, true)).toBe(false);
+  });
+
+  it("resolves persisted settings without requiring server dependencies", () => {
+    const controls = resolveModuleControls({
+      "module.image.status": "closed",
+      "module.image.message": "图片服务维护中",
+    });
+
+    expect(controls.image.status).toBe("closed");
+    expect(controls.image.message).toBe("图片服务维护中");
+    expect(controls.ppt.status).toBe("open");
   });
 });

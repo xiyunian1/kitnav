@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getActiveAdminId } from "@/lib/admin-guard";
 import { runAuditedAdminTransaction } from "@/lib/audit";
+import { invalidateCache, CACHE_KEYS } from "@/lib/redis-cache";
 
 const announcementSchema = z.object({
   id: z.string().min(1).max(100).optional(),
@@ -31,6 +32,7 @@ export async function saveAnnouncementAction(input: z.infer<typeof announcementS
       detail: data,
     }),
   );
+  await invalidateCache(CACHE_KEYS.activeAnnouncements);
   revalidatePath("/admin/announcements");
   revalidatePath("/", "layout");
   return { ok: true };
@@ -46,6 +48,7 @@ export async function deleteAnnouncementAction(id: string) {
     (tx) => tx.siteAnnouncement.delete({ where: { id: parsed.data } }),
     { action: "announcement.delete", target: parsed.data },
   );
+  await invalidateCache(CACHE_KEYS.activeAnnouncements);
   revalidatePath("/admin/announcements");
   revalidatePath("/", "layout");
   return { ok: true };

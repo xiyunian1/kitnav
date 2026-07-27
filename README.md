@@ -5,7 +5,7 @@
 ## 技术栈
 
 - Next.js 16 App Router、React 19、TypeScript
-- PostgreSQL 16、Prisma 6、Auth.js v5
+- PostgreSQL 16、Prisma 6、Auth.js v5、Redis 7（可选，限流与热点缓存）
 - Tailwind CSS v4、Radix UI
 - 独立图片 Worker、独立 PPT Worker、Pi Coding Agent、PPT Master Python 工具链
 - Docker Compose、Caddy
@@ -99,6 +99,21 @@ npm run prod:backup -- --keep 30 --mirror-dir /mnt/offsite/ai-aggregator
 - 中间件在服务端统一拦截游客的非只读请求（POST/PUT/DELETE 等一律 403），前端按钮禁用只是体验层。
 - 游客账号不计入注册人数上限和后台用户统计，管理后台不能修改其角色、状态或积分。
 - 将开关改回 `false` 并重启后，已存在的游客会话立即失效并被重定向到登录页。
+
+## Redis（可选）
+
+配置 `REDIS_URL` 后，以下路径切换到 Redis，未配置或 Redis 故障时**自动回退**到原有 PostgreSQL 实现，不影响任何功能正确性：
+
+- **接口限流**：登录、注册、生成等固定窗口计数改为单条 Lua `INCR + PEXPIRE`（原实现为 `RateLimitBucket` 表 UPSERT）。
+- **热点缓存**：系统设置、模块开关（`cache:settings:all`）和站内公告（`cache:announcements:active`）跨请求缓存 30 秒；管理后台保存时主动失效。
+
+行为约定：
+
+- Redis 命令失败进入 30 秒熔断，期间直接走数据库路径，仅打限频 warn 日志，不产生 5xx。
+- Redis 以纯缓存模式运行（关闭持久化、128MB `noeviction` 上限）；达到上限后新写入会回退 PostgreSQL，不会淘汰已有的安全限流计数。重启只会重置限流窗口和缓存。
+- 本地开发默认不启用；调试时 `docker run -d -p 127.0.0.1:6379:6379 redis:7-alpine` 并在 `.env` 设 `REDIS_URL="redis://127.0.0.1:6379/0"`。
+- 生产 Compose 内置 `redis` 服务（仅 backend 网络、digest 固定、只读根文件系统），需在 `.env.production` 设置 `REDIS_PASSWORD`。
+- `/api/health/metrics` 暴露 `ai_aggregator_redis_up` 与 `ai_aggregator_redis_ping_ms` 指标。
 
 ## 质量门禁
 

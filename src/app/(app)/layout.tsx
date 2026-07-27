@@ -4,6 +4,11 @@ import { auth } from "@/lib/auth";
 import { getSetting, getSettingNumber } from "@/lib/credits";
 import { SETTING_KEYS } from "@/lib/settings-config";
 import { prisma } from "@/lib/db";
+import {
+  cachedJson,
+  CACHE_KEYS,
+  SETTINGS_CACHE_TTL_SECONDS,
+} from "@/lib/redis-cache";
 import { Card, CardContent } from "@/components/ui/card";
 import { redirect } from "next/navigation";
 import { GuestModeProvider } from "@/components/guest-mode-provider";
@@ -12,16 +17,31 @@ import { isGuestRole } from "@/lib/guest-mode";
 
 export const dynamic = "force-dynamic";
 
+function loadActiveAnnouncements() {
+  return cachedJson(
+    CACHE_KEYS.activeAnnouncements,
+    SETTINGS_CACHE_TTL_SECONDS,
+    async () => {
+      const rows = await prisma.siteAnnouncement.findMany({
+        where: { enabled: true, placement: "APP" },
+        orderBy: { updatedAt: "desc" },
+        take: 2,
+      });
+      return rows.map((item) => ({
+        id: item.id,
+        title: item.title,
+        content: item.content,
+      }));
+    },
+  );
+}
+
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const [session, maintenanceMode, maintenanceMessage, announcements] = await Promise.all([
     auth(),
     getSettingNumber(SETTING_KEYS.MAINTENANCE_MODE),
     getSetting(SETTING_KEYS.MAINTENANCE_MESSAGE),
-    prisma.siteAnnouncement.findMany({
-      where: { enabled: true, placement: "APP" },
-      orderBy: { updatedAt: "desc" },
-      take: 2,
-    }),
+    loadActiveAnnouncements(),
   ]);
   if (!session?.user) redirect("/login");
   const guestMode = isGuestRole(session.user.role);

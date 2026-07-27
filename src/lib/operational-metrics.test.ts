@@ -38,6 +38,7 @@ function snapshot(
     users: 10,
     materialBytes: 2_048,
     rateLimitBuckets: 5,
+    redis: { configured: true, healthy: true, latencyMs: 2 },
     filesystem: { totalBytes: 10_000, availableBytes: 4_000 },
     process: { uptimeSeconds: 60, rssBytes: 3_000, heapUsedBytes: 1_000 },
     ...overrides,

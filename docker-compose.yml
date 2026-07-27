@@ -2,10 +2,11 @@ x-worker-common-environment: &worker-common-environment
   DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required}"
   DATABASE_POOL_TIMEOUT_SECONDS: "${DATABASE_POOL_TIMEOUT_SECONDS:-10}"
   ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
+  REDIS_URL: "${REDIS_URL:-redis://:${REDIS_PASSWORD:-}@redis:6379/0}"
   LOG_LEVEL: "${LOG_LEVEL:-info}"
   HTTP_PROXY: "${HTTP_PROXY:-}"
   HTTPS_PROXY: "${HTTPS_PROXY:-}"
-  NO_PROXY: "${NO_PROXY:-127.0.0.1,localhost,postgres}"
+  NO_PROXY: "${NO_PROXY:-127.0.0.1,localhost,postgres,redis}"
 
 x-default-logging: &default-logging
   driver: json-file
@@ -52,6 +53,51 @@ services:
     networks:
       - backend
 
+  redis:
+    image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+    container_name: ai-aggregator-redis
+    restart: unless-stopped
+    # 纯缓存/限流用途：关闭持久化（appendonly no + save ""），重启只会重置
+    # 限流窗口和热点缓存。达到 128MB 后拒绝新写入并由应用回退 PostgreSQL，
+    # 不淘汰已有的安全限流计数。
+    command:
+      [
+        "redis-server",
+        "--requirepass",
+        "${REDIS_PASSWORD:?REDIS_PASSWORD is required}",
+        "--maxmemory",
+        "128mb",
+        "--maxmemory-policy",
+        "noeviction",
+        "--appendonly",
+        "no",
+        "--save",
+        "",
+      ]
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD:?REDIS_PASSWORD is required}"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    read_only: true
+    tmpfs:
+      - /data:rw,noexec,nosuid,nodev,size=16m,uid=999,gid=1000
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETGID
+      - SETUID
+    mem_limit: ${REDIS_MEMORY_LIMIT:-192m}
+    cpus: ${REDIS_CPU_LIMIT:-0.5}
+    pids_limit: 128
+    logging: *default-logging
+    networks:
+      - backend
+
   app:
     image: ai-aggregator-web:local
     build:
@@ -73,12 +119,13 @@ services:
       GUEST_MODE_ENABLED: "${GUEST_MODE_ENABLED:-false}"
       ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
       METRICS_TOKEN: "${METRICS_TOKEN:?METRICS_TOKEN is required}"
+      REDIS_URL: "${REDIS_URL:-redis://:${REDIS_PASSWORD:-}@redis:6379/0}"
       NEXT_PUBLIC_SITE_URL: "${NEXT_PUBLIC_SITE_URL:-https://ai.kitnav.com}"
       NEXT_PUBLIC_ICP: "${NEXT_PUBLIC_ICP:-}"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
       HTTP_PROXY: "${HTTP_PROXY:-}"
       HTTPS_PROXY: "${HTTPS_PROXY:-}"
-      NO_PROXY: "${NO_PROXY:-127.0.0.1,localhost,postgres}"
+      NO_PROXY: "${NO_PROXY:-127.0.0.1,localhost,postgres,redis}"
       LINUX_DO_CLIENT_ID: "${LINUX_DO_CLIENT_ID:-}"
       LINUX_DO_CLIENT_SECRET: "${LINUX_DO_CLIENT_SECRET:-}"
       LINUX_DO_ISSUER: "${LINUX_DO_ISSUER:-https://connect.linux.do/}"

@@ -1,6 +1,11 @@
 import { cache } from "react";
 import { prisma } from "./db";
 import { SETTING_KEYS, DEFAULT_SETTINGS } from "./settings-config";
+import {
+  cachedJson,
+  CACHE_KEYS,
+  SETTINGS_CACHE_TTL_SECONDS,
+} from "./redis-cache";
 import type { CreditTxType, Prisma } from "@prisma/client";
 
 export class InsufficientCreditsError extends Error {
@@ -10,10 +15,24 @@ export class InsufficientCreditsError extends Error {
   }
 }
 
-// 读取系统设置；缺失时回退到默认值。React cache 保证同一请求渲染内同 key 只查一次。
+/**
+ * 全量设置行（含模块开关键）。Setting 表只有几十行，整表读一次即可覆盖
+ * 所有 getSetting 调用；配置了 Redis 时跨请求缓存 30s（管理端保存时主动失效），
+ * 未配置时行为等同直查数据库。React cache 保证同一请求内只加载一次。
+ */
+export const getSettingRows = cache((): Promise<Record<string, string>> =>
+  cachedJson(CACHE_KEYS.settingsAll, SETTINGS_CACHE_TTL_SECONDS, async () => {
+    const rows = await prisma.setting.findMany({
+      select: { key: true, value: true },
+    });
+    return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  }),
+);
+
+// 读取系统设置；缺失时回退到默认值。
 export const getSetting = cache(async (key: string): Promise<string> => {
-  const row = await prisma.setting.findUnique({ where: { key } });
-  return row?.value ?? DEFAULT_SETTINGS[key] ?? "";
+  const rows = await getSettingRows();
+  return rows[key] ?? DEFAULT_SETTINGS[key] ?? "";
 });
 
 export async function getSettingNumber(key: string): Promise<number> {
@@ -23,10 +42,7 @@ export async function getSettingNumber(key: string): Promise<number> {
 }
 
 export async function getAllSettings(): Promise<Record<string, string>> {
-  const rows = await prisma.setting.findMany();
-  const map: Record<string, string> = { ...DEFAULT_SETTINGS };
-  for (const r of rows) map[r.key] = r.value;
-  return map;
+  return { ...DEFAULT_SETTINGS, ...(await getSettingRows()) };
 }
 
 // 扣减积分：事务内校验余额 → 扣减 → 写流水。余额不足抛 InsufficientCreditsError。

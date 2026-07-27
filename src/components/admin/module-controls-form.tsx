@@ -26,7 +26,7 @@ import {
 import {
   MODULE_STATUS_OPTIONS,
   type ModuleControl,
-} from "@/lib/module-controls";
+} from "@/lib/module-control-core";
 
 const STATUS_BADGE_VARIANT: Record<ModuleControl["status"], "default" | "secondary" | "outline" | "destructive"> = {
   open: "default",

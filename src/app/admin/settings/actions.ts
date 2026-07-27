@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getActiveAdminId } from "@/lib/admin-guard";
 import { SETTING_META } from "@/lib/settings-config";
 import { runAuditedAdminTransaction } from "@/lib/audit";
+import { invalidateCache, CACHE_KEYS } from "@/lib/redis-cache";
 
 export async function updateSettingsAction(formData: FormData) {
   const adminId = await getActiveAdminId();
@@ -57,6 +58,7 @@ export async function updateSettingsAction(formData: FormData) {
       detail: updates,
     },
   );
+  await invalidateCache(CACHE_KEYS.settingsAll);
   revalidatePath("/admin/settings");
   revalidatePath("/admin/materials");
   revalidatePath("/admin/operations");

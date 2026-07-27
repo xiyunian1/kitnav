@@ -1,12 +1,12 @@
 import { prisma } from "@/lib/db";
 import { isGuestUserEmail } from "@/lib/guest-mode";
-import { getSettingNumber } from "@/lib/credits";
+import { getSettingNumber, getSettingRows } from "@/lib/credits";
 import { DEFAULT_SETTINGS, SETTING_KEYS } from "@/lib/settings-config";
 import { Prisma, type ModuleType } from "@prisma/client";
 import {
   getModuleControlDefinitionByModuleType,
   isModuleUsable,
-  loadModuleControls,
+  resolveModuleControls,
 } from "@/lib/module-control-core";
 
 export class OperationBlockedError extends Error {
@@ -240,7 +240,7 @@ export async function assertModuleOperationAllowed(userId: string, module: Modul
   const definition = getModuleControlDefinitionByModuleType(module);
   if (definition) {
     const [controls, user] = await Promise.all([
-      loadModuleControls(),
+      getSettingRows().then(resolveModuleControls),
       prisma.user.findUnique({ where: { id: userId }, select: { role: true } }),
     ]);
     const control = controls[definition.key];

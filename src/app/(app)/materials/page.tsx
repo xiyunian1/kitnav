@@ -9,6 +9,7 @@ import { MaterialCard } from "@/components/materials/material-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { requireModulePageAccess } from "@/lib/module-controls";
 import { ModuleUnavailable } from "@/components/module-unavailable";
+import { isGuestRole } from "@/lib/guest-mode";
 import { MaterialsToolbar } from "./materials-toolbar";
 
 export const metadata = { title: "素材广场" };
@@ -17,10 +18,12 @@ async function MaterialGrid({
   q,
   type,
   userId,
+  guestMode,
 }: {
   q: string;
   type: "IMAGE" | "VIDEO" | "PROMPT" | "PPT_STYLE";
   userId: string;
+  guestMode: boolean;
 }) {
   if (type === "VIDEO") {
     return (
@@ -75,8 +78,12 @@ async function MaterialGrid({
               ? "暂无公开提示词"
               : "暂无公开图片素材"
         }
-        description="成为第一个分享素材的人吧"
-        action={{ label: "去我的素材库", href: "/library" }}
+        description={
+          guestMode
+            ? "该分类还没有公开素材，可切换其他分类看看"
+            : "成为第一个分享素材的人吧"
+        }
+        action={guestMode ? undefined : { label: "去我的素材库", href: "/library" }}
       />
     );
   }
@@ -140,7 +147,12 @@ export default async function MaterialsPage({
       </MaterialsToolbar>
 
       <Suspense key={`${type}-${q}`} fallback={<MaterialGridSkeleton />}>
-        <MaterialGrid q={q} type={type} userId={userId} />
+        <MaterialGrid
+          q={q}
+          type={type}
+          userId={userId}
+          guestMode={isGuestRole(session!.user.role)}
+        />
       </Suspense>
     </div>
   );

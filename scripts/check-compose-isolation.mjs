@@ -54,6 +54,7 @@ try {
 
 const expectedNetworks = {
   postgres: ["backend"],
+  redis: ["backend"],
   app: ["backend", "edge"],
   "image-worker": ["backend"],
   "ppt-worker": ["backend"],
@@ -62,6 +63,7 @@ const expectedNetworks = {
 
 const expectedEnvironment = {
   postgres: ["POSTGRES_DB", "POSTGRES_PASSWORD", "POSTGRES_USER"],
+  redis: ["REDIS_PASSWORD"],
   app: [
     "API_TEST_RATE_MAX",
     "API_TEST_RATE_WINDOW_MS",
@@ -81,6 +83,7 @@ const expectedEnvironment = {
     "FEEDBACK_UPLOAD_ROOT",
     "FEEDBACK_USER_MAX_FILES",
     "FEEDBACK_USER_QUOTA_BYTES",
+    "GUEST_MODE_ENABLED",
     "HTTPS_PROXY",
     "HTTP_PROXY",
     "IMAGE_CANCEL_RATE_MAX",
@@ -115,6 +118,7 @@ const expectedEnvironment = {
     "NEXT_PUBLIC_ICP",
     "NEXT_PUBLIC_SITE_URL",
     "NO_PROXY",
+    "REDIS_URL",
     "PASSWORD_CHANGE_RATE_MAX",
     "PASSWORD_CHANGE_RATE_WINDOW_MS",
     "PPT_CREDITS_PER_SLIDE",
@@ -164,6 +168,7 @@ const expectedEnvironment = {
     "MATERIAL_USER_MAX_FILES",
     "MATERIAL_USER_QUOTA_BYTES",
     "NO_PROXY",
+    "REDIS_URL",
     "UPLOAD_ORPHAN_RETENTION_HOURS",
     "UPLOAD_STORAGE_ROOT",
     "UPLOAD_STORAGE_SWEEP_MS",
@@ -181,6 +186,7 @@ const expectedEnvironment = {
     "LOG_LEVEL",
     "MPLCONFIGDIR",
     "NO_PROXY",
+    "REDIS_URL",
     "PPT_AGENT_INLINE_CONTEXT",
     "PPT_AGENT_INLINE_CONTEXT_MAX_BYTES",
     "PPT_AGENT_KEEP_LIVE_PREVIEW",
@@ -238,6 +244,7 @@ function assertEqual(label, actual, expected) {
 
 const expectedCapabilities = {
   postgres: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"],
+  redis: ["SETGID", "SETUID"],
   app: ["CHOWN", "KILL", "SETGID", "SETUID"],
   "image-worker": ["CHOWN", "KILL", "SETGID", "SETUID"],
   "ppt-worker": ["CHOWN", "KILL", "SETGID", "SETUID"],
@@ -298,6 +305,13 @@ try {
   const postgresCommand = config.services.postgres.command ?? [];
   if (!postgresCommand.includes("max_connections=100")) {
     throw new Error("postgres max_connections must be explicitly bounded.");
+  }
+  const redisCommand = config.services.redis.command ?? [];
+  const redisPolicyIndex = redisCommand.indexOf("--maxmemory-policy");
+  if (redisCommand[redisPolicyIndex + 1] !== "noeviction") {
+    throw new Error(
+      "redis maxmemory policy must be noeviction so rate-limit keys cannot be evicted.",
+    );
   }
   const expectedPoolLimits = {
     app: "10",
