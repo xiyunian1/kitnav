@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
+import { BRAND_NAME, BRAND_TAGLINE } from "@/lib/brand";
 
 export default function MarketingLayout({
   children,
@@ -17,7 +18,7 @@ export default function MarketingLayout({
             <span className="flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
               <Sparkles className="size-3.5" aria-hidden="true" />
             </span>
-            AI 聚合站
+            {BRAND_NAME}
           </p>
           <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
             <Link href="/image" className="transition-colors hover:text-foreground">
@@ -31,7 +32,7 @@ export default function MarketingLayout({
             </Link>
           </nav>
           <p className="text-center">
-            一站式 AI 创作平台
+            {BRAND_TAGLINE}
             {process.env.NEXT_PUBLIC_ICP && (
               <a
                 href="https://beian.miit.gov.cn/"

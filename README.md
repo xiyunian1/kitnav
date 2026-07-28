@@ -1,4 +1,4 @@
-# AI 聚合站
+# KitNav AI
 
 基于 Next.js 的 AI 创作平台，包含图片创作、PPT Master 生成、素材库、积分充值、BYOK API 配置和管理后台。
 

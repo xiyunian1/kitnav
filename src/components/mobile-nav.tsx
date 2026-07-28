@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Menu } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
+import { BRAND_NAME } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 import { SidebarNavClient } from "@/components/sidebar-nav-client";
 import type { SidebarControlState } from "@/lib/module-controls";
@@ -37,7 +38,7 @@ export function MobileNav({
           )}
         >
           <DialogPrimitive.Title className="px-3 pb-2 text-lg font-bold">
-            AI 聚合站
+            {BRAND_NAME}
           </DialogPrimitive.Title>
           <DialogPrimitive.Description className="sr-only">
             站点导航菜单

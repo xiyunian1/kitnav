@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPostgresDatabaseUrl } from "@/lib/database-url";
 import { recordDailyActivity } from "@/lib/activity";
+import { BRAND_NAME } from "@/lib/brand";
 import { Button } from "@/components/ui/button";
 import { UserMenu } from "@/components/user-menu";
 import { MobileNav } from "@/components/mobile-nav";
@@ -50,7 +51,7 @@ export async function SiteHeader({ showMobileNav = false }: { showMobileNav?: bo
             <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
               <Sparkles className="size-5" aria-hidden="true" />
             </span>
-            AI 聚合站
+            {BRAND_NAME}
           </Link>
         </div>
 

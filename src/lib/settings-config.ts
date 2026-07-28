@@ -1,6 +1,8 @@
 // 系统设置的 key 与默认值集中定义。
 // seed 用它初始化 Setting 表，后台设置页读写这些 key。
 
+import { BRAND_NAME } from "./brand";
+
 export const SETTING_KEYS = {
   SITE_NAME: "site_name",
   MAINTENANCE_MODE: "maintenance_mode",
@@ -25,7 +27,7 @@ export const SETTING_KEYS = {
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
 
 export const DEFAULT_SETTINGS: Record<string, string> = {
-  [SETTING_KEYS.SITE_NAME]: "AI 聚合站",
+  [SETTING_KEYS.SITE_NAME]: BRAND_NAME,
   [SETTING_KEYS.MAINTENANCE_MODE]: "0",
   [SETTING_KEYS.MAINTENANCE_MESSAGE]: "系统维护中，请稍后再试",
   [SETTING_KEYS.REGISTRATION_MODE]: "open",

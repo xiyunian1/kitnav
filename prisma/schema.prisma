@@ -1,4 +1,4 @@
-// Prisma schema —— AI 聚合站
+// Prisma schema —— KitNav AI
 // 文档: https://pris.ly/d/prisma-schema
 
 generator client {

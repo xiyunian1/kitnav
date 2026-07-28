@@ -220,7 +220,7 @@ for (const path of ["/image", "/ppt"]) {
   const response = await request(path, {}, firstJar);
   const body = await response.text();
   assert.equal(response.status, 200, `${path} failed to render`);
-  assert.ok(body.includes("AI 聚合站"), `${path} returned an unexpected page`);
+  assert.ok(body.includes("KitNav AI"), `${path} returned an unexpected page`);
 }
 
 await clearConversations(firstJar);

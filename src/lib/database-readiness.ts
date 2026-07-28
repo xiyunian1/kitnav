@@ -16,6 +16,7 @@ export const REQUIRED_DATABASE_MIGRATIONS = [
   "20260723010000_ppt_active_generation_timing",
   "20260724010000_image_result_retention",
   "20260724020000_guest_showcase_mode",
+  "20260728010000_rename_site_brand",
 ] as const;
 
 export interface MigrationReadinessRow {

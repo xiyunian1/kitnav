@@ -3,7 +3,7 @@ import { Geist } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
-import { DEFAULT_SETTINGS, SETTING_KEYS } from "@/lib/settings-config";
+import { BRAND_DESCRIPTION, BRAND_NAME } from "@/lib/brand";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,26 +13,24 @@ const geistSans = Geist({
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://example.com";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const siteName = DEFAULT_SETTINGS[SETTING_KEYS.SITE_NAME] || "AI 聚合站";
-  const description = "一站式 AI 创作平台：图片生成、素材管理和提示词工作流等";
   return {
     title: {
-      default: siteName,
-      template: `%s · ${siteName}`,
+      default: BRAND_NAME,
+      template: `%s · ${BRAND_NAME}`,
     },
-    description,
+    description: BRAND_DESCRIPTION,
     metadataBase: new URL(siteUrl),
     openGraph: {
       type: "website",
-      siteName,
-      title: siteName,
-      description,
+      siteName: BRAND_NAME,
+      title: BRAND_NAME,
+      description: BRAND_DESCRIPTION,
       locale: "zh_CN",
     },
     twitter: {
       card: "summary_large_image",
-      title: siteName,
-      description,
+      title: BRAND_NAME,
+      description: BRAND_DESCRIPTION,
     },
     robots: {
       index: true,

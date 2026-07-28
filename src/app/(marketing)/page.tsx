@@ -10,6 +10,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { auth } from "@/lib/auth";
+import { BRAND_DESCRIPTION, BRAND_NAME, BRAND_TAGLINE } from "@/lib/brand";
 import { getVisibleMarketingModules } from "@/lib/module-controls";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -46,9 +47,9 @@ export default async function HomePage() {
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "WebSite",
-    name: "AI 聚合站",
+    name: BRAND_NAME,
     url: siteUrl,
-    description: "一站式 AI 创作平台：图片生成、素材管理和提示词工作流等",
+    description: BRAND_DESCRIPTION,
   };
 
   return (
@@ -62,7 +63,7 @@ export default async function HomePage() {
           <div className="max-w-2xl">
             <div className="mb-5 inline-flex items-center gap-2 rounded-full border bg-background px-3.5 py-1.5 text-sm text-muted-foreground shadow-sm">
               <Sparkles className="size-4 text-primary" />
-              AI 聚合站 · 一站式 AI 创作平台
+              {BRAND_NAME} · {BRAND_TAGLINE}
             </div>
             <h1 className="text-4xl font-bold leading-tight tracking-tight text-foreground sm:text-5xl">
               从灵感到成品
