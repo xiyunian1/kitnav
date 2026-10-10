@@ -166,7 +166,7 @@ function writePiConfig(
 									: ["text"],
 								contextWindow: numberEnv("PPT_PI_CONTEXT_WINDOW", 128000),
 								maxTokens: numberEnv("PPT_PI_MAX_TOKENS", 16384),
-								cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+								cost: resolvePptModelPricing(id),
 								thinkingLevelMap: buildThinkingLevelMap(),
 							})),
 						},
@@ -237,6 +237,47 @@ function resolvePiReasoningEnabled() {
 function buildPiProviderHeaders() {
 	return {
 		"User-Agent": process.env.PPT_PI_USER_AGENT?.trim() || "node",
+	};
+}
+
+export interface PptModelPricing {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+}
+
+/**
+ * 读取 PPT_PI_MODEL_PRICING（JSON，单位：元/百万 token），按模型 ID 匹配，"*" 为默认值，例如：
+ * {"deepseek-v4-pro": {"input": 4, "output": 16, "cacheRead": 1}, "*": {"input": 2, "output": 8}}
+ * 单价写入 models.json 后，Pi 会按每次回复的实际用量计算费用，费用随运行记录一起保存。
+ */
+export function resolvePptModelPricing(
+	modelId: string,
+	environment: Readonly<Record<string, string | undefined>> = process.env,
+): PptModelPricing {
+	const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+	const raw = environment.PPT_PI_MODEL_PRICING?.trim();
+	if (!raw) return zero;
+	let table: unknown;
+	try {
+		table = JSON.parse(raw);
+	} catch {
+		return zero;
+	}
+	if (!table || typeof table !== "object" || Array.isArray(table)) return zero;
+	const entries = table as Record<string, unknown>;
+	const entry = entries[modelId] ?? entries["*"];
+	if (!entry || typeof entry !== "object") return zero;
+	const price = (key: keyof PptModelPricing) => {
+		const value = Number((entry as Record<string, unknown>)[key]);
+		return Number.isFinite(value) && value >= 0 ? value : 0;
+	};
+	return {
+		input: price("input"),
+		output: price("output"),
+		cacheRead: price("cacheRead"),
+		cacheWrite: price("cacheWrite"),
 	};
 }
 

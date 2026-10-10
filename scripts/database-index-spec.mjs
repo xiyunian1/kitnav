@@ -58,6 +58,12 @@ export const requiredDatabaseIndexes = Object.freeze([
     table: "MaterialReport",
     columns: ["reporterId"],
   },
+  {
+    name: "PptAgentRun_projectId_createdAt_idx",
+    table: "PptAgentRun",
+    columns: ["projectId", "createdAt"],
+  },
+  { name: "PptAgentRun_createdAt_idx", table: "PptAgentRun", columns: ["createdAt"] },
 ]);
 
 export const removedDatabaseIndexes = Object.freeze([

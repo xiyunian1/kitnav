@@ -628,8 +628,9 @@ model PptProject {
   activeGenerationSeconds   Int       @default(0) // 累计实际执行秒数，不含排队、确认和重试等待
   artifactsDeletedAt        DateTime? // 生成文件按保留策略清理时间，项目元数据仍保留
 
-  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  slides PptSlide[]
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slides    PptSlide[]
+  agentRuns PptAgentRun[]
 
   @@index([userId, createdAt])
   @@index([userId, updatedAt])
@@ -637,6 +638,35 @@ model PptProject {
   @@index([status, workerLease, createdAt])
   @@index([status, updatedAt])
   @@index([status, completedAt])
+  @@index([createdAt])
+}
+
+/// PPT Agent 每次调用 Pi 的运行记录：阶段、轮数、token 用量、费用、耗时和结束状态，用于成本与稳定性分析。
+model PptAgentRun {
+  id               String   @id @default(cuid())
+  projectId        String
+  phase            String // initial / strategist / executor / review / image-generator 等，取自会话 ID
+  sessionId        String
+  turn             Int // 本阶段内第几次调用（续跑会递增）
+  model            String?
+  status           String // ok / recovered / error / timeout / stalled / cancelled
+  stopReason       String?
+  numTurns         Int      @default(0) // 本次调用内模型的回合数
+  llmCalls         Int      @default(0)
+  usageReported    Boolean  @default(false) // 服务商未在流式响应中返回用量时为 false
+  inputTokens      Int      @default(0)
+  outputTokens     Int      @default(0)
+  cacheReadTokens  Int      @default(0)
+  cacheWriteTokens Int      @default(0)
+  cost             Float    @default(0) // 按 PPT_PI_MODEL_PRICING 计算，单位：元
+  toolCalls        Int      @default(0)
+  durationMs       Int
+  error            String?
+  createdAt        DateTime @default(now())
+
+  project PptProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
   @@index([createdAt])
 }
 

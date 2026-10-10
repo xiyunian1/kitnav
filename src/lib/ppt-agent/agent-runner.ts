@@ -141,7 +141,13 @@ import {
 } from "./image-prompt-planning";
 import { runPptPostExecutionGates } from "./post-execution";
 import {
+	classifyPptAgentFailure,
+	recordPptAgentRun,
+	type PptAgentRunStatus,
+} from "./agent-run-metrics";
+import {
 	AgentResultMetadataCollector,
+	parsePptSessionPhase,
 	buildPptAttemptSessionId,
 	buildPptExecutorContinuePrompt,
 	createPptArtifactWatchdogState,
@@ -3038,6 +3044,24 @@ async function runCommand(
 		let settled = false;
 		let terminationError: Error | null = null;
 		const startedAt = Date.now();
+		// 每次调用结束时记录一条运行数据（阶段、token、费用、耗时、结束状态），写库失败不影响生成
+		const recordRun = (status: PptAgentRunStatus, error?: string) => {
+			const metadata = metadataCollector.getMetadata();
+			return recordPptAgentRun({
+				projectId,
+				phase: parsePptSessionPhase(projectId, command.sessionId),
+				sessionId: command.sessionId,
+				turn,
+				model: command.piConfig.model,
+				status,
+				stopReason: metadata.stopReason,
+				numTurns: metadata.numTurns,
+				usage: metadata.usage,
+				toolCalls: toolCollector.getCalls().length,
+				durationMs: Date.now() - startedAt,
+				error,
+			});
+		};
 		let logBytes = existsSync(logPath) ? statSync(logPath).size : 0;
 		let logLimitReached = logBytes >= MAX_AGENT_LOG_BYTES;
 		const appendAgentLog = (text: string) => {
@@ -3231,6 +3255,7 @@ async function runCommand(
 			clearTimeout(timeout);
 			if (settled) return;
 			settled = true;
+			void recordRun("error", `无法启动 PPT Master agent：${error.message}`);
 			reject(new Error(`无法启动 PPT Master agent：${error.message}`));
 		});
 
@@ -3244,6 +3269,10 @@ async function runCommand(
 			await pendingLogWrites.drain();
 			emitPreviews(projectId, options);
 			if (terminationError) {
+				await recordRun(
+					classifyPptAgentFailure(terminationError, Boolean(options.signal?.aborted)),
+					terminationError.message,
+				);
 				reject(terminationError);
 				return;
 			}
@@ -3256,6 +3285,7 @@ async function runCommand(
 						`pi provider error: ${metadata.errorMessage}`,
 						options.workerLease,
 					).catch(onError("agent-runner", "发出项目日志失败"));
+					await recordRun("error", `pi provider error: ${metadata.errorMessage}`);
 					reject(
 						new Error(`PPT Master agent 调用模型失败：${metadata.errorMessage}`),
 					);
@@ -3267,6 +3297,7 @@ async function runCommand(
 					`agent 第 ${turn} 轮结束：stop_reason=${metadata.stopReason || "unknown"}，num_turns=${metadata.numTurns || 0}`,
 					options.workerLease,
 				).catch(onError("agent-runner", "发出项目日志失败"));
+				await recordRun("ok");
 				resolvePromise({
 					output,
 					...metadata,
@@ -3283,6 +3314,7 @@ async function runCommand(
 					options.workerLease,
 				).catch(onError("agent-runner", "发出项目日志失败"));
 				const metadata = metadataCollector.getMetadata();
+				await recordRun("recovered");
 				resolvePromise({
 					output,
 					...metadata,
@@ -3292,6 +3324,7 @@ async function runCommand(
 				return;
 			}
 			const tail = output.split(/\r?\n/).filter(Boolean).slice(-12).join("\n");
+			await recordRun("error", `退出码 ${code}\n${tail}`);
 			reject(new Error(`PPT Master agent 退出码 ${code}。\n${tail}`));
 		});
 	});

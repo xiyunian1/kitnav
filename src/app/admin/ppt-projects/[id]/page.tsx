@@ -5,6 +5,8 @@ import { formatChinaDateTime } from "@/lib/date-format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { summarizePptAgentRuns } from "@/lib/ppt-agent/agent-run-metrics";
+import { AgentPhaseTable, AgentRunList, AgentUsageTotals } from "../agent-run-stats";
 
 export const metadata = { title: "PPT 记录详情" };
 
@@ -56,6 +58,13 @@ export default async function AdminPptProjectDetailPage({
   });
 
   if (!project) notFound();
+
+  const agentRuns = await prisma.pptAgentRun.findMany({
+    where: { projectId: id },
+    orderBy: { createdAt: "asc" },
+    take: 500,
+  });
+  const runSummary = summarizePptAgentRuns(agentRuns);
 
   const meta = STATUS_META[project.status] || {
     label: project.status,
@@ -134,6 +143,23 @@ export default async function AdminPptProjectDetailPage({
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Agent 运行明细</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {agentRuns.length === 0 ? (
+            <p className="text-sm text-muted-foreground">暂无运行记录（该项目可能生成于统计功能上线之前）。</p>
+          ) : (
+            <>
+              <AgentUsageTotals totals={runSummary.totals} />
+              <AgentPhaseTable summary={runSummary} />
+              <AgentRunList runs={agentRuns} />
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

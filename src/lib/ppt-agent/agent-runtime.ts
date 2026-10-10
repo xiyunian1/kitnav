@@ -4,6 +4,28 @@ export interface AgentResultMetadata {
 	numTurns: number;
 	resultText: string;
 	errorMessage: string;
+	usage: AgentUsage;
+}
+
+/** 一次 agent 会话内所有模型回复的用量合计。cost 单位与 models.json 中配置的单价一致（元/百万 token）。 */
+export interface AgentUsage {
+	llmCalls: number;
+	/** 至少一条回复带有 token 用量；为 false 时说明服务商没有在流式响应中返回用量。 */
+	reported: boolean;
+	inputTokens: number;
+	outputTokens: number;
+	cacheReadTokens: number;
+	cacheWriteTokens: number;
+	cost: number;
+}
+
+interface PiUsage {
+	input?: unknown;
+	output?: unknown;
+	cacheRead?: unknown;
+	cacheWrite?: unknown;
+	totalTokens?: unknown;
+	cost?: { total?: unknown };
 }
 
 interface PiAssistantMessage {
@@ -12,6 +34,25 @@ interface PiAssistantMessage {
 	stop_reason?: unknown;
 	errorMessage?: unknown;
 	content?: unknown;
+	usage?: PiUsage;
+	timestamp?: unknown;
+	responseId?: unknown;
+}
+
+export function emptyAgentUsage(): AgentUsage {
+	return {
+		llmCalls: 0,
+		reported: false,
+		inputTokens: 0,
+		outputTokens: 0,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+		cost: 0,
+	};
+}
+
+function finiteNumber(value: unknown) {
+	return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 export interface PptArtifactWatchdogState {
@@ -58,6 +99,8 @@ const MAX_NO_ARTIFACT_TIMEOUT_MS = 2 * 60 * 60_000;
 export class AgentResultMetadataCollector {
 	private readonly metadata: AgentResultMetadata;
 	private sawAgentEnd = false;
+	/** 同一条回复会出现在 message_end、turn_end 和 agent_end 中，按时间戳和响应 ID 去重后再累计用量。 */
+	private readonly countedMessages = new Set<string>();
 
 	constructor(requestedSessionId: string) {
 		this.metadata = {
@@ -66,6 +109,7 @@ export class AgentResultMetadataCollector {
 			numTurns: 0,
 			resultText: "",
 			errorMessage: "",
+			usage: emptyAgentUsage(),
 		};
 	}
 
@@ -90,6 +134,10 @@ export class AgentResultMetadataCollector {
 			this.metadata.numTurns += 1;
 		}
 		if (item.message) this.consumeAssistantMessage(item.message);
+		// 流式过程中的 message_start / message_update 只有部分用量，只在消息完成的事件里累计
+		if (item.message && (item.type === "message_end" || item.type === "turn_end")) {
+			this.consumeUsage(item.message);
+		}
 		if (item.type === "result") {
 			if (typeof item.stop_reason === "string") {
 				this.metadata.stopReason = item.stop_reason;
@@ -103,6 +151,7 @@ export class AgentResultMetadataCollector {
 		}
 		if (item.type === "agent_end") {
 			this.sawAgentEnd = true;
+			// agent_end 在续跑同一会话时可能包含之前轮次的消息，不从这里累计用量，避免重复计算
 			if (Array.isArray(item.messages)) {
 				const lastAssistant = [...item.messages]
 					.reverse()
@@ -122,9 +171,33 @@ export class AgentResultMetadataCollector {
 	getMetadata(): AgentResultMetadata {
 		return {
 			...this.metadata,
+			usage: { ...this.metadata.usage },
 			stopReason:
 				this.metadata.stopReason || (this.sawAgentEnd ? "agent_end" : ""),
 		};
+	}
+
+	private consumeUsage(message: PiAssistantMessage) {
+		if (message.role !== "assistant") return;
+		const usage = message.usage;
+		if (!usage || typeof usage !== "object") return;
+		const key = `${String(message.timestamp ?? "")}:${String(message.responseId ?? "")}`;
+		if (key === ":" || this.countedMessages.has(key)) return;
+		this.countedMessages.add(key);
+		const total = this.metadata.usage;
+		total.llmCalls += 1;
+		const input = finiteNumber(usage.input);
+		const output = finiteNumber(usage.output);
+		const cacheRead = finiteNumber(usage.cacheRead);
+		const cacheWrite = finiteNumber(usage.cacheWrite);
+		total.inputTokens += input;
+		total.outputTokens += output;
+		total.cacheReadTokens += cacheRead;
+		total.cacheWriteTokens += cacheWrite;
+		total.cost += finiteNumber(usage.cost?.total);
+		if (input + output + cacheRead + cacheWrite + finiteNumber(usage.totalTokens) > 0) {
+			total.reported = true;
+		}
 	}
 
 	private consumeAssistantMessage(message: PiAssistantMessage) {
@@ -165,6 +238,17 @@ export function extractAgentResultMetadata(
 		collector.consumeJsonLine(line);
 	}
 	return collector.getMetadata();
+}
+
+/**
+ * 从会话 ID 中取出阶段名。会话 ID 由 buildPptAttemptSessionId 生成，格式为
+ * `<projectId>-<phase>-a<retryAttempt>-<workerLease 前 12 位>`；不符合该格式时返回 "agent"。
+ */
+export function parsePptSessionPhase(projectId: string, sessionId: string) {
+	const prefix = `${sanitizePptAgentSessionId(projectId)}-`;
+	if (!sessionId.startsWith(prefix)) return "agent";
+	const match = sessionId.slice(prefix.length).match(/^(.+?)-a\d+-/);
+	return match ? match[1] : "agent";
 }
 
 export function sanitizePptAgentSessionId(value: string) {

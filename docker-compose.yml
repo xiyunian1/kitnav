@@ -277,6 +277,7 @@ services:
       PPT_PI_SUPPORTS_USAGE_IN_STREAMING: "${PPT_PI_SUPPORTS_USAGE_IN_STREAMING:-false}"
       PPT_PI_MAX_TOKENS_FIELD: "${PPT_PI_MAX_TOKENS_FIELD:-max_tokens}"
       PPT_PI_THINKING_VALUE: "${PPT_PI_THINKING_VALUE:-xhigh}"
+      PPT_PI_MODEL_PRICING: "${PPT_PI_MODEL_PRICING:-}"
       XDG_CACHE_HOME: /tmp/cache
       MPLCONFIGDIR: /tmp/matplotlib
     command: ["sh", "./scripts/docker-entrypoint.sh", "worker"]

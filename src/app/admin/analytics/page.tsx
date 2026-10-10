@@ -3,6 +3,16 @@ import type { ModuleType } from "@prisma/client";
 import { getChinaDayStart, getRecentChinaDayKeys, recordDailyActivity } from "@/lib/activity";
 import { requireAdmin } from "@/lib/admin-guard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { summarizePptAgentRuns } from "@/lib/ppt-agent/agent-run-metrics";
+import {
+  AgentPhaseTable,
+  AgentUsageTotals,
+  formatCost,
+  formatDuration,
+  formatPercent,
+  formatTokens,
+  RUN_STATUS_META,
+} from "../ppt-projects/agent-run-stats";
 
 export const metadata = { title: "数据看板" };
 const SUPPORTED_GENERATION_MODULES: ModuleType[] = ["IMAGE", "VIDEO"];
@@ -60,6 +70,7 @@ export default async function AdminAnalyticsPage() {
       take: 10,
     }),
   ]);
+  const pptAgent = await loadPptAgentStats();
   const activeByDay = new Map(dailyActiveRows.map((row) => [row.day, row._count._all]));
   const todayActive = activeByDay.get(todayKey) ?? 0;
   const averageActive = (
@@ -95,6 +106,35 @@ export default async function AdminAnalyticsPage() {
           </Card>
         ))}
       </div>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">PPT Agent（近 30 天）</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
+            {pptAgent.headline.map(([label, value]) => (
+              <div key={label}>
+                <div className="text-xs text-muted-foreground">{label}</div>
+                <div className="text-lg font-semibold">{value}</div>
+              </div>
+            ))}
+          </div>
+          {pptAgent.summary.totals.runs === 0 ? (
+            <p className="text-sm text-muted-foreground">近 30 天没有 Agent 运行记录。</p>
+          ) : (
+            <>
+              <AgentUsageTotals totals={pptAgent.summary.totals} />
+              <AgentPhaseTable summary={pptAgent.summary} />
+              <p className="text-xs text-muted-foreground">
+                调用结束状态：
+                {Object.entries(pptAgent.summary.statusCounts)
+                  .map(([status, count]) => `${RUN_STATUS_META[status]?.label ?? status} ${count}`)
+                  .join("，")}
+              </p>
+            </>
+          )}
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader>
           <CardTitle className="text-base">近 7 日日活</CardTitle>
@@ -142,4 +182,52 @@ export default async function AdminAnalyticsPage() {
       </Card>
     </div>
   );
+}
+
+/** PPT 生成的成功率、单份耗时与成本，以及按阶段的用量分布。 */
+async function loadPptAgentStats() {
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const [statusRows, completed, runs] = await Promise.all([
+    prisma.pptProject.groupBy({
+      by: ["status"],
+      where: { createdAt: { gte: since }, status: { not: "DRAFT" } },
+      _count: { _all: true },
+    }),
+    prisma.pptProject.aggregate({
+      where: { createdAt: { gte: since }, status: { in: ["READY", "COMPLETED"] } },
+      _avg: { activeGenerationSeconds: true },
+    }),
+    prisma.pptAgentRun.findMany({
+      where: { createdAt: { gte: since } },
+      select: {
+        projectId: true,
+        phase: true,
+        status: true,
+        llmCalls: true,
+        usageReported: true,
+        inputTokens: true,
+        outputTokens: true,
+        cacheReadTokens: true,
+        cacheWriteTokens: true,
+        cost: true,
+        durationMs: true,
+      },
+    }),
+  ]);
+  const countOf = (statuses: string[]) =>
+    statusRows.filter((row) => statuses.includes(row.status)).reduce((sum, row) => sum + row._count._all, 0);
+  const succeeded = countOf(["READY", "COMPLETED"]);
+  const failed = countOf(["FAILED"]);
+  const total = statusRows.reduce((sum, row) => sum + row._count._all, 0);
+  const summary = summarizePptAgentRuns(runs);
+  const projectsWithRuns = new Set(runs.map((run) => run.projectId)).size || 1;
+  const stuck = (summary.statusCounts.stalled ?? 0) + (summary.statusCounts.timeout ?? 0);
+  const headline: [string, string][] = [
+    ["项目数 / 成功率", `${total} / ${succeeded + failed ? formatPercent(succeeded / (succeeded + failed)) : "-"}`],
+    ["成功项目平均生成时长", formatDuration((completed._avg.activeGenerationSeconds ?? 0) * 1000)],
+    ["单个项目平均 token（输入+输出）", formatTokens(Math.round((summary.totals.inputTokens + summary.totals.outputTokens) / projectsWithRuns))],
+    ["单个项目平均费用", formatCost(summary.totals.cost / projectsWithRuns)],
+    ["超时或无进展终止", summary.totals.runs ? `${stuck} 次（${formatPercent(stuck / summary.totals.runs)}）` : "-"],
+  ];
+  return { summary, headline };
 }
