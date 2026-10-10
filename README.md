@@ -100,6 +100,28 @@ npm run prod:backup -- --keep 30 --mirror-dir /mnt/offsite/ai-aggregator
 - 游客账号不计入注册人数上限和后台用户统计，管理后台不能修改其角色、状态或积分。
 - 将开关改回 `false` 并重启后，已存在的游客会话立即失效并被重定向到登录页。
 
+## MCP Server
+
+`/api/mcp` 是一个 [MCP](https://modelcontextprotocol.io) Streamable HTTP 端点（无状态模式，JSON 响应），
+让 Claude Code、Cursor 等 MCP 客户端以用户身份直接生成 PPT。
+
+- **认证**：用户在「API 设置 → MCP 访问令牌」创建个人访问令牌（`kn_` 开头，可选 30 天 / 90 天 / 1 年 / 永不过期，每人最多 5 个），
+  明文只显示一次，数据库只存 SHA-256 摘要；撤销后立即失效。被封禁用户和游客账号的令牌不可用。
+- **工具**：`list_ppt_models`、`create_ppt`、`get_ppt_status`、`confirm_ppt_plan`、`get_ppt_download`、`list_my_ppts`。
+  创建、确认方案与网页端调用同一套实现（`createPptGeneration`、`submitPptPlanningConfirmation`），
+  校验、并发限制、积分预扣与退款完全一致。
+- **人在环路**：`create_ppt` 传 `confirm_design: true` 时，项目生成设计方案后暂停，`get_ppt_status` 返回方案选项，
+  客户端把选项展示给用户后调用 `confirm_ppt_plan`（未指定的项采用推荐值）。
+- **下载**：`get_ppt_download` 返回 1 小时内有效、带 HMAC 签名（`AUTH_SECRET`）的下载链接，无需登录会话；签名不对、过期或有效期超过上限都会被拒绝。
+- **限流**：每个用户每分钟 60 次（`MCP_RATE_MAX` / `MCP_RATE_WINDOW_MS`）；无效令牌按 IP 每分钟 20 次（`MCP_AUTH_FAILURE_RATE_MAX` / `MCP_AUTH_FAILURE_RATE_WINDOW_MS`）。
+- 下载链接中的站点地址取 `NEXT_PUBLIC_SITE_URL`，未配置时使用请求地址。
+
+Claude Code 接入示例：
+
+```bash
+claude mcp add --transport http kitnav https://your-domain.com/api/mcp --header "Authorization: Bearer kn_..."
+```
+
 ## Redis（可选）
 
 配置 `REDIS_URL` 后，以下路径切换到 Redis，未配置或 Redis 故障时**自动回退**到原有 PostgreSQL 实现，不影响任何功能正确性：

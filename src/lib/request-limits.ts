@@ -163,4 +163,20 @@ export const REQUEST_LIMITS = {
     defaultWindowMs: 60_000,
     message: "模型接口探测过于频繁，请稍后再试",
   },
+  mcp: {
+    prefix: "mcp",
+    maxEnv: "MCP_RATE_MAX",
+    windowEnv: "MCP_RATE_WINDOW_MS",
+    defaultMax: 60,
+    defaultWindowMs: 60_000,
+    message: "MCP 请求过于频繁，请稍后再试。",
+  },
+  mcpAuthFailure: {
+    prefix: "mcp-auth-failure",
+    maxEnv: "MCP_AUTH_FAILURE_RATE_MAX",
+    windowEnv: "MCP_AUTH_FAILURE_RATE_WINDOW_MS",
+    defaultMax: 20,
+    defaultWindowMs: 60_000,
+    message: "访问令牌校验失败次数过多，请稍后再试。",
+  },
 } satisfies Record<string, LimitOptions>;

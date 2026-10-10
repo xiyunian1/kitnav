@@ -53,8 +53,26 @@ model User {
   registrationEvents RegistrationEvent[]
   dailyActivities    UserDailyActivity[]
   pptProjects        PptProject[]
+  apiAccessTokens    ApiAccessToken[]
 
   @@index([createdAt])
+}
+
+/// 个人访问令牌，供 MCP 等外部客户端以用户身份调用。只保存 SHA-256 摘要，明文仅在创建时展示一次。
+model ApiAccessToken {
+  id          String    @id @default(cuid())
+  userId      String
+  name        String
+  tokenHash   String    @unique
+  tokenPrefix String // 明文前缀，用于在列表中辨认令牌
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 // Auth.js 标准表（预留 OAuth；session 策略用 JWT，但保留表结构便于扩展）

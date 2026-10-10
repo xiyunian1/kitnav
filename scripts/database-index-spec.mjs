@@ -64,6 +64,11 @@ export const requiredDatabaseIndexes = Object.freeze([
     columns: ["projectId", "createdAt"],
   },
   { name: "PptAgentRun_createdAt_idx", table: "PptAgentRun", columns: ["createdAt"] },
+  {
+    name: "ApiAccessToken_userId_createdAt_idx",
+    table: "ApiAccessToken",
+    columns: ["userId", "createdAt"],
+  },
 ]);
 
 export const removedDatabaseIndexes = Object.freeze([

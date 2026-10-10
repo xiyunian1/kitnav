@@ -12,6 +12,8 @@ import {
   type UserConfigInitial,
 } from "@/components/user-api-config-form";
 import { Info } from "lucide-react";
+import { ApiTokenManager } from "@/components/api-token-manager";
+import { listApiAccessTokens } from "@/lib/api-access-tokens";
 
 export const metadata = { title: "API 设置" };
 
@@ -32,6 +34,8 @@ export default async function ApiSettingsPage() {
     where: { userId, module: { in: CONFIGURABLE_MODULES } },
   });
   const byModule = new Map(configs.map((c) => [c.module, c]));
+  const apiTokens = await listApiAccessTokens(userId);
+  const mcpEndpoint = `${(process.env.NEXT_PUBLIC_SITE_URL || process.env.AUTH_URL || "").replace(/\/$/, "")}/api/mcp`;
 
   function initialFor(moduleType: string): UserConfigInitial {
     const c = byModule.get(moduleType as never);
@@ -91,6 +95,18 @@ export default async function ApiSettingsPage() {
           </TabsContent>
         ))}
       </Tabs>
+
+      <ApiTokenManager
+        endpoint={mcpEndpoint}
+        tokens={apiTokens.map((token) => ({
+          id: token.id,
+          name: token.name,
+          tokenPrefix: token.tokenPrefix,
+          createdAt: token.createdAt.toISOString(),
+          lastUsedAt: token.lastUsedAt?.toISOString() ?? null,
+          expiresAt: token.expiresAt?.toISOString() ?? null,
+        }))}
+      />
     </div>
   );
 }
