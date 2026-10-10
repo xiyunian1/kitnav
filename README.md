@@ -8,7 +8,61 @@
 - PostgreSQL 16、Prisma 6、Auth.js v5、Redis 7（可选，限流与热点缓存）
 - Tailwind CSS v4、Radix UI
 - 独立图片 Worker、独立 PPT Worker、Pi Coding Agent、PPT Master Python 工具链
+- MCP（`@modelcontextprotocol/sdk`，Streamable HTTP）
 - Docker Compose、Caddy
+
+## 架构
+
+```mermaid
+flowchart TB
+    BR["浏览器"] --> CD["Caddy · HTTPS"]
+    MC["MCP 客户端<br/>Claude Code · Cursor"] -- "Bearer 访问令牌" --> CD
+    CD --> APP["app · Next.js 16<br/>页面与 API · /api/mcp（MCP Server）· 管理后台<br/>Auth.js · 积分预扣 / 退款"]
+    APP --> PG[("PostgreSQL 16<br/>业务数据 · 任务队列 · Agent 运行记录")]
+    APP -.-> RD[("Redis 7（可选）<br/>限流 · 热点缓存<br/>故障时回退 PostgreSQL")]
+    IW["image-worker"] -- "SKIP LOCKED 抢占任务" --> PG
+    PW["ppt-worker"] -- "SKIP LOCKED 抢占任务 · 写心跳" --> PG
+    IW --> IMG["图片模型"]
+    PW --> PI["Pi Agent 子进程<br/>受限工具扩展"]
+    PI --> LLM["文本模型<br/>OpenAI 兼容"]
+    PI --> PM["PPT Master<br/>Python 工具链（白名单脚本）"]
+    PM --> FS[("项目文件<br/>SVG · PPTX")]
+```
+
+网页和 MCP 两个入口调用同一套业务函数（`src/lib/ppt-agent/generation-request.ts` 等），校验、并发限制、积分预扣与退款规则一致。
+生成任务写入 PostgreSQL 队列后由独立 Worker 执行，浏览器或 MCP 客户端断开不影响任务，只需轮询状态。
+
+### PPT 生成 Agent
+
+每个阶段是一次独立的 Pi 会话（会话 ID 带阶段名），阶段之间通过项目目录里的规划文件、执行契约和产物交接。
+
+```mermaid
+flowchart TD
+    A["创建项目<br/>网页 / MCP create_ppt"] --> B["校验 · 积分预扣 · 入队"]
+    B --> C["规划 initial<br/>Strategist 给出叙事、页面计划和风格候选"]
+    C -->|"开启设计确认"| D{{"等待确认<br/>网页选择 / MCP confirm_ppt_plan"}}
+    C -->|"未开启"| AUTO["自动采用推荐方案"]
+    D --> E["确认后规划 confirmed-planning<br/>生成完整执行契约"]
+    AUTO --> E
+    E -->|"选了图片模型"| F["图片规划 image-generator"]
+    E --> G
+    F --> G["逐页生成 executor<br/>写 SVG；中途退出按已完成页数续跑"]
+    G --> H["宿主校验<br/>读取与写入顺序、产物完整性"]
+    H --> I["图表校准 chart-verification"]
+    I -->|"开启视觉复核"| J["视觉复核 review<br/>渲染 PNG 后逐页检查"]
+    J -->|"修改了图表页"| K["图表复校 chart-reverification"]
+    I --> L["可编辑 PPTX"]
+    J --> L
+    K --> L
+    G -.->|"超时 / 连续无进展 / 出错"| X["失败 · 幂等退款"]
+```
+
+- **人在环路**：开启设计确认时，规划阶段结束后任务暂停为"待确认"，用户在网页或 MCP 客户端选择方向、配色、字体和配图策略后重新入队。
+- **卡死与续跑**：Agent 在页数未完成时退出会自动续跑；连续多轮没有新产物判定为无进展并终止，避免空耗 token。
+- **沙箱**：Pi 只能调用白名单内的 PPT Master 脚本，不能读取 Agent 配置和会话文件；模型 API Key 只通过子进程环境变量传递。
+- **可靠性**：Worker 写数据库心跳，重启后重新排队活跃项目；心跳超时的任务自动失败并幂等退款。
+- **可观测性**：每次 Pi 调用记录阶段、token（含缓存命中）、费用、耗时和结束状态，后台按阶段统计，详见 [README_PPT_MODULE.md](./README_PPT_MODULE.md#运行观测)。
+- **MCP**：外部 Agent 通过 6 个工具完成"创建 → 查进度 → 确认方案 → 下载"，见下文 [MCP Server](#mcp-server)。
 
 ## 本地开发
 
